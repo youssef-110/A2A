@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "a2a": {
+      "command": "node",
+      "args": ["--disable-warning=ExperimentalWarning", "${CLAUDE_PLUGIN_ROOT}/bin/a2a.mjs", "mcp"]
+    }
+  }
+}

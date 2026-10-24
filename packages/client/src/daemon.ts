@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { connect, type AddressInfo } from "node:net";
 import { randomBytes, type KeyObject } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +20,7 @@ import {
   type Envelope,
   type MessageKind,
 } from "@a2a/protocol";
-import { durationMs, loadAgentKey, loadConfig, pickAgent, saveConfig, socketPath, type AgentConfig, type ClientConfig } from "./config.ts";
+import { durationMs, ipcInfoPath, loadAgentKey, loadConfig, pickAgent, saveConfig, socketPath, useTcpIpc, type AgentConfig, type ClientConfig } from "./config.ts";
 import { openState, type State } from "./state.ts";
 import { relayInfo, signedGet, submitEnvelope } from "./relay-api.ts";
 import { buildPrompt, runAgent, type InboundMessage } from "./runtimes.ts";
@@ -88,6 +88,8 @@ export class ClientError extends Error {
 export interface DaemonOptions {
   home: string;
   log?: (msg: string) => void;
+  /** Called when a local client asks this daemon to stop (POST /stop), e.g. to restart after joining a network. */
+  onStopRequest?: () => void;
 }
 
 /** `a2a run`: the one long-running process per machine. */
@@ -106,6 +108,7 @@ export class Daemon {
   private reconnectTimer?: NodeJS.Timeout;
   private outboxTimer?: NodeJS.Timeout;
   private ipc?: Server;
+  private ipcToken = "";
   private readonly replyWaiters = new Map<string, Set<(r: WaitResult) => void>>();
   private readonly statusWaiters = new Map<string, Set<() => void>>();
   private readonly inboxWaiters = new Map<string, ((m: InboundMessage) => void)[]>();
@@ -114,9 +117,11 @@ export class Daemon {
   private readonly backlog = new Map<string, InboundMessage[]>();
   private readonly activeRuns = new Set<Promise<void>>();
   private flushing = false;
+  private readonly onStopRequest?: () => void;
 
   constructor(opts: DaemonOptions) {
     this.home = opts.home;
+    this.onStopRequest = opts.onStopRequest;
     this.log = opts.log ?? ((m) => console.log(`${new Date().toISOString().slice(11, 19)} ${m}`));
   }
 
@@ -155,7 +160,7 @@ export class Daemon {
     this.ws?.close();
     await new Promise<void>((r) => (this.ipc ? this.ipc.close(() => r()) : r()));
     try {
-      unlinkSync(socketPath(this.home));
+      unlinkSync(useTcpIpc ? ipcInfoPath(this.home) : socketPath(this.home));
     } catch {
       /* already gone */
     }
@@ -174,6 +179,9 @@ export class Daemon {
     const url = `${this.config.server.replace(/^http/, "ws")}/v1/stream`;
     const ws = new WebSocket(url, { handshakeTimeout: 10_000 });
     this.ws = ws;
+    // App-level keepalive: a hibernating Cloudflare relay answers this without waking up, and proxies see traffic.
+    const keepalive = setInterval(() => ws.readyState === ws.OPEN && ws.send('{"type":"ping"}'), 30_000);
+    keepalive.unref();
     ws.on("message", (data) => {
       try {
         void this.onFrame(ws, JSON.parse(data.toString()));
@@ -182,6 +190,7 @@ export class Daemon {
       }
     });
     ws.on("close", (code, reason) => {
+      clearInterval(keepalive);
       const was = this.connected;
       this.connected = false;
       if (this.stopping) return;
@@ -352,9 +361,26 @@ export class Daemon {
     }
     const dir = await this.directory(from);
     const target = dir.find((a) => a.address === to);
-    if (target?.scopes.length === 1) return target.scopes[0]!.name;
-    if (target && target.scopes.length > 1) throw new ClientError(400, `${from} can message ${to} under several scopes (${target.scopes.map((s) => s.name).join(", ")}); pass a scope.`);
-    return undefined;
+    // Several scopes: prefer "general", else the first. The relay still decides.
+    const names = target?.scopes.map((s) => s.name) ?? [];
+    return names.includes("general") ? "general" : names[0];
+  }
+
+  /**
+   * Lets people say "guest-david" instead of agent://acme/guest-david. Only the address's own name
+   * counts: display names are chosen by each agent, so matching them would let anyone pose as "David".
+   */
+  private async resolveRecipient(from: string, name: string): Promise<string> {
+    const want = name.trim().replace(/^@/, "").toLowerCase();
+    const norm = (s: string): string => s.toLowerCase().replace(/[\s_.-]+/g, "");
+    const dir = await this.directory(from);
+    const short = (a: { address: string }): string => a.address.split("/").pop()!;
+    const exact = dir.filter((a) => short(a) === want);
+    const matches = exact.length ? exact : dir.filter((a) => norm(short(a)) === norm(want));
+    if (matches.length === 1) return matches[0]!.address;
+    const known = dir.map((a) => `${a.address}${a.display_name ? ` (${a.display_name})` : ""}`).join(", ") || "none";
+    if (!matches.length) throw new ClientError(404, `No agent called "${name}". Agents you can reach: ${known}`);
+    throw new ClientError(400, `"${name}" matches several agents: ${matches.map((a) => a.address).join(", ")}. Use the full address.`);
   }
 
   async directory(agent: string): Promise<{ address: string; display_name: string | null; description: string | null; online: boolean; scopes: { name: string; description: string }[] }[]> {
@@ -405,8 +431,8 @@ export class Daemon {
    */
   async send(o: SendOptions, waitMs = 0, verdictMs = 60_000): Promise<SendResult> {
     const agent = pickAgent(this.config, o.from);
-    if (!ADDRESS_RE.test(o.to)) throw new ClientError(400, `"${o.to}" is not an agent address (agent://<org>/<name>)`);
     if (!o.text?.trim()) throw new ClientError(400, "message text is empty");
+    if (!ADDRESS_RE.test(o.to)) o = { ...o, to: await this.resolveRecipient(agent.address, o.to) };
 
     let threadId = o.thread_id;
     let inReplyTo = o.in_reply_to ?? null;
@@ -628,6 +654,7 @@ export class Daemon {
   // ------------------------------------------------------------ local socket API
 
   private async startIpc(): Promise<void> {
+    if (useTcpIpc) return this.startTcpIpc();
     const path = socketPath(this.home);
     if (existsSync(path)) {
       const alive = await new Promise<boolean>((res) => {
@@ -648,12 +675,39 @@ export class Daemon {
     });
   }
 
+  /** Windows: loopback TCP on a random port. The token in run/ipc.json stops other local pages and processes from calling it. */
+  private async startTcpIpc(): Promise<void> {
+    const info = ipcInfoPath(this.home);
+    if (existsSync(info)) {
+      const { port } = JSON.parse(readFileSync(info, "utf8")) as { port: number };
+      const alive = await new Promise<boolean>((res) => {
+        const s = connect({ host: "127.0.0.1", port });
+        s.once("connect", () => {
+          s.end();
+          res(true);
+        });
+        s.once("error", () => res(false));
+      });
+      if (alive) throw new Error(`Another \`a2a run\` is already using ${this.home}.`);
+      unlinkSync(info);
+    }
+    this.ipcToken = randomBytes(24).toString("hex");
+    this.ipc = createServer((req, res) => void this.handleIpc(req, res));
+    await new Promise<void>((res, rej) => {
+      this.ipc!.once("error", rej);
+      this.ipc!.listen(0, "127.0.0.1", () => res());
+    });
+    const { port } = this.ipc.address() as AddressInfo;
+    writeFileSync(info, JSON.stringify({ port, token: this.ipcToken }), { mode: 0o600 });
+  }
+
   private async handleIpc(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://a2a.local");
     const reply = (status: number, body: unknown): void => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     };
+    if (useTcpIpc && req.headers["x-a2a-token"] !== this.ipcToken) return reply(401, { error: "unauthorized" });
     try {
       let body: Record<string, unknown> = {};
       if (req.method === "POST") {
@@ -668,6 +722,10 @@ export class Daemon {
       switch (`${req.method} ${url.pathname}`) {
         case "GET /info":
           return reply(200, this.info());
+        case "POST /stop":
+          if (!this.onStopRequest) return reply(409, { error: "this client cannot be stopped remotely" });
+          setTimeout(() => this.onStopRequest?.(), 50);
+          return reply(200, { ok: true });
         case "POST /send":
           return reply(200, await this.send(body as unknown as SendOptions, waitMs(body.wait_seconds, 0)));
         case "POST /reply": {

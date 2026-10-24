@@ -6,3 +6,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Cloudflare local dev
+packages/cloud/.dev.vars
+packages/cloud/.wrangler/
+packages/console/public/a2a.mjs

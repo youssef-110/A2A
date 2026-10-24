@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { generateAgentKeyPair } from "@a2a/protocol";
-import type { JudgeMode, JudgeSet } from "@a2a/guard";
-import { openDb } from "./db.ts";
+import { createJudges, type JudgeMode, type JudgeSet } from "@a2a/guard";
+import { openDb } from "./db-node.ts";
 import { Relay } from "./relay.ts";
 import { Hub } from "./hub.ts";
 import { createRelayServer } from "./http.ts";
@@ -57,6 +57,7 @@ export async function startRelay(opts: StartRelayOptions): Promise<RunningRelay>
     initialPolicy: readFileSync(opts.policyPath ?? DEFAULT_POLICY, "utf8"),
     judgeOverride: opts.judge,
     judges: opts.judges,
+    createJudges,
     log: opts.log,
   });
   const hub = new Hub(relay);
@@ -81,7 +82,7 @@ export async function startRelay(opts: StartRelayOptions): Promise<RunningRelay>
       server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));
       await relay.idle();
-      db.close();
+      db.close?.();
     },
   };
 }

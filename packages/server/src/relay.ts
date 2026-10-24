@@ -1,11 +1,14 @@
 import { EventEmitter } from "node:events";
-import { createPrivateKey, createPublicKey, type KeyObject } from "node:crypto";
+import { createPrivateKey, createPublicKey, randomBytes, type KeyObject } from "node:crypto";
 import {
   ADDRESS_RE,
   canonicalize,
+  newMessageId,
+  newThreadId,
   orgOf,
   registerSigningString,
   sha256Hex,
+  signEnvelope,
   signString,
   validateEnvelope,
   verifyEnvelope,
@@ -15,7 +18,7 @@ import {
 } from "@a2a/protocol";
 import {
   applyRedactions,
-  createJudges,
+  HeuristicJudge,
   linkFor,
   linksBetween,
   normalize,
@@ -27,8 +30,8 @@ import {
   type Policy,
   type StageResult,
   type Verdict,
-} from "@a2a/guard";
-import { tx, type AgentRow, type Db, type MessageRow, type ThreadRow } from "./db.ts";
+} from "@a2a/guard/core";
+import { tx, type AgentRow, type Db, type InviteRow, type MessageRow, type ThreadRow } from "./db.ts";
 
 export const RELAY_VERSION = "0.1.0";
 const FUTURE_SKEW_MS = 5 * 60_000;
@@ -83,7 +86,7 @@ const nullOutbound: Outbound = {
 };
 
 export interface RelayEvent {
-  type: "message" | "agent" | "policy" | "audit";
+  type: "message" | "agent" | "policy" | "audit" | "console";
   data: unknown;
 }
 
@@ -96,6 +99,8 @@ export interface RelayOptions {
   judgeOverride?: JudgeMode;
   /** For tests: inject judges directly. */
   judges?: JudgeSet | null;
+  /** Builds the judges for a policy's guard.judge mode. Node passes the full factory from @a2a/guard (which can use the claude CLI). */
+  createJudges?: (mode: JudgeMode) => JudgeSet | null;
   log?: (msg: string) => void;
   concurrency?: number;
 }
@@ -106,6 +111,7 @@ interface SubmitResult {
 }
 
 const iso = (ms = Date.now()): string => new Date(ms).toISOString();
+const portableJudges = (mode: JudgeMode): JudgeSet | null => (mode === "off" ? null : { fast: new HeuristicJudge() });
 const SENSITIVE = new Set(["secret_detected", "payment_card", "pii"]);
 
 /** A preview for lists and the console that never shows secrets, card numbers or SSNs. */
@@ -129,6 +135,7 @@ export class Relay extends EventEmitter {
   private readonly relayKey: KeyObject;
   private readonly judgeOverride?: JudgeMode;
   private readonly fixedJudges?: JudgeSet | null;
+  private readonly makeJudges: (mode: JudgeMode) => JudgeSet | null;
   private readonly log: (msg: string) => void;
   private readonly concurrency: number;
   private readonly queue: string[] = [];
@@ -143,17 +150,27 @@ export class Relay extends EventEmitter {
     this.relayPublicKey = createPublicKey(this.relayKey).export({ type: "spki", format: "der" }).toString("base64");
     this.judgeOverride = opts.judgeOverride;
     this.fixedJudges = opts.judges;
+    this.makeJudges = opts.createJudges ?? portableJudges;
     this.log = opts.log ?? (() => {});
     this.concurrency = opts.concurrency ?? 4;
     this.loadPolicy(opts.initialPolicy);
   }
 
   start(): void {
-    // Crash recovery: anything left mid-screening is screened again.
-    const stuck = this.db.prepare("SELECT id FROM messages WHERE state = 'screening' ORDER BY received_at").all() as { id: string }[];
-    for (const { id } of stuck) this.enqueue(id);
+    this.recover();
     this.sweepTimer = setInterval(() => this.sweep(), 5000);
     this.sweepTimer.unref();
+  }
+
+  /** Crash recovery: anything left mid-screening is screened again. Durable Objects call this on every wake-up. */
+  recover(): void {
+    const stuck = this.db.prepare("SELECT id FROM messages WHERE state = 'screening' ORDER BY received_at").all() as { id: string }[];
+    for (const { id } of stuck) if (!this.queue.includes(id)) this.enqueue(id);
+  }
+
+  /** True while messages wait for delivery or screening, so a Durable Object knows to keep its sweep alarm. */
+  hasPendingWork(): boolean {
+    return this.active > 0 || this.queue.length > 0 || !!this.db.prepare("SELECT 1 FROM messages WHERE state IN ('queued', 'screening') LIMIT 1").get();
   }
 
   stop(): void {
@@ -196,7 +213,100 @@ export class Relay extends EventEmitter {
     this.policy = policy;
     this.policyVersion = version;
     if (this.fixedJudges !== undefined) this.judges = this.fixedJudges;
-    else if (judgeChanged) this.judges = createJudges(this.judgeOverride ?? policy.guard.judge);
+    else if (judgeChanged) this.judges = this.makeJudges(this.judgeOverride ?? policy.guard.judge);
+    this.ensureConsoleAgent();
+  }
+
+  // ---------------------------------------------------------------- console agent
+
+  /** The relay's own agent. The admin console and voice desk talk to other agents through it, signed with the relay key. */
+  get consoleAddress(): string {
+    return `agent://${this.policy.org}/console`;
+  }
+
+  private ensureConsoleAgent(): void {
+    const now = iso();
+    this.db
+      .prepare(
+        `INSERT INTO agents (address, public_key, display_name, description, host, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+         ON CONFLICT (address) DO UPDATE SET public_key = excluded.public_key, status = 'active', updated_at = excluded.updated_at`,
+      )
+      .run(this.consoleAddress, this.relayPublicKey, "Console", "The relay's voice and text desk, operated by the admin.", "relay", now, now);
+  }
+
+  isOnline(address: string): boolean {
+    return address === this.consoleAddress || this.out.isOnline(address);
+  }
+
+  /** Sends a message from the console agent. Goes through the same checks and guard as any other message. */
+  consoleSend(input: { to?: unknown; text?: unknown; thread_id?: unknown; in_reply_to?: unknown; scope?: unknown }, actor: string): SubmitResult {
+    if (typeof input.to !== "string" || !ADDRESS_RE.test(input.to)) return { status: 400, body: { error: "invalid_recipient" } };
+    if (typeof input.text !== "string" || !input.text.trim()) return { status: 400, body: { error: "empty_message" } };
+    const threadId = typeof input.thread_id === "string" && input.thread_id ? input.thread_id : newThreadId();
+    const thread = this.getThread(threadId);
+    const scope = typeof input.scope === "string" && input.scope ? input.scope : (thread?.scope ?? this.defaultScope(this.consoleAddress, input.to));
+    const inReplyTo = typeof input.in_reply_to === "string" && input.in_reply_to ? input.in_reply_to : null;
+    const env = signEnvelope(
+      {
+        v: 1,
+        id: newMessageId(),
+        thread_id: threadId,
+        in_reply_to: inReplyTo,
+        from: this.consoleAddress,
+        to: input.to,
+        scope,
+        kind: inReplyTo ? "reply" : "request",
+        body: { text: input.text.trim() },
+        expects_reply: !inReplyTo,
+        created_at: iso(),
+      },
+      this.relayKey,
+    );
+    this.audit(actor, "console.send", env.id, { to: env.to });
+    return this.submit(env);
+  }
+
+  /** A scope two agents can use: "general" when it exists, otherwise the first scope their link allows. */
+  defaultScope(from: string, to: string): string {
+    const allowed = linksBetween(this.policy, from, to).flatMap((l) => (l.scopes.includes("*") ? Object.keys(this.policy.scopes) : l.scopes));
+    const pool = allowed.length ? allowed : Object.keys(this.policy.scopes);
+    return pool.includes("general") ? "general" : (pool[0] ?? "general");
+  }
+
+  // ---------------------------------------------------------------- invites
+
+  createInvite(input: { note?: unknown; max_uses?: unknown; ttl_hours?: unknown }, actor: string): InviteRow {
+    const code = randomBytes(12).toString("base64url");
+    const maxUses = Math.min(Math.max(Math.floor(Number(input.max_uses ?? 1)) || 1, 1), 100);
+    const ttlHours = Math.min(Math.max(Number(input.ttl_hours ?? 168) || 168, 1), 24 * 90);
+    const now = Date.now();
+    const note = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 120) : null;
+    this.db
+      .prepare("INSERT INTO invites (code, note, created_by, created_at, expires_at, max_uses) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(code, note, actor, iso(now), iso(now + ttlHours * 3600_000), maxUses);
+    this.audit(actor, "invite.create", code.slice(0, 6), { note, max_uses: maxUses, ttl_hours: ttlHours });
+    return this.db.prepare("SELECT * FROM invites WHERE code = ?").get(code) as InviteRow;
+  }
+
+  listInvites(): (InviteRow & { valid: boolean })[] {
+    const rows = this.db.prepare("SELECT * FROM invites ORDER BY created_at DESC LIMIT 100").all() as InviteRow[];
+    return rows.map((r) => ({ ...r, valid: this.inviteUsable(r) }));
+  }
+
+  revokeInvite(code: string, actor: string): boolean {
+    const r = this.db.prepare("UPDATE invites SET revoked = 1 WHERE code = ?").run(code);
+    if (Number(r.changes)) this.audit(actor, "invite.revoke", code.slice(0, 6));
+    return Number(r.changes) > 0;
+  }
+
+  private inviteUsable(r: InviteRow | undefined): boolean {
+    return !!r && !r.revoked && r.uses < r.max_uses && Date.parse(r.expires_at) > Date.now();
+  }
+
+  /** Public view of an invite, for the join page. Says nothing about other invites or agents. */
+  inviteInfo(code: string): Record<string, unknown> {
+    const r = this.db.prepare("SELECT * FROM invites WHERE code = ?").get(code) as InviteRow | undefined;
+    return { valid: this.inviteUsable(r), org: this.policy.org, note: r?.note ?? null, expires_at: r?.expires_at ?? null };
   }
 
   setPolicy(yaml: string, actor: string, note?: string): { ok: boolean; version?: number; errors?: string[] } {
@@ -222,7 +332,7 @@ export class Relay extends EventEmitter {
   }
 
   register(
-    input: { address?: unknown; public_key?: unknown; display_name?: unknown; description?: unknown; host?: unknown; timestamp?: unknown; proof?: unknown },
+    input: { address?: unknown; public_key?: unknown; display_name?: unknown; description?: unknown; host?: unknown; timestamp?: unknown; proof?: unknown; invite?: unknown },
     admin: boolean,
   ): SubmitResult {
     const { address, public_key, timestamp, proof } = input;
@@ -231,22 +341,33 @@ export class Relay extends EventEmitter {
     if (typeof public_key !== "string" || typeof timestamp !== "string" || typeof proof !== "string") return { status: 400, body: { error: "invalid_request", detail: "public_key, timestamp and proof are required" } };
     if (Math.abs(Date.now() - Date.parse(timestamp)) > FUTURE_SKEW_MS) return { status: 400, body: { error: "stale_timestamp" } };
     if (!verifyString(registerSigningString(address, public_key, timestamp), proof, public_key)) return { status: 401, body: { error: "bad_proof", detail: "proof must be signed with the key being registered" } };
+    if (address === this.consoleAddress) return { status: 409, body: { error: "reserved_address", detail: "this address belongs to the relay" } };
+
+    // An invite or open registration activates the agent like the admin token would, but never replaces an existing key.
+    let invite: InviteRow | undefined;
+    if (typeof input.invite === "string" && input.invite) {
+      invite = this.db.prepare("SELECT * FROM invites WHERE code = ?").get(input.invite) as InviteRow | undefined;
+      if (!this.inviteUsable(invite)) return { status: 403, body: { error: "invalid_invite", detail: "this invite link is expired, used up or revoked" } };
+    }
+    const activate = admin || !!invite || this.policy.registration === "open";
 
     const str = (v: unknown, n: number): string | null => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
     const now = iso();
     const existing = this.getAgent(address);
     if (existing) {
-      if (existing.public_key !== public_key && !admin) return { status: 409, body: { error: "key_conflict", detail: "this address is registered with a different key; an admin must approve the new key" } };
+      if (existing.public_key !== public_key && !admin) return { status: 409, body: { error: "key_conflict", detail: "this address is registered with a different key; pick another name or ask an admin to approve the new key" } };
+      // Admins can re-enable a disabled agent; invites and open registration cannot.
       this.db
-        .prepare("UPDATE agents SET public_key = ?, display_name = COALESCE(?, display_name), description = COALESCE(?, description), host = COALESCE(?, host), status = CASE WHEN ? THEN 'active' ELSE status END, updated_at = ? WHERE address = ?")
-        .run(public_key, str(input.display_name, 80), str(input.description, 400), str(input.host, 120), admin ? 1 : 0, now, address);
+        .prepare("UPDATE agents SET public_key = ?, display_name = COALESCE(?, display_name), description = COALESCE(?, description), host = COALESCE(?, host), status = CASE WHEN ? THEN 'active' WHEN ? AND status <> 'disabled' THEN 'active' ELSE status END, updated_at = ? WHERE address = ?")
+        .run(public_key, str(input.display_name, 80), str(input.description, 400), str(input.host, 120), admin ? 1 : 0, activate ? 1 : 0, now, address);
       if (existing.public_key !== public_key) this.audit(admin ? "admin" : address, "agent.rotate_key", address);
     } else {
       this.db
         .prepare("INSERT INTO agents (address, public_key, display_name, description, host, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(address, public_key, str(input.display_name, 80), str(input.description, 400), str(input.host, 120), admin ? "active" : "pending", now, now);
-      this.audit(admin ? "admin" : address, admin ? "agent.register" : "agent.request", address);
+        .run(address, public_key, str(input.display_name, 80), str(input.description, 400), str(input.host, 120), activate ? "active" : "pending", now, now);
+      this.audit(admin ? "admin" : address, admin ? "agent.register" : invite ? "agent.join" : activate ? "agent.register_open" : "agent.request", address, invite ? { invite: invite.code.slice(0, 6) } : undefined);
     }
+    if (invite && (!existing || existing.status === "pending")) this.db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(invite.code);
     const agent = this.getAgent(address)!;
     this.emitEvent("agent", this.agentView(agent));
     return { status: existing ? 200 : 201, body: { address, status: agent.status, relay_public_key: this.relayPublicKey } };
@@ -268,7 +389,7 @@ export class Relay extends EventEmitter {
       description: a.description,
       host: a.host,
       status: a.status,
-      online: this.out.isOnline(a.address),
+      online: this.isOnline(a.address),
       created_at: a.created_at,
       last_seen_at: a.last_seen_at,
       key_fingerprint: sha256Hex(a.public_key).slice(0, 16),
@@ -319,7 +440,10 @@ export class Relay extends EventEmitter {
     if (!recipient) return block("unknown_recipient", `${env.to} is not registered on this relay.`);
     if (recipient.status !== "active") return block("recipient_inactive", `${env.to} is ${recipient.status}.`);
     if (orgOf(env.from) !== p.org || orgOf(env.to) !== p.org) return block("cross_org", "Messaging between organizations is not enabled.");
-    if (!p.scopes[env.scope]) return block("unknown_scope", `Scope "${env.scope}" is not defined in policy.`);
+    const consoleLink = env.from === this.consoleAddress || env.to === this.consoleAddress;
+    const wildcardLink = linksBetween(p, env.from, env.to).find((l) => l.scopes.includes("*"));
+    // A wildcard link means "anything goes", so free-form scopes are accepted too.
+    if (!p.scopes[env.scope] && !consoleLink && !wildcardLink) return block("unknown_scope", `Scope "${env.scope}" is not defined in policy.`);
 
     const thread = this.getThread(env.thread_id);
     let parent: MessageRow | undefined;
@@ -335,7 +459,7 @@ export class Relay extends EventEmitter {
 
     // A reply to a message that actually reached the replier is allowed without a reverse link.
     const impliedReply = !!parent && parent.from_addr === env.to && parent.to_addr === env.from && (parent.state === "queued" || parent.state === "delivered");
-    const link = linkFor(p, env.from, env.to, env.scope);
+    const link = consoleLink ? { from: env.from, to: env.to, scopes: ["*"] } : (linkFor(p, env.from, env.to, env.scope) ?? wildcardLink);
     if (!link && !impliedReply) {
       return linksBetween(p, env.from, env.to).length
         ? block("scope_not_allowed", `${env.from} may message ${env.to}, but not under scope "${env.scope}".`, hop)
@@ -542,7 +666,17 @@ export class Relay extends EventEmitter {
 
   tryDeliver(id: string): boolean {
     const row = this.getMessage(id);
-    if (!row || row.state !== "queued" || !this.out.isOnline(row.to_addr)) return false;
+    if (!row || row.state !== "queued") return false;
+    if (row.to_addr === this.consoleAddress) {
+      // The console has no socket: delivery means it is stored and pushed to open dashboards.
+      const ts = iso();
+      this.db.prepare("UPDATE messages SET state = 'delivered', delivered_at = ?, updated_at = ? WHERE id = ? AND state = 'queued'").run(ts, ts, id);
+      const delivered = this.getMessage(id)!;
+      this.notify(delivered);
+      this.emitEvent("console", { ...this.summary(delivered), text: delivered.delivered_text });
+      return true;
+    }
+    if (!this.out.isOnline(row.to_addr)) return false;
     const { n } = this.db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE message_id = ?").get(id) as { n: number };
     this.db.prepare("INSERT INTO deliveries (message_id, attempt, sent_at) VALUES (?, ?, ?)").run(id, n + 1, iso());
     return this.out.deliver(row.to_addr, this.buildDelivery(row)) > 0;
@@ -608,8 +742,8 @@ export class Relay extends EventEmitter {
     };
     if (!this.getAgent(input.from)) deny("unknown_sender", `${input.from} is not registered.`);
     else if (!this.getAgent(input.to)) deny("unknown_recipient", `${input.to} is not registered.`);
-    else if (!p.scopes[input.scope]) deny("unknown_scope", `Scope "${input.scope}" is not defined.`);
-    else if (!linkFor(p, input.from, input.to, input.scope)) deny("link_not_allowed", `Policy has no link from ${input.from} to ${input.to} for "${input.scope}".`);
+    else if (!p.scopes[input.scope] && !linksBetween(p, input.from, input.to).some((l) => l.scopes.includes("*"))) deny("unknown_scope", `Scope "${input.scope}" is not defined.`);
+    else if (!linkFor(p, input.from, input.to, input.scope) && !linksBetween(p, input.from, input.to).some((l) => l.scopes.includes("*"))) deny("link_not_allowed", `Policy has no link from ${input.from} to ${input.to} for "${input.scope}".`);
     stage1.latency_ms = Math.round(performance.now() - t0);
 
     if (stage1.decision === "block") {
@@ -729,6 +863,7 @@ export class Relay extends EventEmitter {
       guard_p95_ms: pct(0.95),
       agents: Object.fromEntries(agents.map((a) => [a.status, a.n])),
       online: this.out.onlineAgents().length,
+      invites: (this.db.prepare("SELECT COUNT(*) AS n FROM invites WHERE revoked = 0 AND uses < max_uses AND expires_at > ?").get(iso()) as { n: number }).n,
       held: (this.db.prepare("SELECT COUNT(*) AS n FROM messages WHERE state = 'held'").get() as { n: number }).n,
     };
   }
@@ -739,8 +874,9 @@ export class Relay extends EventEmitter {
     const agents = this.db.prepare("SELECT * FROM agents WHERE status = 'active' AND address <> ? ORDER BY address").all(address) as unknown as AgentRow[];
     return agents
       .map((a) => {
-        const scopes = [...new Set(linksBetween(this.policy, address, a.address).flatMap((l) => (l.scopes.includes("*") ? Object.keys(this.policy.scopes) : l.scopes)))];
-        return { address: a.address, display_name: a.display_name, description: a.description, online: this.out.isOnline(a.address), scopes };
+        const links = a.address === this.consoleAddress ? [{ scopes: ["*"] }] : linksBetween(this.policy, address, a.address);
+        const scopes = [...new Set(links.flatMap((l) => (l.scopes.includes("*") ? Object.keys(this.policy.scopes) : l.scopes)))];
+        return { address: a.address, display_name: a.display_name, description: a.description, online: this.isOnline(a.address), scopes };
       })
       .filter((a) => a.scopes.length > 0)
       .map((a) => ({ ...a, scopes: a.scopes.map((s) => ({ name: s, description: this.policy.scopes[s]?.description ?? "" })) }));

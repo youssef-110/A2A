@@ -1,4 +1,3 @@
-import { performance } from "node:perf_hooks";
 import { severityOf, stricter, type Decision } from "@a2a/protocol";
 import { normalize } from "./normalize.ts";
 import { scan, type AttachmentInput, type Finding } from "./scanners.ts";

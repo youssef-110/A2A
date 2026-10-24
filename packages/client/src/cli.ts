@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { ADDRESS_RE, generateAgentKeyPair, loadPrivateKey } from "@a2a/protocol";
 import { configPath, keyPath, loadConfig, resolveHome, saveConfig, writeKey, type AgentConfig, type RuntimeKind } from "./config.ts";
 import { registerAgent, relayInfo } from "./relay-api.ts";
@@ -8,6 +8,8 @@ import { ipc, NotRunningError } from "./ipc.ts";
 import { Daemon } from "./daemon.ts";
 import { runMcpServer } from "./mcp.ts";
 import { installService } from "./install.ts";
+import { joinNetwork } from "./join.ts";
+import { daemonRunning, ensureDaemon } from "./launcher.ts";
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { fileAsMicArgs, loadVoiceEnv, microphoneArgs, startRecorder, transcribeFile, transcribeLive, VoiceError } from "./voice.ts";
@@ -17,6 +19,8 @@ const HELP = `a2a: send and receive agent messages through an A2A relay.
 Usage: a2a [--home DIR] <command> [options]
 
 Setup
+  join <invite-link> [--name NAME]        Join a relay with an invite link, then start in the background
+      [--runtime none|claude|codex|opencode] [--workdir DIR] [--display-name NAME] [--no-start] [--force]
   init --server URL [--name NAME]         Create the client config and pin the relay's key
   agents add <address> [options]          Create a key for an agent on this machine and register it
       --runtime none|claude|codex|opencode|command   What to start when a message arrives (default none)
@@ -28,10 +32,13 @@ Setup
   install [--load]                        Run \`a2a run\` as a launchd/systemd service
 
 Running
-  run                                     Connect to the relay, receive messages, start agents
+  start                                   Run \`a2a run\` in the background (restart with --restart)
+  stop                                    Stop the background \`a2a run\`
+  run                                     Connect to the relay, receive messages, start agents (foreground)
   info                                    Show connection and agent status
   runs                                    Show recent agent runs
   mcp [--agent ADDRESS]                   MCP server over stdio for Claude Code, Codex and others
+  hook                                    One-line note about new messages, for Claude Code hooks
 
 Messaging
   send <to> <text|-> [--from A] [--scope S] [--thread T] [--wait SECONDS] [--notify] [--json]
@@ -161,6 +168,79 @@ async function main(argv: string[]): Promise<number> {
       console.log(HELP);
       return 0;
 
+    case "join": {
+      const { values, positionals } = parseArgs({
+        args,
+        allowPositionals: true,
+        options: {
+          name: { type: "string" },
+          runtime: { type: "string" },
+          workdir: { type: "string" },
+          "allowed-tools": { type: "string" },
+          "display-name": { type: "string" },
+          description: { type: "string" },
+          "no-start": { type: "boolean" },
+          force: { type: "boolean" },
+        },
+      });
+      if (!positionals[0]) throw new Error("usage: a2a join <invite-link> [--name NAME]");
+      const r = await joinNetwork(H, positionals[0], {
+        name: values.name,
+        runtime: values.runtime as RuntimeKind | undefined,
+        workdir: values.workdir ? resolve(values.workdir) : undefined,
+        allowedTools: values["allowed-tools"]?.split(",").map((x) => x.trim()).filter(Boolean),
+        displayName: values["display-name"],
+        description: values.description,
+        force: values.force,
+      });
+      console.log(`Joined ${r.server} as ${r.address} (${r.status}).`);
+      if (!values["no-start"]) console.log(`Background client: ${await ensureDaemon(H, { restart: true })}. Logs: ${join(H, "run", "daemon.log")}`);
+      console.log(`Try: a2a directory`);
+      return 0;
+    }
+
+    case "start": {
+      const { values } = parseArgs({ args, options: { restart: { type: "boolean" } } });
+      loadConfig(H);
+      console.log(`a2a run: ${await ensureDaemon(H, { restart: values.restart })} (logs in ${join(H, "run", "daemon.log")})`);
+      return 0;
+    }
+
+    case "stop": {
+      if (!(await daemonRunning(H))) {
+        console.log("a2a run is not running.");
+        return 0;
+      }
+      await ipc(H, "POST", "/stop", {});
+      console.log("Stopped a2a run.");
+      return 0;
+    }
+
+    case "hook": {
+      // For Claude Code SessionStart/UserPromptSubmit hooks: says something only when there is news, and never fails.
+      try {
+        if (!existsSync(configPath(H))) return 0;
+        const r = await ipc<{ messages: { id: string; from: string; text: string; handled: number }[] }>(H, "GET", "/inbox", undefined, 800);
+        const seenFile = join(H, "run", "hook-seen.json");
+        let seen: string[] = [];
+        try {
+          seen = JSON.parse(readFileSync(seenFile, "utf8")) as string[];
+        } catch {
+          /* first run */
+        }
+        const fresh = r.messages.filter((m) => !m.handled && !seen.includes(m.id));
+        if (fresh.length) {
+          // Only who wrote, never what: message text reaches the model through check_inbox, framed as untrusted.
+          const senders = [...new Set(fresh.map((m) => m.from))].slice(0, 5).join(", ");
+          console.log(`[A2A] ${fresh.length} new message${fresh.length > 1 ? "s" : ""} from ${senders}. Tell the user, and read them with the a2a check_inbox tool if they want.`);
+          writeFileSync(seenFile, JSON.stringify([...seen, ...fresh.map((m) => m.id)].slice(-500)));
+        }
+      } catch {
+        /* client not running: stay quiet */
+      }
+      return 0;
+    }
+
     case "init": {
       const { values } = parseArgs({ args, options: { server: { type: "string" }, name: { type: "string" }, force: { type: "boolean" } } });
       if (!values.server) throw new Error("--server is required, e.g. a2a init --server http://localhost:7700");
@@ -242,7 +322,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "run": {
-      const daemon = new Daemon({ home: H });
+      const daemon: Daemon = new Daemon({ home: H, onStopRequest: () => void daemon.stop().then(() => process.exit(0)) });
       await daemon.start();
       const cfg = daemon.config;
       console.log(`a2a client "${cfg.name}" running for ${cfg.agents.map((x) => `${x.address} [${x.runtime}]`).join(", ")}`);

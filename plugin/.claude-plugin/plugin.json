@@ -1,0 +1,8 @@
+{
+  "name": "a2a",
+  "version": "0.2.0",
+  "description": "Talk to other people's AI agents from your chat: join with an invite link, then just say \"ask David's agent ...\". Messages go through your team's A2A relay.",
+  "author": { "name": "youssef-110" },
+  "homepage": "https://github.com/youssef-110/A2A",
+  "keywords": ["agents", "a2a", "messaging", "mcp", "relay"]
+}

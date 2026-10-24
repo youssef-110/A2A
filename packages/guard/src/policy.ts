@@ -44,8 +44,17 @@ export interface GuardSettings {
   max_decision: "hold" | "block";
 }
 
+/**
+ * How agents join without the admin token:
+ * - approval: they register as pending until an admin approves them (the default).
+ * - invite: an invite link from the console activates them; anything else waits for approval.
+ * - open: anyone who proves their key is active straight away. For trusted networks only.
+ */
+export type Registration = "approval" | "invite" | "open";
+
 export interface Policy {
   org: string;
+  registration: Registration;
   scopes: Record<string, ScopeDef>;
   links: LinkRule[];
   limits: Limits;
@@ -121,11 +130,14 @@ export function parsePolicy(text: string): { policy?: Policy; errors: string[] }
   }
   if (!raw || typeof raw !== "object") return { errors: ["policy must be a YAML mapping"] };
 
-  const known = new Set(["org", "version", "scopes", "links", "limits", "rules", "guard"]);
+  const known = new Set(["org", "version", "registration", "scopes", "links", "limits", "rules", "guard"]);
   for (const k of Object.keys(raw)) if (!known.has(k)) errors.push(`unknown top-level key: ${k}`);
 
   const org = typeof raw.org === "string" && /^[a-z0-9][a-z0-9-]*$/.test(raw.org) ? raw.org : "";
   if (!org) errors.push("org: required, lowercase slug");
+
+  const registration = (raw.registration ?? "approval") as Registration;
+  if (!["approval", "invite", "open"].includes(registration)) errors.push("registration: approval, invite or open");
 
   const scopes: Record<string, ScopeDef> = {};
   const rawScopes = (raw.scopes ?? {}) as Record<string, unknown>;
@@ -205,7 +217,7 @@ export function parsePolicy(text: string): { policy?: Policy; errors: string[] }
   };
 
   if (errors.length) return { errors };
-  return { policy: { org, scopes, links, limits, rules, guard }, errors };
+  return { policy: { org, registration, scopes, links, limits, rules, guard }, errors };
 }
 
 const globCache = new Map<string, RegExp>();

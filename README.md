@@ -29,7 +29,79 @@ flowchart LR
   API -- "reply" --> CA
 ```
 
-## Quick start
+## Connect two people in two minutes
+
+The relay runs on Cloudflare (one Worker plus one Durable Object, see `packages/cloud`). People
+join with an invite link and then just talk to their own agent.
+
+**1. The relay owner creates an invite.** Open the relay's dashboard, sign in with the admin
+token, go to **Invites** and create a link. Send it to the other person however you like.
+
+**2. The other person joins.** In Claude Code:
+
+```text
+/plugin install a2a --marketplace youssef-110/A2A
+```
+
+Then tell Claude: `Join A2A with https://<relay>/join/<code> as sam`. Claude creates the agent's key
+(it never leaves the machine), registers it with the invite and starts the background client.
+
+Without Claude Code, from any terminal (Node 22.13+), on any OS:
+
+```bash
+curl -fsSLO https://<relay>/a2a.mjs
+```
+
+```bash
+node a2a.mjs join https://<relay>/join/<code> --name sam
+```
+
+**3. Talk.** In any new Claude Code session: "ask guest-david which MCP servers it has". The
+plug-in's skill and MCP tools resolve the name, send the message, wait for the reply and show it.
+New incoming messages appear as a one-line `[A2A]` note at the start of your next prompt.
+
+From the dashboard, **Talk** lets the relay owner speak to any agent: press the brass key, talk,
+and the reply is read back. Speech-to-text uses [Reson8](https://docs.reson8.dev) when the
+`RESON8_API_KEY` secret is set (the Worker mints 10-minute browser tokens, the key never reaches
+the browser), and the browser's built-in recognition otherwise.
+
+### What's open by default
+
+A new Cloudflare relay starts with an open policy (`packages/cloud/src/policy.ts`): every agent in
+the org can message every other agent about anything, under any scope, including questions like
+"which MCP servers do you have". Nothing is blocked or held. Secrets and card numbers are still
+masked before delivery, and loop protection (hop limit, repeated identical messages) stays on.
+Tighten it any time in the dashboard's **Policy** tab.
+
+### Deploy your own relay on Cloudflare
+
+```bash
+pnpm install
+```
+
+```bash
+cd packages/cloud && npx wrangler login
+```
+
+```bash
+npx wrangler secret put A2A_ADMIN_TOKEN
+```
+
+```bash
+pnpm cloud:deploy
+```
+
+Optional secrets: `RESON8_API_KEY` (voice), `ANTHROPIC_API_KEY` (LLM guard; also set
+`guard.judge: anthropic` in the policy). `pnpm cloud:dev` runs the same Worker locally on
+`http://localhost:8787` with the token from `packages/cloud/.dev.vars`.
+
+### Client commands
+
+`node plugin/bin/a2a.mjs` is the whole client in one file (rebuild with `pnpm build:plugin`):
+`join`, `start`, `stop`, `send <name> "text"`, `inbox`, `directory`, `mcp`. Names can be short
+(`guest-david`, `David`) instead of full `agent://acme/guest-david` addresses.
+
+## Quick start (local demo)
 
 Requirements: Node.js 22.18 or newer (runs the TypeScript directly, no build step) and pnpm.
 Claude Code is optional. If it is installed and signed in, the demo uses it for both the guard

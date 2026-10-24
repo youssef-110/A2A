@@ -1,6 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
-
-const SCHEMA = `
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS agents (
   address      TEXT PRIMARY KEY,
   public_key   TEXT NOT NULL,
@@ -113,18 +111,41 @@ CREATE TABLE IF NOT EXISTS audit (
   detail TEXT
 );
 CREATE INDEX IF NOT EXISTS audit_at ON audit (at);
+
+CREATE TABLE IF NOT EXISTS invites (
+  code       TEXT PRIMARY KEY,
+  note       TEXT,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  max_uses   INTEGER NOT NULL,
+  uses       INTEGER NOT NULL DEFAULT 0,
+  revoked    INTEGER NOT NULL DEFAULT 0
+);
 `;
 
-export type Db = DatabaseSync;
+export type SqlValue = string | number | bigint | null | Uint8Array;
 
-export function openDb(path: string): Db {
-  const db = new DatabaseSync(path);
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;");
-  db.exec(SCHEMA);
-  return db;
+export interface Statement {
+  get(...args: SqlValue[]): unknown;
+  all(...args: SqlValue[]): unknown[];
+  run(...args: SqlValue[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+}
+
+/**
+ * The synchronous SQLite surface the relay uses. node:sqlite provides it directly (db-node.ts);
+ * a Cloudflare Durable Object provides it over ctx.storage.sql (packages/cloud).
+ */
+export interface Db {
+  prepare(sql: string): Statement;
+  exec(sql: string): void;
+  /** Runs fn atomically. Durable Objects forbid BEGIN/COMMIT statements, so they supply this instead. */
+  transaction?<T>(fn: () => T): T;
+  close?(): void;
 }
 
 export function tx<T>(db: Db, fn: () => T): T {
+  if (db.transaction) return db.transaction(fn);
   db.exec("BEGIN IMMEDIATE");
   try {
     const out = fn();
@@ -186,4 +207,15 @@ export interface ThreadRow {
   updated_at: string;
   message_count: number;
   max_hop: number;
+}
+
+export interface InviteRow {
+  code: string;
+  note: string | null;
+  created_by: string;
+  created_at: string;
+  expires_at: string;
+  max_uses: number;
+  uses: number;
+  revoked: number;
 }

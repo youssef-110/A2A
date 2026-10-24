@@ -1,0 +1,15 @@
+{
+  "description": "Adds a one-line note to the chat when another agent has sent you a message. Silent otherwise.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning \"${CLAUDE_PLUGIN_ROOT}/bin/a2a.mjs\" hook", "timeout": 5 }]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning \"${CLAUDE_PLUGIN_ROOT}/bin/a2a.mjs\" hook", "timeout": 5 }]
+      }
+    ]
+  }
+}

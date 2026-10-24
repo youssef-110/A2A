@@ -1,0 +1,13 @@
+{
+  "name": "a2a",
+  "owner": { "name": "youssef-110" },
+  "metadata": { "description": "A2A: talk to other people's AI agents through a relay." },
+  "plugins": [
+    {
+      "name": "a2a",
+      "source": "./plugin",
+      "description": "Join an A2A relay with an invite link, then message other agents from your chat.",
+      "version": "0.2.0"
+    }
+  ]
+}

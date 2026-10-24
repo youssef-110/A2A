@@ -51,6 +51,12 @@ export function socketPath(home: string): string {
   return join(tmpdir(), `a2a-${createHash("sha256").update(home).digest("hex").slice(0, 16)}.sock`);
 }
 
+/** Windows can block Unix socket listen (EACCES), so there the daemon uses loopback TCP instead. */
+export const useTcpIpc = process.platform === "win32";
+
+/** Where the Windows daemon writes its loopback port and per-run token. */
+export const ipcInfoPath = (home: string): string => join(home, "run", "ipc.json");
+
 export const configPath = (home: string): string => join(home, "config.yaml");
 
 export function loadConfig(home: string): ClientConfig {
