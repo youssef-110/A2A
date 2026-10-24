@@ -117,7 +117,6 @@ const ICONS = {
   agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
   review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
   policy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>',
-  playground: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.53a2 2 0 0 1-.21.9L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.07-10.13A2 2 0 0 1 14 9.53V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>',
   audit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
@@ -222,7 +221,6 @@ const NAV = [
   ["agents", "Agents"],
   ["review", "Review"],
   ["policy", "Policy"],
-  ["playground", "Playground"],
   ["audit", "Audit log"],
 ];
 
@@ -302,7 +300,7 @@ function pageHead(title, text, ...actions) {
 function renderView() {
   const main = document.getElementById("main");
   if (!main) return;
-  const views = { board: viewBoard, talk: viewTalk, traffic: viewTraffic, invites: viewInvites, agents: viewAgents, review: viewReview, policy: viewPolicy, playground: viewPlayground, audit: viewAudit };
+  const views = { board: viewBoard, talk: viewTalk, traffic: viewTraffic, invites: viewInvites, agents: viewAgents, review: viewReview, policy: viewPolicy, audit: viewAudit };
   main.replaceChildren(views[S.view]?.() ?? viewBoard());
 }
 
@@ -984,6 +982,7 @@ function viewPolicy() {
   const noteInput = h("input", { class: "input", placeholder: "What changed (optional)", maxlength: 200 });
   const errors = h("div", { class: "error", role: "alert" });
   const versions = h("div", {});
+  const summary = h("div", { class: "policy-summary" }, h("p", { class: "muted" }, "Loading the current policy…"));
   const save = async () => {
     errors.textContent = "";
     try {
@@ -1000,9 +999,9 @@ function viewPolicy() {
     try {
       const p = await api("GET", "/v1/admin/policy");
       editor.value = p.yaml;
+      summary.replaceChildren(policySummary(p));
       versions.replaceChildren(
-        h("dl", { class: "kv" }, h("dt", {}, "Joining"), h("dd", {}, { approval: "an admin approves each new agent", invite: "invite link, or admin approval", open: "anyone can join" }[p.registration] ?? p.registration), h("dt", {}, "Scopes"), h("dd", {}, Object.keys(p.scopes).join(", "))),
-        h("h3", { class: "section-title" }, "History"),
+        h("h3", { class: "section-title", style: "margin-top:0" }, "History"),
         h("div", { class: "stages" }, p.versions.map((v) => h("div", { class: "stage" }, h("span", { class: "stage-name" }, `v${v.version}`), h("span", {}, v.note || "No note"), h("span", { class: "muted" }, ago(v.created_at))))),
       );
     } catch (e) {
@@ -1017,7 +1016,17 @@ function viewPolicy() {
     h(
       "div",
       { class: "policy" },
-      h("div", { class: "panel panel-pad" }, editor, h("div", { class: "row", style: "margin-top:12px" }, noteInput, h("button", { class: "btn", onclick: save }, "Save policy")), errors),
+      h(
+        "div",
+        { class: "policy-main" },
+        h("section", { class: "panel panel-pad" }, summary),
+        h(
+          "details",
+          { class: "panel panel-pad policy-edit" },
+          h("summary", {}, "Edit as YAML"),
+          h("div", { style: "margin-top:12px" }, editor, h("div", { class: "row", style: "margin-top:12px" }, noteInput, h("button", { class: "btn", onclick: save }, "Save policy")), errors),
+        ),
+      ),
       h(
         "aside",
         { class: "panel panel-pad" },
@@ -1036,47 +1045,72 @@ function viewPolicy() {
   );
 }
 
-// ------------------------------------------------------------------ playground
+// ------------------------------------------------------------------ policy in plain words
 
-function viewPlayground() {
-  const opts = S.agents.filter((a) => a.status === "active").map((a) => h("option", { value: a.address }, a.address));
-  const from = h("select", { class: "select" }, opts.map((o) => o.cloneNode(true)));
-  const to = h("select", { class: "select" }, opts);
-  if (to.options.length > 1) to.selectedIndex = 1;
-  const scope = h("input", { class: "input", value: "general" });
-  const text = h("textarea", { class: "textarea", placeholder: "Type a message to see what the guard would do with it." });
-  const out = h("div", {}, h("p", { class: "muted" }, "The verdict shows here."));
+const FINDINGS = {
+  secret_detected: "API keys, tokens and passwords",
+  payment_card: "card numbers",
+  pii: "personal data like emails, phone numbers and ID numbers",
+  instruction_override: "attempts to override the other agent's instructions",
+  credential_request: "requests for passwords or keys",
+  dangerous_action: "requests for destructive actions",
+  data_exfiltration: "attempts to send data to outside addresses",
+  out_of_scope: "messages off the agreed topic",
+  obfuscation: "hidden or disguised text",
+  social_engineering: "social engineering",
+  attachment_type: "executable attachments",
+};
+const findingList = (names) => (names.length ? names.map((n) => FINDINGS[n] ?? n.replaceAll("_", " ")).join(", ") : "nothing");
+
+function duration(ms) {
+  if (ms % 86_400_000 === 0) return `${ms / 86_400_000} day${ms === 86_400_000 ? "" : "s"}`;
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000} hour${ms === 3_600_000 ? "" : "s"}`;
+  return `${Math.round(ms / 60_000)} minutes`;
+}
+
+function whoIs(pattern, org) {
+  if (pattern === `agent://${org}/*` || pattern === "agent://*/*") return `everyone in ${org}`;
+  if (pattern.endsWith("/*")) return `everyone matching ${pattern}`;
+  return nameOf(pattern);
+}
+
+function policySummary(p) {
+  const org = p.org;
+  const links = p.links.length
+    ? h(
+        "ul",
+        { class: "plain-list" },
+        p.links.map((l) =>
+          h("li", {}, `${whoIs(l.from, org)} can message ${whoIs(l.to, org)} ${l.scopes.includes("*") ? "about anything" : `about ${l.scopes.join(", ")}`}${l.rate ? `, up to ${l.rate}` : ""}.`),
+        ),
+      )
+    : "Nobody can start a conversation yet. Agents can still reply to messages they receive, and you can message anyone from Talk.";
+  const judge = {
+    off: "Off. Only the checks above run, so messages are delivered in milliseconds.",
+    heuristic: "Offline keyword checks on top of the rules above.",
+    anthropic: "Claude reviews each message before delivery (adds about a second).",
+    auto: "Claude reviews each message when an Anthropic key is set; otherwise offline keyword checks.",
+    "claude-cli": "Offline keyword checks (the Claude CLI isn't available on Cloudflare).",
+  }[p.guard.judge] ?? p.guard.judge;
+  const joining = { approval: "Anyone can ask to join; you approve each new agent on the Agents page.", invite: "With an invite link from the Invites page. Without one, you approve them on the Agents page.", open: "Anyone who knows the relay address joins straight away." }[p.registration] ?? p.registration;
+  const lim = p.limits;
   return h(
     "div",
     {},
-    pageHead("Playground", "Try a message against the current policy without sending it."),
+    h("h2", { class: "section-title", style: "margin-top:0" }, "What this policy does"),
     h(
-      "div",
-      { class: "policy" },
-      h(
-        "form",
-        {
-          class: "panel panel-pad",
-          onsubmit: async (e) => {
-            e.preventDefault();
-            try {
-              const v = await api("POST", "/v1/admin/screen", { from: from.value, to: to.value, scope: scope.value, text: text.value });
-              out.replaceChildren(
-                h("div", { class: "row" }, pill(v.decision === "allow" ? "delivered" : v.decision === "redact" ? "queued" : v.decision === "hold" ? "held" : "blocked"), v.reason_code ? h("span", { class: "mono muted" }, v.reason_code) : null),
-                h("p", {}, v.reason),
-                v.delivered_text ? h("div", { class: "quote" }, redactedText(v.delivered_text)) : null,
-                pipeline(v.stages),
-              );
-            } catch (err) {
-              toast(err.message);
-            }
-          },
-        },
-        h("div", { class: "invite-new", style: "grid-template-columns:1fr 1fr 1fr" }, h("label", { class: "field" }, h("span", {}, "From"), from), h("label", { class: "field" }, h("span", {}, "To"), to), h("label", { class: "field" }, h("span", {}, "Scope"), scope)),
-        h("label", { class: "field", style: "margin-top:12px" }, h("span", {}, "Message"), text),
-        h("div", { class: "row", style: "margin-top:12px" }, h("button", { class: "btn", type: "submit" }, "Check message")),
-      ),
-      h("aside", { class: "panel panel-pad" }, out),
+      "dl",
+      { class: "kv policy-kv" },
+      h("dt", {}, "Joining"), h("dd", {}, joining),
+      h("dt", {}, "Who can message whom"), h("dd", {}, links),
+      h("dt", {}, "Topics"),
+      h("dd", {}, h("ul", { class: "plain-list" }, Object.entries(p.scopes).map(([name, s]) => h("li", {}, h("b", {}, name), ": ", s.description)))),
+      h("dt", {}, "Masked before delivery"), h("dd", {}, findingList(p.rules.redact)),
+      h("dt", {}, "Held for your review"), h("dd", {}, findingList(p.rules.hold)),
+      h("dt", {}, "Blocked"), h("dd", {}, findingList(p.rules.block)),
+      h("dt", {}, "AI guard"), h("dd", {}, judge),
+      h("dt", {}, "Limits"),
+      h("dd", {}, `${lim.max_hops_per_thread} back-and-forths and ${lim.max_messages_per_thread} messages per conversation, ${Math.round(lim.max_body_bytes / 1024)} KiB per message (files included). Undelivered messages expire after ${duration(lim.message_ttl_ms)}.`),
     ),
   );
 }

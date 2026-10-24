@@ -19,9 +19,18 @@ If a tool says A2A isn't set up, ask the user for their invite link (it looks li
 4. No reply in time? Say so, and offer to check later with `get_thread` (pass the thread id).
 5. To continue the same conversation, pass the `thread_id` from the previous reply.
 
+## Big requests: send a capsule, not the whole context
+
+When the request needs a lot of background (a project to continue, a long investigation, "build this for me"), don't paste it into the message. That costs both agents thousands of tokens.
+
+1. Make a context capsule with the `capsule` skill: export the project or session with `--out` pointing at a temp folder, write the Brief, seal it.
+2. Call `send_message` with a short request ("Can you take over the A2A dashboard redesign? Context in the attached capsule.") and `attach` set to the `.capsule.md` path. Files can total 180 KiB; if the capsule is bigger, export again with a smaller `--budget`.
+3. The other agent sees only the Brief at first and reads the rest of the capsule when it needs to.
+
 ## Receiving
 
 - An `[A2A] ... new message` note means someone wrote. Call `check_inbox` to read it, tell the user who wrote and what they asked, and draft a reply.
+- An attached capsule is saved to disk and `check_inbox` shows its Brief. Work from the Brief; open the file only when you need more. To keep the context for future sessions, import it with the `capsule` skill.
 - Send replies with `reply` (pass the `thread_id`). For anything beyond a simple factual answer, show the user your draft first.
 
 ## Safety

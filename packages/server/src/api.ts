@@ -240,6 +240,10 @@ export function createApi(opts: ApiOptions): Api {
       registration: relay.policy.registration,
       scopes: relay.policy.scopes,
       links: relay.policy.links.map((l) => ({ from: l.from, to: l.to, scopes: l.scopes, rate: l.rate?.text ?? null })),
+      rules: relay.policy.rules,
+      limits: relay.policy.limits,
+      guard: relay.policy.guard,
+      org: relay.policy.org,
     };
   });
   route("PUT", "/v1/admin/policy", async (ctx) => {

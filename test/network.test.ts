@@ -157,3 +157,46 @@ test("admin sessions are signed cookies, and logging out revokes them", async ()
     cleanup(r.dataDir, dir);
   }
 });
+
+test("a capsule rides along as an attachment, and the receiver gets a saved file and its Brief", async () => {
+  const { readAttachments, capsuleBrief } = await import("../packages/client/src/attachments.ts");
+  const { readFileSync } = await import("node:fs");
+  const { r, dir } = await openRelay();
+  const homes = [tempDir("cap-sender"), tempDir("cap-receiver")];
+  const daemons: Daemon[] = [];
+  try {
+    const { url } = (await adminFetch(r.url, "POST", "/v1/admin/invites", { max_uses: 2 })).body as { url: string };
+    await joinNetwork(homes[0]!, url, { name: "sender" });
+    await joinNetwork(homes[1]!, url, { name: "receiver" });
+    for (const home of homes) {
+      const d = new Daemon({ home, log: () => {} });
+      await d.start();
+      daemons.push(d);
+    }
+    await waitFor(() => daemons.every((d) => d.info().connected === true), 5000, "both connected");
+
+    const capsule = join(homes[0]!, "dashboard.capsule.md");
+    writeFileSync(capsule, '<!-- capsule {"v":1} -->\n# Capsule\n## Brief\n<!-- BRIEF:START -->\nA2A dashboard: Talk page needs push-to-talk polish.\n<!-- BRIEF:END -->\n## Sessions\n' + "lots of history\n".repeat(500));
+    const sent = await daemons[0]!.send({ to: "receiver", text: "Can you take over this? Context attached.", attachments: readAttachments([capsule]), kind: "notify", expects_reply: false });
+    assert.equal(sent.state === "queued" || sent.state === "delivered", true);
+
+    const got = await ipcInbox(homes[1]!);
+    const file = got.files![0]!;
+    assert.equal(file.name, "dashboard.capsule.md");
+    assert.equal(readFileSync(file.path, "utf8"), readFileSync(capsule, "utf8"));
+    assert.equal(capsuleBrief(readFileSync(file.path, "utf8")), "A2A dashboard: Talk page needs push-to-talk polish.");
+
+    assert.throws(() => readAttachments([capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule]), /limit is 180 KiB/);
+  } finally {
+    for (const d of daemons) await d.stop();
+    await r.close();
+    cleanup(r.dataDir, dir, ...homes);
+  }
+});
+
+async function ipcInbox(home: string): Promise<{ files?: { name: string; path: string; bytes: number }[] }> {
+  const { ipc } = await import("../packages/client/src/ipc.ts");
+  let message: Record<string, unknown> | null = null;
+  await waitFor(async () => !!(message = (await ipc<{ message: Record<string, unknown> | null }>(home, "POST", "/inbox/next", { wait_seconds: 0 })).message), 8000, "capsule delivered");
+  return message as never;
+}

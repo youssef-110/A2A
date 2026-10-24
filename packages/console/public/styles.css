@@ -334,6 +334,13 @@ svg { flex: none; }
 .editor { font: 12.5px/1.6 var(--mono); min-height: 460px; tab-size: 2; background: var(--sunken); box-shadow: none; white-space: pre; overflow: auto; }
 .policy { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .policy .row .input { flex: 1; min-width: 160px; width: auto; }
+.policy-main { display: grid; gap: 16px; min-width: 0; }
+.policy-kv { gap: 12px 20px; font-size: 14px; line-height: 1.5; margin: 0; }
+.policy-kv dt { padding-top: 1px; }
+.plain-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.policy-edit > summary { cursor: pointer; font-weight: 600; list-style-position: inside; }
+.policy-edit > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-1); }
+@media (max-width: 640px) { .policy-kv { grid-template-columns: 1fr; gap: 2px 0; } .policy-kv dd { margin-bottom: 10px; } }
 .error { color: var(--block); font-size: 13px; }
 .error:empty { display: none; }
 .error ul { margin: 6px 0 0; padding-left: 18px; }

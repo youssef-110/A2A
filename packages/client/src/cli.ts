@@ -9,6 +9,7 @@ import { Daemon } from "./daemon.ts";
 import { runMcpServer } from "./mcp.ts";
 import { installService } from "./install.ts";
 import { joinNetwork } from "./join.ts";
+import { readAttachments } from "./attachments.ts";
 import { daemonRunning, ensureDaemon } from "./launcher.ts";
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
@@ -42,6 +43,7 @@ Running
 
 Messaging
   send <to> <text|-> [--from A] [--scope S] [--thread T] [--wait SECONDS] [--notify] [--json]
+      [--attach FILE ...]                   Send files along, e.g. a context capsule (180 KiB total)
   send <to> --voice [--language en] [--seconds N] [--yes]   Speak the message (Reson8 speech-to-text)
   transcribe <audio-file> [--language en] [--send <to>]     Transcribe a recording, optionally send it
   transcribe --live [--language en] [--seconds N]           Transcribe the microphone until Enter
@@ -377,9 +379,11 @@ async function main(argv: string[]): Promise<number> {
         options: {
           from: { type: "string" }, scope: { type: "string" }, thread: { type: "string" }, wait: { type: "string" }, notify: { type: "boolean" }, json: { type: "boolean" },
           voice: { type: "boolean" }, language: { type: "string" }, seconds: { type: "string" }, yes: { type: "boolean", short: "y" }, input: { type: "string" },
+          attach: { type: "string", multiple: true },
         },
       });
       const [to, ...words] = positionals;
+      const attachments = values.attach?.length ? readAttachments(values.attach) : undefined;
       if (!to || (!words.length && !values.voice)) throw new Error("usage: a2a send <to> <text|->   or   a2a send <to> --voice");
       if (values.voice && words.length) throw new Error("use either --voice or message text, not both");
       let text = values.voice ? "" : readText(words);
@@ -406,6 +410,7 @@ async function main(argv: string[]): Promise<number> {
         kind: values.notify ? "notify" : "request",
         expects_reply: !values.notify,
         wait_seconds: wait,
+        attachments,
       });
       const reply = r.reply as { from: string; text: string; redacted: boolean } | undefined;
       print(!!values.json, r, () => {

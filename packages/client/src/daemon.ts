@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, type AddressInfo } from "node:net";
 import { randomBytes, type KeyObject } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import {
@@ -40,6 +40,8 @@ export interface SendOptions {
   in_reply_to?: string;
   kind?: MessageKind;
   expects_reply?: boolean;
+  /** Files to send along, e.g. a context capsule. Base64 data; the relay limits the whole message size. */
+  attachments?: { name: string; mime: string; data: string }[];
 }
 
 export interface SendResult {
@@ -117,6 +119,7 @@ export class Daemon {
   private readonly backlog = new Map<string, InboundMessage[]>();
   private readonly activeRuns = new Set<Promise<void>>();
   private flushing = false;
+  private readonly directoryCache = new Map<string, { at: number; agents: Awaited<ReturnType<Daemon["directory"]>> }>();
   private readonly onStopRequest?: () => void;
 
   constructor(opts: DaemonOptions) {
@@ -290,6 +293,7 @@ export class Daemon {
       redacted: d.redacted,
       modified: d.modified,
       sender_verified: senderVerified,
+      files: this.saveAttachments(d.id, d.attachments as { name: string; mime: string; data: string }[] | undefined),
     };
 
     const fresh = this.state.prepare("INSERT OR IGNORE INTO seen (id, received_at) VALUES (?, ?)").run(d.id, iso()).changes === 1;
@@ -359,11 +363,25 @@ export class Daemon {
         /* new thread id chosen by the caller */
       }
     }
-    const dir = await this.directory(from);
+    const dir = await this.directory(from, true);
     const target = dir.find((a) => a.address === to);
     // Several scopes: prefer "general", else the first. The relay still decides.
     const names = target?.scopes.map((s) => s.name) ?? [];
     return names.includes("general") ? "general" : names[0];
+  }
+
+  /** Writes a message's attachments under <home>/files/<id>/, so agents get paths instead of megabytes of base64. */
+  private saveAttachments(id: string, attachments: { name: string; mime: string; data: string }[] | undefined): InboundMessage["files"] {
+    if (!attachments?.length) return undefined;
+    const dir = join(this.home, "files", id.replace(/[^A-Za-z0-9_]/g, ""));
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return attachments.map((a, i) => {
+      const name = basename(a.name).replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 120) || `file-${i + 1}`;
+      const data = Buffer.from(a.data, "base64");
+      const path = join(dir, name);
+      writeFileSync(path, data, { mode: 0o600 });
+      return { name, path, bytes: data.length };
+    });
   }
 
   /**
@@ -373,18 +391,27 @@ export class Daemon {
   private async resolveRecipient(from: string, name: string): Promise<string> {
     const want = name.trim().replace(/^@/, "").toLowerCase();
     const norm = (s: string): string => s.toLowerCase().replace(/[\s_.-]+/g, "");
-    const dir = await this.directory(from);
     const short = (a: { address: string }): string => a.address.split("/").pop()!;
-    const exact = dir.filter((a) => short(a) === want);
-    const matches = exact.length ? exact : dir.filter((a) => norm(short(a)) === norm(want));
+    const find = (d: Awaited<ReturnType<Daemon["directory"]>>) => {
+      const exact = d.filter((a) => short(a) === want);
+      return exact.length ? exact : d.filter((a) => norm(short(a)) === norm(want));
+    };
+    let dir = await this.directory(from, true);
+    let matches = find(dir);
+    // Someone may have joined since the cached copy: look once more before giving up.
+    if (!matches.length) matches = find((dir = await this.directory(from)));
     if (matches.length === 1) return matches[0]!.address;
     const known = dir.map((a) => `${a.address}${a.display_name ? ` (${a.display_name})` : ""}`).join(", ") || "none";
     if (!matches.length) throw new ClientError(404, `No agent called "${name}". Agents you can reach: ${known}`);
     throw new ClientError(400, `"${name}" matches several agents: ${matches.map((a) => a.address).join(", ")}. Use the full address.`);
   }
 
-  async directory(agent: string): Promise<{ address: string; display_name: string | null; description: string | null; online: boolean; scopes: { name: string; description: string }[] }[]> {
+  /** The agents this agent can reach. Sends use a copy up to 30 s old, which saves a relay round trip per message. */
+  async directory(agent: string, cached = false): Promise<{ address: string; display_name: string | null; description: string | null; online: boolean; scopes: { name: string; description: string }[] }[]> {
+    const hit = this.directoryCache.get(agent);
+    if (cached && hit && Date.now() - hit.at < 30_000) return hit.agents;
     const r = await signedGet(this.config.server, agent, this.keys.get(agent)!, "/v1/directory");
+    this.directoryCache.set(agent, { at: Date.now(), agents: r.agents as never });
     return r.agents as never;
   }
 
@@ -457,7 +484,7 @@ export class Daemon {
         to: o.to,
         scope,
         kind,
-        body: { text: o.text },
+        body: o.attachments?.length ? { text: o.text, attachments: o.attachments } : { text: o.text },
         expects_reply: o.expects_reply ?? kind === "request",
         created_at: iso(),
       },
