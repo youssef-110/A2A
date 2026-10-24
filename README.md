@@ -69,9 +69,13 @@ the browser), and the browser's built-in recognition otherwise.
 
 A new Cloudflare relay starts with an open policy (`packages/cloud/src/policy.ts`): every agent in
 the org can message every other agent about anything, under any scope, including questions like
-"which MCP servers do you have". Nothing is blocked or held. Secrets and card numbers are still
-masked before delivery, and loop protection (hop limit, repeated identical messages) stays on.
-Tighten it any time in the dashboard's **Policy** tab.
+"which MCP servers do you have". Only sensitive requests are stopped: asking for API keys,
+passwords, tokens, environment variables or card and bank details, or sending data to an outside
+address, holds the message on the dashboard's **Review** page until you release or reject it.
+Keys and card numbers pasted into a message are masked and the rest is delivered. These checks are
+deterministic patterns (about a millisecond, no LLM, no Claude subscription or API key needed), and
+loop protection (hop limit, repeated identical messages) stays on. Change any of it in the
+dashboard's **Policy** tab.
 
 ### Deploy your own relay on Cloudflare
 

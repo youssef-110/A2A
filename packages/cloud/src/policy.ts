@@ -1,8 +1,9 @@
 /**
  * The policy a new Cloudflare relay starts with. Open by design: every agent in the org can
- * message every other agent about anything, under any scope. Only secrets and card numbers are
- * masked before delivery; nothing is blocked or held. Loop protection (hop limit, repeated
- * identical messages) stays on. Tighten it later in the console's Policy tab.
+ * message every other agent about anything, under any scope. Requests for credentials and attempts
+ * to send data elsewhere are held for review; pasted secrets and card numbers are masked; nothing is
+ * blocked outright. The checks are pattern-based (about a millisecond, no LLM). Loop protection
+ * (hop limit, repeated identical messages) stays on. Tighten it later in the console's Policy tab.
  */
 export function defaultPolicy(org: string): string {
   return `# A2A relay policy (Cloudflare default). Edit in the console's Policy tab.
@@ -33,9 +34,11 @@ limits:
   message_ttl: 7d
   max_blocks_per_hour: 200
 
+# Requests for keys, passwords or card details, and attempts to send data to outside addresses,
+# wait on the Review page for you to release or reject. Pasted keys and card numbers are masked.
 rules:
   block: []
-  hold: []
+  hold: [credential_request, data_exfiltration, pii]
   redact: [secret_detected, payment_card]
 
 guard:

@@ -49,7 +49,13 @@ const ACTION_PATTERNS: Pattern[] = [
     category: "credential_request",
     detail: "Requests credentials or secrets",
     // Negated phrasing ("I won't share API keys") is a refusal, not a request.
-    re: /(?<!\b(?:won't|will not|can't|cannot|can not|don't|do not|never|not|shouldn't|should not)\s+(?:\w+\s+)?)\b(?:send|give|share|paste|provide|tell|show|print|output|dump|reveal|forward|read out|(?:email|post|text|dm|slack)\s+(?:me|us|them|it|this|that))\b[^.\n?]{0,40}(?:\b(?:api[ _-]?keys?|passwords?|credentials?|secrets?|tokens?|private keys?|ssh keys?|id_rsa|env(?:ironment)? (?:vars|variables)|access keys?|session cookies?)|\.env\b)/gi,
+    re: /(?<!\b(?:won't|will not|can't|cannot|can not|don't|do not|never|not|shouldn't|should not)\s+(?:\w+\s+)?)\b(?:send|give|share|paste|provide|tell|show|print|output|dump|reveal|forward|read out|(?:email|post|text|dm|slack)\s+(?:me|us|them|it|this|that))\b[^.\n?]{0,40}(?:\b(?:api[ _-]?keys?|passwords?|credentials?|secrets?|tokens?|private keys?|ssh keys?|id_rsa|env(?:ironment)? (?:vars|variables)|access keys?|session cookies?|credit card(?: numbers?| details)?|card numbers?|cvv|bank (?:details|account(?: numbers?)?)|social security numbers?)|\.env\b)/gi,
+  },
+  {
+    category: "credential_request",
+    detail: "Asks for someone's credentials or secrets",
+    // "What's your API key?", "I need the DB password". Possessive only, and not "token limit" or "key rotation".
+    re: /\b(?:what(?:'s|’s| is| are)|whats|i need|we need|i want|let me (?:see|have)|hand over)\b[^.\n?]{0,25}?\b(?:your|the|their|his|her|our|[a-z]+'s)\s+(?:[\w-]+\s+){0,3}?(?:api[ _-]?keys?|passwords?|passphrases?|credentials?|secrets?|secret keys?|tokens?|private keys?|ssh keys?|access keys?|env(?:ironment)? (?:vars|variables)|credit card(?: numbers?)?|card numbers?|cvv|bank (?:details|account(?: numbers?)?)|social security numbers?)\b(?!\s+(?:limits?|counts?|usage|budget|rotation|policy|policies|format|length|reset|requirements?|expiry|expiration))/gi,
   },
   { category: "credential_request", detail: "Reads credential files", re: /(?:~|\$HOME)?\/?\.(?:ssh\/id_[a-z0-9]+|aws\/credentials|netrc|npmrc|docker\/config\.json)\b|\/etc\/shadow\b/gi },
   {
