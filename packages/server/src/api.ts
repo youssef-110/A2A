@@ -79,16 +79,23 @@ export function createApi(opts: ApiOptions): Api {
     routes.push({ method, re: new RegExp(`^${path.replace(/:[a-z]+/g, "([^/]+)")}$`), handler });
   };
 
-  const sign = (exp: number): string => createHmac("sha256", adminToken).update(`a2a-session\n${exp}`).digest("base64url");
+  // Sessions are signed together with a generation number kept in the database; logging out bumps it, revoking every session.
+  const generation = (): number => Number((relay.db.prepare("SELECT value FROM meta WHERE key = 'session_generation'").get() as { value: string } | undefined)?.value ?? 0);
+  const revokeSessions = (): void => {
+    relay.db.prepare("INSERT INTO meta (key, value) VALUES ('session_generation', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value").run(String(generation() + 1));
+  };
+  const sign = (exp: number, gen: number): string => createHmac("sha256", adminToken).update(`a2a-session\n${exp}\n${gen}`).digest("base64url");
   const newSession = (): string => {
     const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_S;
-    return `${exp}.${sign(exp)}`;
+    const gen = generation();
+    return `${exp}.${gen}.${sign(exp, gen)}`;
   };
   const validSession = (value: string | undefined): boolean => {
     if (!value) return false;
-    const [expText, mac] = value.split(".");
+    const [expText, genText, mac] = value.split(".");
     const exp = Number(expText);
-    return !!mac && Number.isFinite(exp) && exp > Date.now() / 1000 && safeEqual(mac, sign(exp));
+    const gen = Number(genText);
+    return !!mac && Number.isFinite(exp) && exp > Date.now() / 1000 && gen === generation() && safeEqual(mac, sign(exp, gen));
   };
 
   const isAdmin = (req: Request): boolean => {
@@ -164,6 +171,7 @@ export function createApi(opts: ApiOptions): Api {
     return { ok: true };
   });
   route("POST", "/v1/admin/logout", (ctx) => {
+    if (isAdmin(ctx.req)) revokeSessions();
     ctx.headers.append("set-cookie", `a2a_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookie(ctx.url)}`);
     return { ok: true };
   });

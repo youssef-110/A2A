@@ -138,15 +138,20 @@ test("the console agent talks to agents and gets their replies", async () => {
   }
 });
 
-test("admin sessions are signed cookies that survive a restart", async () => {
+test("admin sessions are signed cookies, and logging out revokes them", async () => {
   const { r, dir } = await openRelay();
   try {
     const login = await fetch(`${r.url}/v1/admin/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "test-admin-token" }) });
     const cookie = login.headers.getSetCookie()[0]!.split(";")[0]!;
     const ok = await fetch(`${r.url}/v1/admin/session`, { headers: { cookie } }).then((x) => x.json() as Promise<{ admin: boolean }>);
     assert.equal(ok.admin, true);
-    const forged = await fetch(`${r.url}/v1/admin/session`, { headers: { cookie: "a2a_session=9999999999.forged" } }).then((x) => x.json() as Promise<{ admin: boolean }>);
+    const forged = await fetch(`${r.url}/v1/admin/session`, { headers: { cookie: "a2a_session=9999999999.0.forged" } }).then((x) => x.json() as Promise<{ admin: boolean }>);
     assert.equal(forged.admin, false);
+
+    // Logging out revokes the cookie on the server, not just in the browser.
+    await fetch(`${r.url}/v1/admin/logout`, { method: "POST", headers: { cookie } });
+    const after = await fetch(`${r.url}/v1/admin/session`, { headers: { cookie } }).then((x) => x.json() as Promise<{ admin: boolean }>);
+    assert.equal(after.admin, false);
   } finally {
     await r.close();
     cleanup(r.dataDir, dir);

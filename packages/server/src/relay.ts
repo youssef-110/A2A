@@ -440,7 +440,8 @@ export class Relay extends EventEmitter {
     if (!recipient) return block("unknown_recipient", `${env.to} is not registered on this relay.`);
     if (recipient.status !== "active") return block("recipient_inactive", `${env.to} is ${recipient.status}.`);
     if (orgOf(env.from) !== p.org || orgOf(env.to) !== p.org) return block("cross_org", "Messaging between organizations is not enabled.");
-    const consoleLink = env.from === this.consoleAddress || env.to === this.consoleAddress;
+    // The console (the admin) may message anyone. Agents reach the console only by replying or through a policy link.
+    const consoleLink = env.from === this.consoleAddress;
     const wildcardLink = linksBetween(p, env.from, env.to).find((l) => l.scopes.includes("*"));
     // A wildcard link means "anything goes", so free-form scopes are accepted too.
     if (!p.scopes[env.scope] && !consoleLink && !wildcardLink) return block("unknown_scope", `Scope "${env.scope}" is not defined in policy.`);
@@ -874,7 +875,7 @@ export class Relay extends EventEmitter {
     const agents = this.db.prepare("SELECT * FROM agents WHERE status = 'active' AND address <> ? ORDER BY address").all(address) as unknown as AgentRow[];
     return agents
       .map((a) => {
-        const links = a.address === this.consoleAddress ? [{ scopes: ["*"] }] : linksBetween(this.policy, address, a.address);
+        const links = linksBetween(this.policy, address, a.address);
         const scopes = [...new Set(links.flatMap((l) => (l.scopes.includes("*") ? Object.keys(this.policy.scopes) : l.scopes)))];
         return { address: a.address, display_name: a.display_name, description: a.description, online: this.isOnline(a.address), scopes };
       })

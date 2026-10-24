@@ -15,15 +15,15 @@ import { WebSocket } from "ws";
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(here, "../../..");
 
-/** Loads KEY=VALUE lines from .env files into process.env without overriding what is already set. */
-export function loadDotEnv(paths: string[]): void {
+/** Loads KEY=VALUE lines from .env files into process.env without overriding what is already set. With `only`, other keys are ignored. */
+export function loadDotEnv(paths: string[], only?: ReadonlySet<string>): void {
   for (const path of paths) {
     if (!existsSync(path)) continue;
     for (const raw of readFileSync(path, "utf8").split(/\r?\n/)) {
       const line = raw.trim();
       if (!line || line.startsWith("#")) continue;
       const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-      if (!m) continue;
+      if (!m || (only && !only.has(m[1]!))) continue;
       let value = m[2]!.trim();
       if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
       else value = value.replace(/\s+#.*$/, "");
@@ -32,9 +32,12 @@ export function loadDotEnv(paths: string[]): void {
   }
 }
 
-/** .env in the current folder, then the a2a home, then the repository root. */
+// Only these may come from .env files. Programs to run (A2A_FFMPEG) and API endpoints (RESON8_API_URL) must be set in the real environment.
+const VOICE_ENV_KEYS: ReadonlySet<string> = new Set(["RESON8_API_KEY", "A2A_MIC"]);
+
+/** .env in the a2a home, then the repository root. Not the current folder: a cloned repo could plant one. */
 export function loadVoiceEnv(home: string): void {
-  loadDotEnv([join(process.cwd(), ".env"), join(home, ".env"), join(REPO_ROOT, ".env")]);
+  loadDotEnv([join(home, ".env"), join(REPO_ROOT, ".env")], VOICE_ENV_KEYS);
 }
 
 export class VoiceError extends Error {}
@@ -45,7 +48,15 @@ function apiKey(): string {
   return key;
 }
 
-const apiBase = (): string => (process.env.RESON8_API_URL ?? "https://api.reson8.dev").replace(/\/$/, "");
+/** The API key is only ever sent over HTTPS (plain HTTP is allowed for a local test server). */
+const apiBase = (): string => {
+  const base = (process.env.RESON8_API_URL ?? "https://api.reson8.dev").replace(/\/$/, "");
+  const url = new URL(base);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))) {
+    throw new VoiceError(`RESON8_API_URL must be https (got ${url.origin}).`);
+  }
+  return base;
+};
 
 export interface TranscribeOptions {
   /** e.g. "en", or "nl,en" to constrain auto-detection. Omitted: Reson8 detects per utterance. */

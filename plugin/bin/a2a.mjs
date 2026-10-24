@@ -34148,14 +34148,14 @@ import { dirname as dirname4, join as join7, resolve as resolve3 } from "node:pa
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 var here2 = dirname4(fileURLToPath3(import.meta.url));
 var REPO_ROOT = resolve3(here2, "../../..");
-function loadDotEnv(paths) {
+function loadDotEnv(paths, only) {
   for (const path of paths) {
     if (!existsSync5(path)) continue;
     for (const raw of readFileSync6(path, "utf8").split(/\r?\n/)) {
       const line = raw.trim();
       if (!line || line.startsWith("#")) continue;
       const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-      if (!m) continue;
+      if (!m || only && !only.has(m[1])) continue;
       let value = m[2].trim();
       if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
       else value = value.replace(/\s+#.*$/, "");
@@ -34163,8 +34163,9 @@ function loadDotEnv(paths) {
     }
   }
 }
+var VOICE_ENV_KEYS = /* @__PURE__ */ new Set(["RESON8_API_KEY", "A2A_MIC"]);
 function loadVoiceEnv(home) {
-  loadDotEnv([join7(process.cwd(), ".env"), join7(home, ".env"), join7(REPO_ROOT, ".env")]);
+  loadDotEnv([join7(home, ".env"), join7(REPO_ROOT, ".env")], VOICE_ENV_KEYS);
 }
 var VoiceError = class extends Error {
 };
@@ -34173,7 +34174,14 @@ function apiKey() {
   if (!key) throw new VoiceError("RESON8_API_KEY is not set. Add it to .env in the A2A folder (see .env.example) or export it in your shell.");
   return key;
 }
-var apiBase = () => (process.env.RESON8_API_URL ?? "https://api.reson8.dev").replace(/\/$/, "");
+var apiBase = () => {
+  const base = (process.env.RESON8_API_URL ?? "https://api.reson8.dev").replace(/\/$/, "");
+  const url = new URL(base);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))) {
+    throw new VoiceError(`RESON8_API_URL must be https (got ${url.origin}).`);
+  }
+  return base;
+};
 function query(params) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== void 0 && v !== "") q.set(k, v);
