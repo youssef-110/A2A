@@ -190,5 +190,10 @@ export async function screen(input: ScreenInput, priorStages: StageResult[] = []
   const categories = [...new Set(deciding.filter((d) => severityOf(d.decision) > 0).map((d) => d.category))];
   const delivered_text = redactions.length ? applyRedactions(n.text, redactions, (r) => `[REDACTED ${r.detail.toLowerCase()}]`) : n.text;
 
+  // With max_decision: hold, a person reviews what would have been blocked. The reason code and
+  // categories still say why, so the reviewer sees exactly what the guard objected to.
+  if (decision === "block" && policy.guard.max_decision === "hold") {
+    return { decision: "hold", reason_code, reason: `Would have been blocked; held for review (guard.max_decision is hold). ${reason}`, categories, stages, findings, normalized_text: n.text, delivered_text, redactions: mergeSpans(redactions) };
+  }
   return { decision, reason_code, reason, categories, stages, findings, normalized_text: n.text, delivered_text, redactions: mergeSpans(redactions) };
 }

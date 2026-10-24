@@ -36,6 +36,12 @@ export interface GuardSettings {
   escalate: boolean;
   timeout_ms: number;
   on_error: "hold" | "block";
+  /**
+   * The strictest decision the content stages (scanners and judges) may reach. "hold" turns every
+   * would-be block into a hold, so a person decides. Envelope rules (links, limits, signatures)
+   * still block.
+   */
+  max_decision: "hold" | "block";
 }
 
 export interface Policy {
@@ -67,6 +73,7 @@ export const DEFAULT_GUARD: GuardSettings = {
   escalate: true,
   timeout_ms: 30_000,
   on_error: "hold",
+  max_decision: "block",
 };
 
 const DURATION_RE = /^(\d+)\s*(s|m|h|d)$/;
@@ -186,12 +193,15 @@ export function parsePolicy(text: string): { policy?: Policy; errors: string[] }
   if (typeof minConf !== "number" || minConf < 0 || minConf > 1) errors.push("guard.min_confidence: number between 0 and 1");
   const onError = rg.on_error ?? DEFAULT_GUARD.on_error;
   if (onError !== "hold" && onError !== "block") errors.push("guard.on_error: hold or block (the guard never fails open)");
+  const maxDecision = rg.max_decision ?? DEFAULT_GUARD.max_decision;
+  if (maxDecision !== "hold" && maxDecision !== "block") errors.push("guard.max_decision: hold or block");
   const guard: GuardSettings = {
     judge,
     min_confidence: typeof minConf === "number" ? minConf : DEFAULT_GUARD.min_confidence,
     escalate: rg.escalate === undefined ? DEFAULT_GUARD.escalate : Boolean(rg.escalate),
     timeout_ms: parseDuration(rg.timeout, "guard.timeout", errors) ?? DEFAULT_GUARD.timeout_ms,
     on_error: onError as "hold" | "block",
+    max_decision: maxDecision as "hold" | "block",
   };
 
   if (errors.length) return { errors };

@@ -48,3 +48,4 @@ guard:
   escalate: true
   timeout: 45s
   on_error: hold       # the guard never fails open
+  max_decision: block  # hold: anything the guard would block goes to the review queue instead
