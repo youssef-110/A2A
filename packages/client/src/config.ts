@@ -6,7 +6,7 @@ import type { KeyObject } from "node:crypto";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { loadPrivateKey } from "@a2a/protocol";
 
-export type RuntimeKind = "none" | "claude" | "codex" | "command";
+export type RuntimeKind = "none" | "claude" | "codex" | "opencode" | "command";
 export type SpawnOn = "request" | "notify" | "reply";
 
 export interface AgentConfig {
@@ -18,8 +18,9 @@ export interface AgentConfig {
   /** command runtime: the program and arguments. codex runtime: optional replacement for `codex exec`. */
   command?: string[];
   workdir?: string;
-  /** Claude Code tools the spawned agent may use, in addition to the a2a tools. */
+  /** Tools the spawned agent may use, in addition to the a2a tools (Claude Code names; mapped for OpenCode). */
   allowed_tools?: string[];
+  /** claude: alias or model id. codex: model id. opencode: provider/model, e.g. anthropic/claude-sonnet-5-5. */
   model?: string;
   permission_mode?: string;
   /** Extra system prompt text for the spawned agent. */

@@ -142,6 +142,80 @@ async function runCodex(ctx: RunContext): Promise<RunResult> {
   }
 }
 
+/** Claude Code tool names, as used in allowed_tools, mapped to OpenCode permission keys. */
+const OPENCODE_TOOL = (name: string): string | undefined =>
+  ({ read: "read", grep: "grep", glob: "glob", ls: "glob", bash: "bash", edit: "edit", write: "edit", multiedit: "edit", webfetch: "webfetch", websearch: "websearch", todowrite: "todowrite", task: "task" })[name.toLowerCase()];
+
+/**
+ * The per-run OpenCode config, passed through OPENCODE_CONFIG_CONTENT so nothing in the user's
+ * own opencode.json changes. Permissions deny everything except the agent's allowed tools and the
+ * a2a MCP tools, so a headless run can never stop at an approval prompt.
+ */
+export function openCodeConfig(ctx: RunContext): Record<string, unknown> {
+  const mcp = JSON.parse(readFileSync(ctx.mcpConfigPath, "utf8")).mcpServers.a2a as { command: string; args: string[]; env: Record<string, string> };
+  const permission: Record<string, string> = { "*": "deny", external_directory: "deny", question: "deny", doom_loop: "deny", "a2a_*": "allow" };
+  for (const tool of ctx.agent.allowed_tools ?? []) {
+    const key = OPENCODE_TOOL(tool);
+    if (key) permission[key] = "allow";
+  }
+  return {
+    $schema: "https://opencode.ai/config.json",
+    // a2a send_message can wait for a reply, so its calls need more than the 30 s default.
+    mcp: { a2a: { type: "local", command: [mcp.command, ...mcp.args], environment: mcp.env, enabled: true, timeout: 600_000 } },
+    permission,
+    autoupdate: false,
+  };
+}
+
+/** Reads `opencode run --format json` output: one event per line, text parts re-emitted as they grow. */
+export function parseOpenCodeEvents(stdout: string): { text: string; sessionId?: string; error?: string } {
+  let sessionId: string | undefined;
+  let error: string | undefined;
+  const texts = new Map<string, string>();
+  for (const line of stdout.split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    let e: { type?: string; sessionID?: string; part?: { id?: string; text?: string }; error?: { name?: string; message?: string; data?: { message?: string } } };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof e.sessionID === "string") sessionId = e.sessionID;
+    if (e.type === "text" && e.part?.text !== undefined) {
+      const id = e.part.id ?? String(texts.size);
+      texts.delete(id); // re-insert so the most recently finished part is last
+      texts.set(id, e.part.text);
+    }
+    if (e.type === "error") error = e.error?.data?.message ?? e.error?.message ?? e.error?.name ?? "opencode reported an error";
+  }
+  // Earlier text parts are narration between tool calls; the last one is the answer.
+  return { text: [...texts.values()].at(-1)?.trim() ?? "", sessionId, error };
+}
+
+async function runOpenCode(ctx: RunContext): Promise<RunResult> {
+  const a = ctx.agent;
+  const args = ["run", "--format", "json", "--auto", "--title", `a2a ${ctx.message.thread_id}`];
+  if (a.workdir) args.push("--dir", a.workdir);
+  // OpenCode only accepts provider/model ids; anything else falls back to its configured default.
+  if (a.model?.includes("/")) args.push("--model", a.model);
+  if (ctx.sessionId) args.push("--session", ctx.sessionId);
+  const prompt = a.instructions ? `${a.instructions}\n\n${ctx.prompt}` : ctx.prompt;
+  args.push("--", prompt);
+
+  const env = { ...ctx.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig(ctx)), OPENCODE_DISABLE_AUTOUPDATE: "1" };
+  const r = await run(process.env.A2A_OPENCODE_BIN ?? "opencode", args, { cwd: a.workdir, env, stdin: "", timeoutMs: ctx.timeoutMs });
+  if (r.timedOut) return { output: "", exitCode: r.code, error: `timed out after ${Math.round(ctx.timeoutMs / 1000)}s` };
+
+  const parsed = parseOpenCodeEvents(r.stdout);
+  if (ctx.sessionId && r.code !== 0 && /session not found/i.test(r.stdout + r.stderr)) {
+    return runOpenCode({ ...ctx, sessionId: undefined });
+  }
+  if (r.code !== 0 || parsed.error) {
+    return { output: "", sessionId: parsed.sessionId, exitCode: r.code, error: parsed.error ?? `opencode exited ${r.code}: ${(r.stderr || r.stdout).trim().slice(0, 400)}` };
+  }
+  return { output: parsed.text, sessionId: parsed.sessionId, exitCode: r.code };
+}
+
 async function runCommand(ctx: RunContext): Promise<RunResult> {
   const command = ctx.agent.command;
   if (!command?.length) return { output: "", exitCode: null, error: "runtime: command needs a command list in config.yaml" };
@@ -158,6 +232,8 @@ export function runAgent(ctx: RunContext): Promise<RunResult> {
       return runClaude(ctx);
     case "codex":
       return runCodex(ctx);
+    case "opencode":
+      return runOpenCode(ctx);
     case "command":
       return runCommand(ctx);
     default:

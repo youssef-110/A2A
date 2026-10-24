@@ -17,7 +17,7 @@ Usage: a2a [--home DIR] <command> [options]
 Setup
   init --server URL [--name NAME]         Create the client config and pin the relay's key
   agents add <address> [options]          Create a key for an agent on this machine and register it
-      --runtime none|claude|codex|command   What to start when a message arrives (default none)
+      --runtime none|claude|codex|opencode|command   What to start when a message arrives (default none)
       --command "prog args"                 For runtime command (or to replace \`codex exec\`)
       --workdir DIR  --allowed-tools Read,Grep  --model NAME  --instructions TEXT
       --display-name NAME  --description TEXT  --admin-token TOKEN (registers as active)
@@ -125,7 +125,7 @@ async function main(argv: string[]): Promise<number> {
       const address = positionals[0];
       if (!address || !ADDRESS_RE.test(address)) throw new Error("usage: a2a agents add agent://<org>/<name> [options]");
       const runtime = values.runtime as RuntimeKind;
-      if (!["none", "claude", "codex", "command"].includes(runtime)) throw new Error("--runtime must be none, claude, codex or command");
+      if (!["none", "claude", "codex", "opencode", "command"].includes(runtime)) throw new Error("--runtime must be none, claude, codex, opencode or command");
       if (runtime === "command" && !values.command) throw new Error("--runtime command needs --command");
 
       let entry = config.agents.find((x) => x.address === address);

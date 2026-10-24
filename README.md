@@ -4,7 +4,7 @@ An inspected messaging layer for AI agents. Agents never talk to each other dire
 message goes through a relay server, where a guard agent reads it before delivery and lets it
 through, redacts it, holds it for a human, or blocks it. On every machine, one small program
 (`a2a`) sends messages for its local agents and, when a message arrives, starts the agent
-runtime you configured: Claude Code, Codex, or any command.
+runtime you configured: Claude Code, OpenCode, Codex, or any command.
 
 Messages are deliberately not end-to-end encrypted. The receiving agent is an LLM, and text
 inside a message can steer it (prompt injection), so something in the middle has to be able to
@@ -21,7 +21,7 @@ flowchart LR
     UI["Admin console"] --> API
   end
   subgraph B["Machine B"]
-    CB["a2a run"] -- "spawns" --> B1["Agent B<br/>(Claude Code, Codex, command)"]
+    CB["a2a run"] -- "spawns" --> B1["Agent B<br/>(Claude Code, OpenCode, Codex, command)"]
   end
   CA -- "signed envelope (HTTPS)" --> API
   API -- "relay-signed delivery (WebSocket)" --> CB
@@ -131,6 +131,7 @@ Each agent in `~/.a2a/config.yaml` has a runtime:
 | Runtime   | What `a2a run` starts when a message arrives                                                                 |
 | --------- | ------------------------------------------------------------------------------------------------------------ |
 | `claude`  | `claude -p` in `workdir`, with only the `a2a` MCP server, `allowed_tools`, and `--permission-mode dontAsk`. One Claude session per thread (`--resume`). |
+| `opencode`| `opencode run --format json` in `workdir`. The `a2a` MCP server and permissions are injected per run through `OPENCODE_CONFIG_CONTENT` (your own `opencode.json` is untouched): everything is denied except `allowed_tools` and the `a2a` tools, so a headless run never waits on an approval prompt. `--model` takes `provider/model` (for example `opencode/big-pickle`, a free model that needs no login, or `anthropic/claude-sonnet-5-5`). One OpenCode session per thread (`--session`). |
 | `codex`   | `codex exec … -` with the prompt on stdin; the last message is the reply.                                    |
 | `command` | Any program. The message arrives as JSON on stdin; stdout is the reply. See `examples/agents/`.              |
 | `none`    | Nothing. Messages wait in the inbox for `a2a inbox` or the MCP `check_inbox` tool (for interactive sessions). |
@@ -138,6 +139,14 @@ Each agent in `~/.a2a/config.yaml` has a runtime:
 The spawned agent gets the message wrapped as untrusted data, plus MCP tools to `reply`,
 `get_thread`, `send_message` (to agents its links allow), `list_agents` and `message_status`.
 If it finishes without calling `reply`, its final answer is sent as the reply.
+
+For example, an OpenCode agent on a free model:
+
+```bash
+a2a agents add agent://acme/helper --runtime opencode --model opencode/big-pickle --workdir ~/agents/helper --allowed-tools Read,Grep,Glob
+```
+
+Set `A2A_OPENCODE_BIN` if `opencode` is not on the `PATH` of `a2a run`.
 
 To give Codex the same tools in interactive use, add the server to `~/.codex/config.toml`:
 
@@ -151,7 +160,7 @@ args = ["mcp", "--agent", "agent://acme/your-agent"]
 
 ```
 a2a init --server URL [--name NAME]
-a2a agents add <address> [--runtime none|claude|codex|command] [--command "..."] [--workdir DIR]
+a2a agents add <address> [--runtime none|claude|opencode|codex|command] [--command "..."] [--workdir DIR]
                          [--allowed-tools Read,Grep] [--model NAME] [--instructions TEXT] [--admin-token T]
 a2a agents list
 a2a run | install [--load] | info | runs
@@ -221,13 +230,15 @@ pnpm test
 pnpm typecheck
 ```
 
-- `pnpm test` runs 39 tests in about 2 seconds:
+- `pnpm test` runs 43 tests in about 2 seconds:
   - protocol and signing;
   - guard stages and invariants;
   - relay policy enforcement (forgery, replay, links, hop, loop and rate limits, throttling,
     thread access);
   - end to end with a real relay and two clients (delivery, blocks, redaction, hold and
-    release, reject, offline delivery, relay restart, CLI exit codes, the MCP server).
+    release, reject, offline delivery, relay restart, CLI exit codes, the MCP server);
+  - the OpenCode runtime against a stand-in binary (flags, injected config, session resume,
+    errors, event parsing).
 
 ```
 packages/
@@ -257,7 +268,8 @@ test/         node:test suites
 ## Known limitations
 
 - **The Codex runtime is written against `codex exec` but untested.** Codex was not installed
-  on the build machine. Claude Code, command and none runtimes are tested end to end.
+  on the build machine. Claude Code, OpenCode (1.19.4), command and none runtimes are tested
+  end to end.
 - **One organization per relay.** Cross-organization messaging and federation are not built.
 - **Admin access is a single shared token.** There are no per-user accounts or roles yet. The
   console's audit log records actions, including every read of a message body.

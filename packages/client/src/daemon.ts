@@ -522,7 +522,7 @@ export class Daemon {
 
   private async processRun(agent: AgentConfig, m: InboundMessage): Promise<void> {
     const runId = newRunId();
-    const useSessions = agent.session !== "none" && agent.runtime === "claude";
+    const useSessions = agent.session !== "none" && (agent.runtime === "claude" || agent.runtime === "opencode");
     const session = useSessions
       ? (this.state.prepare("SELECT session_id FROM sessions WHERE agent = ? AND thread_id = ?").get(agent.address, m.thread_id) as { session_id: string } | undefined)
       : undefined;
