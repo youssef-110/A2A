@@ -9,6 +9,8 @@ import { Daemon } from "./daemon.ts";
 import { runMcpServer } from "./mcp.ts";
 import { installService } from "./install.ts";
 import { existsSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
+import { fileAsMicArgs, loadVoiceEnv, microphoneArgs, startRecorder, transcribeFile, transcribeLive, VoiceError } from "./voice.ts";
 
 const HELP = `a2a: send and receive agent messages through an A2A relay.
 
@@ -33,6 +35,10 @@ Running
 
 Messaging
   send <to> <text|-> [--from A] [--scope S] [--thread T] [--wait SECONDS] [--notify] [--json]
+  send <to> --voice [--language en] [--seconds N] [--yes]   Speak the message (Reson8 speech-to-text)
+  transcribe <audio-file> [--language en] [--send <to>]     Transcribe a recording, optionally send it
+  transcribe --live [--language en] [--seconds N]           Transcribe the microphone until Enter
+      (--input <audio-file> on --voice or --live streams a recording instead of the microphone)
   reply <message-id> <text|-> [--from A]
   status <message-id>
   thread <thread-id> [--agent A]
@@ -63,6 +69,77 @@ const readText = (parts: string[]): string => (parts.length === 1 && parts[0] ==
 
 function print(json: boolean, value: unknown, human: () => string): void {
   console.log(json ? JSON.stringify(value, null, 2) : human());
+}
+
+async function confirm(question: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = (await rl.question(question)).trim().toLowerCase();
+    return answer === "" || answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Records from the microphone (or plays an audio file in real time with --input) through ffmpeg
+ * and streams it to Reson8, showing the words as they are recognised. Stops on Enter, after
+ * --seconds, or at the end of the input file.
+ */
+async function recordVoice(home: string, opts: { language?: string; seconds?: string; input?: string }): Promise<string> {
+  loadVoiceEnv(home);
+  if (!process.env.RESON8_API_KEY) throw new VoiceError("RESON8_API_KEY is not set. Add it to .env in the A2A folder (see .env.example).");
+  const recorder = startRecorder(opts.input ? fileAsMicArgs(resolve(opts.input)) : microphoneArgs());
+  let stderr = "";
+  recorder.stderr!.on("data", (d) => (stderr += d));
+  const failed = new Promise<never>((_, reject) => {
+    recorder.on("error", (err: NodeJS.ErrnoException) =>
+      reject(new VoiceError(err.code === "ENOENT" ? "ffmpeg is needed to record audio. Install it (macOS: brew install ffmpeg) and try again." : `Could not start ffmpeg: ${err.message}`)),
+    );
+    recorder.on("exit", (code) => {
+      if (code && code !== 255 && !stopped) {
+        const hint = process.platform === "darwin" ? " On macOS, allow microphone access for your terminal app in System Settings > Privacy & Security > Microphone." : "";
+        reject(new VoiceError(`Recording failed: ${stderr.trim().split("\n").at(-1) ?? `ffmpeg exited ${code}`}.${hint}`));
+      }
+    });
+  });
+
+  let stopped = false;
+  const tty = process.stderr.isTTY;
+  const width = (process.stderr.columns ?? 100) - 4;
+  const stop = new Promise<void>((done) => {
+    const end = (): void => {
+      if (stopped) return;
+      stopped = true;
+      recorder.kill("SIGINT");
+      done();
+    };
+    if (opts.seconds) setTimeout(end, Number(opts.seconds) * 1000).unref();
+    recorder.on("exit", end);
+    if (process.stdin.isTTY && !opts.input) {
+      process.stdin.resume();
+      process.stdin.once("data", () => {
+        process.stdin.pause();
+        end();
+      });
+    }
+  });
+  process.stderr.write(opts.input ? `Streaming ${opts.input}…\n` : `Recording${opts.seconds ? ` for ${opts.seconds}s` : ""}. Speak now${process.stdin.isTTY ? ", then press Enter" : ""}.\n`);
+
+  const text = await Promise.race([
+    transcribeLive({
+      audio: recorder.stdout!,
+      language: opts.language ?? process.env.A2A_VOICE_LANGUAGE,
+      stop,
+      onUpdate: (t) => {
+        if (tty) process.stderr.write(`\r\x1b[2K› ${t.length > width ? `…${t.slice(-width + 1)}` : t}`);
+      },
+    }),
+    failed,
+  ]);
+  if (!stopped) recorder.kill("SIGINT");
+  if (tty) process.stderr.write("\r\x1b[2K");
+  return text;
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -217,15 +294,33 @@ async function main(argv: string[]): Promise<number> {
       const { values, positionals } = parseArgs({
         args,
         allowPositionals: true,
-        options: { from: { type: "string" }, scope: { type: "string" }, thread: { type: "string" }, wait: { type: "string" }, notify: { type: "boolean" }, json: { type: "boolean" } },
+        options: {
+          from: { type: "string" }, scope: { type: "string" }, thread: { type: "string" }, wait: { type: "string" }, notify: { type: "boolean" }, json: { type: "boolean" },
+          voice: { type: "boolean" }, language: { type: "string" }, seconds: { type: "string" }, yes: { type: "boolean", short: "y" }, input: { type: "string" },
+        },
       });
       const [to, ...words] = positionals;
-      if (!to || !words.length) throw new Error("usage: a2a send <to> <text|->");
+      if (!to || (!words.length && !values.voice)) throw new Error("usage: a2a send <to> <text|->   or   a2a send <to> --voice");
+      if (values.voice && words.length) throw new Error("use either --voice or message text, not both");
+      let text = values.voice ? "" : readText(words);
+      if (values.voice) {
+        await ipc(H, "GET", "/info"); // fail before recording if the client isn't running
+        text = await recordVoice(H, { language: values.language, seconds: values.seconds, input: values.input });
+        if (!text) throw new VoiceError("No speech was recognised, so nothing was sent.");
+        process.stderr.write(`\nTranscript:\n  ${text}\n\n`);
+        if (!values.yes) {
+          if (!process.stdin.isTTY) throw new Error("pass --yes to send a voice message without confirming");
+          if (!(await confirm(`Send this to ${to}? [Y/n] `))) {
+            console.log("Not sent.");
+            return 0;
+          }
+        }
+      }
       const wait = values.notify ? 0 : Number(values.wait ?? 0);
       const r = await ipc<Record<string, unknown>>(H, "POST", "/send", {
         from: values.from,
         to,
-        text: readText(words),
+        text,
         scope: values.scope,
         thread_id: values.thread,
         kind: values.notify ? "notify" : "request",
@@ -239,6 +334,31 @@ async function main(argv: string[]): Promise<number> {
         if (r.timed_out) return `${head}\nNo reply within ${wait}s. Check later with: a2a thread ${r.thread_id}`;
         return head;
       });
+      return r.state === "blocked" || r.state === "rejected" ? 2 : 0;
+    }
+
+    case "transcribe": {
+      const { values, positionals } = parseArgs({
+        args,
+        allowPositionals: true,
+        options: {
+          live: { type: "boolean" }, language: { type: "string" }, seconds: { type: "string" }, json: { type: "boolean" }, input: { type: "string" },
+          send: { type: "string" }, from: { type: "string" }, scope: { type: "string" }, wait: { type: "string" },
+        },
+      });
+      const file = positionals[0];
+      if (!file && !values.live) throw new Error("usage: a2a transcribe <audio-file>   or   a2a transcribe --live");
+      loadVoiceEnv(H);
+      const text = values.live ? await recordVoice(H, { language: values.language, seconds: values.seconds, input: values.input }) : await transcribeFile(resolve(file!), { language: values.language });
+      if (!values.send) {
+        print(!!values.json, { text }, () => (values.live ? `\n${text}` : text) || "(no speech recognised)");
+        return text ? 0 : 1;
+      }
+      if (!text) throw new VoiceError("No speech was recognised, so nothing was sent.");
+      const wait = Number(values.wait ?? 0);
+      const r = await ipc<Record<string, unknown>>(H, "POST", "/send", { from: values.from, to: values.send, text, scope: values.scope, wait_seconds: wait });
+      const reply = r.reply as { from: string; text: string } | undefined;
+      print(!!values.json, { text, ...r }, () => `Transcript: ${text}\n${r.id} (thread ${r.thread_id}): ${r.state}${r.reason_code ? ` (${r.reason_code})` : ""}${reply ? `\n\nReply from ${reply.from}:\n${reply.text}` : ""}`);
       return r.state === "blocked" || r.state === "rejected" ? 2 : 0;
     }
 
@@ -297,7 +417,7 @@ main(process.argv.slice(2)).then(
     if (code >= 0) process.exitCode = code;
   },
   (err) => {
-    console.error(err instanceof NotRunningError ? err.message : `a2a: ${(err as Error).message}`);
+    console.error(err instanceof NotRunningError || err instanceof VoiceError ? err.message : `a2a: ${(err as Error).message}`);
     process.exitCode = 1;
   },
 );

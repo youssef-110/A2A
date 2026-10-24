@@ -174,6 +174,39 @@ a2a mcp [--agent A]
 blocked or rejected. Every command except `run`, `init`, `agents` and `install` talks to the
 running `a2a run` over a local socket, which owns the relay connection, keys and outbox.
 
+## Voice messages
+
+`a2a` can turn speech into a message with [Reson8](https://docs.reson8.dev) speech-to-text. The
+transcript is an ordinary message: it goes through the relay and the guard like typed text.
+
+1. Put your Reson8 API key in `.env` in the A2A folder (copy `.env.example`). `.env` is ignored
+   by git. You can also export `RESON8_API_KEY` in your shell.
+2. Install `ffmpeg` for microphone recording (macOS: `brew install ffmpeg`). Transcribing files
+   doesn't need it.
+
+```bash
+a2a send agent://acme/guest-sam --voice
+```
+
+This records from the microphone and shows the words as you speak. Press Enter to stop, check the
+transcript, and confirm to send. Add `--language en` (or `nl`, `de`, …) for the best accuracy,
+`--seconds 20` to stop automatically, and `--yes` to send without confirming.
+
+```bash
+a2a transcribe meeting.m4a --send agent://acme/guest-sam
+```
+
+```bash
+a2a transcribe --live
+```
+
+The first transcribes a recording and sends the text; without `--send` it only prints it. The
+second transcribes the microphone and prints the result.
+
+On macOS the first recording asks for microphone permission for your terminal app (System
+Settings > Privacy & Security > Microphone). On Linux the microphone is read through PulseAudio;
+set `A2A_MIC` to choose a different input device.
+
 ## The guard
 
 | Stage                 | What it does                                                                                                                                                      |
@@ -230,7 +263,7 @@ pnpm test
 pnpm typecheck
 ```
 
-- `pnpm test` runs 43 tests in about 2 seconds:
+- `pnpm test` runs 49 tests in about 2 seconds:
   - protocol and signing;
   - guard stages and invariants;
   - relay policy enforcement (forgery, replay, links, hop, loop and rate limits, throttling,
@@ -238,7 +271,9 @@ pnpm typecheck
   - end to end with a real relay and two clients (delivery, blocks, redaction, hold and
     release, reject, offline delivery, relay restart, CLI exit codes, the MCP server);
   - the OpenCode runtime against a stand-in binary (flags, injected config, session resume,
-    errors, event parsing).
+    errors, event parsing);
+  - voice transcription against a stand-in Reson8 server (file upload, live streaming with
+    interim text and flush, key errors, `.env` loading).
 
 ```
 packages/
