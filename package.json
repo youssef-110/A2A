@@ -1,0 +1,32 @@
+{
+  "name": "a2a",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "relay": "node --disable-warning=ExperimentalWarning packages/server/src/main.ts",
+    "demo": "node --disable-warning=ExperimentalWarning demo/start.ts",
+    "demo:scenario": "node --disable-warning=ExperimentalWarning demo/scenario.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 test/*.test.ts",
+    "eval": "node --disable-warning=ExperimentalWarning packages/guard/scripts/eval.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.0"
+  },
+  "bin": {
+    "a2a": "bin/a2a",
+    "a2a-relay": "bin/a2a-relay"
+  },
+  "dependencies": {
+    "@a2a/protocol": "workspace:*",
+    "@a2a/guard": "workspace:*",
+    "@a2a/server": "workspace:*",
+    "@a2a/client": "workspace:*"
+  }
+}

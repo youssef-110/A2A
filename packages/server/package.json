@@ -1,0 +1,15 @@
+{
+  "name": "@a2a/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@a2a/protocol": "workspace:*",
+    "@a2a/guard": "workspace:*",
+    "ws": "^8.18.0",
+    "yaml": "^2.6.0"
+  }
+}

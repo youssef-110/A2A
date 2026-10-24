@@ -1,0 +1,14 @@
+{
+  "name": "@a2a/guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@a2a/protocol": "workspace:*",
+    "@anthropic-ai/sdk": "^1.3.0",
+    "yaml": "^2.6.0"
+  }
+}

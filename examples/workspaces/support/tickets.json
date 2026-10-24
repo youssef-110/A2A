@@ -1,0 +1,25 @@
+[
+  {
+    "id": "T-1042", "customer_id": 48213, "opened": "2026-10-21T15:02:00Z", "status": "pending_refund",
+    "subject": "Charged twice for October",
+    "history": [
+      { "at": "2026-10-21T15:02:00Z", "by": "customer", "text": "My card was charged $96 twice on Oct 21 for the Team plan." },
+      { "at": "2026-10-21T16:40:00Z", "by": "agent:maria", "text": "Confirmed duplicate charge ch_3PqL...a91 in Stripe. Promised a refund of $96 within 5 business days." }
+    ]
+  },
+  {
+    "id": "T-1051", "customer_id": 51877, "opened": "2026-10-22T09:15:00Z", "status": "open",
+    "subject": "Can't export invoices as PDF",
+    "history": [
+      { "at": "2026-10-22T09:15:00Z", "by": "customer", "text": "The export button on the invoices page does nothing in Safari." }
+    ]
+  },
+  {
+    "id": "T-0998", "customer_id": 39020, "opened": "2026-10-02T11:30:00Z", "status": "waiting_on_customer",
+    "subject": "Payment failed after card expiry",
+    "history": [
+      { "at": "2026-10-02T11:30:00Z", "by": "system", "text": "Renewal payment failed: card expired." },
+      { "at": "2026-10-03T08:05:00Z", "by": "agent:sam", "text": "Emailed the billing contact asking for an updated card. No refund owed." }
+    ]
+  }
+]

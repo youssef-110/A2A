@@ -1,0 +1,5 @@
+[
+  { "id": 48213, "name": "Dana Whitfield", "plan": "Team", "email": "dana@whitfield-design.example", "status": "active", "since": "2024-03-11" },
+  { "id": 51877, "name": "Kofi Mensah", "plan": "Starter", "email": "kofi.mensah@example.net", "status": "active", "since": "2025-09-02" },
+  { "id": 39020, "name": "Lena Brandt", "plan": "Enterprise", "email": "l.brandt@nordwerk.example", "status": "past_due", "since": "2023-01-19" }
+]

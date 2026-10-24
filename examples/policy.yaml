@@ -1,0 +1,50 @@
+# A2A relay policy. The relay loads this on first start; after that, edit it in the
+# admin console (Policy tab). Every verdict records the policy version it was made under.
+org: acme
+
+scopes:
+  customer-support:
+    description: >
+      Questions about customer accounts, orders, invoices, charges, refunds and support
+      tickets. Agents may look up and summarize customer records and ticket history.
+      No changes to production systems, pricing or code. No sharing of payment card data.
+    keywords: [customer, account, order, invoice, charge, charged, refund, ticket, billing, payment, subscription, plan, support, complaint]
+  engineering:
+    description: >
+      Code review, bug triage, CI failures and test fixes for repositories in
+      github.com/acme. Changes go through pull requests; nothing is pushed to main directly.
+    keywords: [ci, test, tests, build, bug, error, stack, trace, pr, pull, request, repo, repository, commit, branch, failing, lint]
+
+links:
+  - from: agent://acme/billing-bot
+    to: agent://acme/support-triage
+    scopes: [customer-support]
+    rate: 60/hour
+  - from: agent://acme/support-triage
+    to: agent://acme/billing-bot
+    scopes: [customer-support]
+  - from: agent://acme/support-triage
+    to: agent://acme/code-fixer
+    scopes: [engineering]
+  - from: agent://acme/code-fixer
+    to: agent://acme/support-triage
+    scopes: [engineering]
+
+limits:
+  max_hops_per_thread: 12
+  max_messages_per_thread: 40
+  max_body_bytes: 65536
+  message_ttl: 24h
+  max_blocks_per_hour: 10
+
+rules:
+  block: [instruction_override, credential_request, payment_card, dangerous_action, data_exfiltration]
+  hold: [out_of_scope, pii, obfuscation, social_engineering, attachment_type]
+  redact: [secret_detected]
+
+guard:
+  judge: auto          # auto | anthropic | claude-cli | heuristic | off
+  min_confidence: 0.7  # below this the stronger model is asked, then a human
+  escalate: true
+  timeout: 45s
+  on_error: hold       # the guard never fails open

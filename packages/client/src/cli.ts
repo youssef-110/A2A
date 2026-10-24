@@ -1,0 +1,303 @@
+import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { ADDRESS_RE, generateAgentKeyPair, loadPrivateKey } from "@a2a/protocol";
+import { configPath, keyPath, loadConfig, resolveHome, saveConfig, writeKey, type AgentConfig, type RuntimeKind } from "./config.ts";
+import { registerAgent, relayInfo } from "./relay-api.ts";
+import { ipc, NotRunningError } from "./ipc.ts";
+import { Daemon } from "./daemon.ts";
+import { runMcpServer } from "./mcp.ts";
+import { installService } from "./install.ts";
+import { existsSync } from "node:fs";
+
+const HELP = `a2a: send and receive agent messages through an A2A relay.
+
+Usage: a2a [--home DIR] <command> [options]
+
+Setup
+  init --server URL [--name NAME]         Create the client config and pin the relay's key
+  agents add <address> [options]          Create a key for an agent on this machine and register it
+      --runtime none|claude|codex|command   What to start when a message arrives (default none)
+      --command "prog args"                 For runtime command (or to replace \`codex exec\`)
+      --workdir DIR  --allowed-tools Read,Grep  --model NAME  --instructions TEXT
+      --display-name NAME  --description TEXT  --admin-token TOKEN (registers as active)
+      --default                             Make it the default sender
+  agents list                             Show the agents configured here
+  install [--load]                        Run \`a2a run\` as a launchd/systemd service
+
+Running
+  run                                     Connect to the relay, receive messages, start agents
+  info                                    Show connection and agent status
+  runs                                    Show recent agent runs
+  mcp [--agent ADDRESS]                   MCP server over stdio for Claude Code, Codex and others
+
+Messaging
+  send <to> <text|-> [--from A] [--scope S] [--thread T] [--wait SECONDS] [--notify] [--json]
+  reply <message-id> <text|-> [--from A]
+  status <message-id>
+  thread <thread-id> [--agent A]
+  inbox [--agent A] [--next [--wait SECONDS]]
+  directory [--agent A]
+
+The home directory defaults to ~/.a2a, or A2A_HOME.`;
+
+function splitCommand(s: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quote: string | null = null;
+  for (const ch of s) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (/\s/.test(ch)) {
+      if (cur) out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+const readText = (parts: string[]): string => (parts.length === 1 && parts[0] === "-" ? readFileSync(0, "utf8") : parts.join(" "));
+
+function print(json: boolean, value: unknown, human: () => string): void {
+  console.log(json ? JSON.stringify(value, null, 2) : human());
+}
+
+async function main(argv: string[]): Promise<number> {
+  let home: string | undefined;
+  const rest = [...argv];
+  const hi = rest.indexOf("--home");
+  if (hi >= 0) {
+    home = rest[hi + 1];
+    rest.splice(hi, 2);
+  }
+  const H = resolveHome(home);
+  const [cmd, ...args] = rest;
+
+  switch (cmd) {
+    case undefined:
+    case "help":
+    case "--help":
+    case "-h":
+      console.log(HELP);
+      return 0;
+
+    case "init": {
+      const { values } = parseArgs({ args, options: { server: { type: "string" }, name: { type: "string" }, force: { type: "boolean" } } });
+      if (!values.server) throw new Error("--server is required, e.g. a2a init --server http://localhost:7700");
+      if (existsSync(configPath(H)) && !values.force) throw new Error(`${configPath(H)} already exists (use --force to replace it)`);
+      const server = values.server.replace(/\/$/, "");
+      const info = await relayInfo(server);
+      saveConfig(H, { server, name: values.name ?? "a2a-client", relay_public_key: info.relay_public_key, agents: [] });
+      console.log(`Connected to ${info.name} (org ${info.org}, policy v${info.policy_version}).\nPinned relay key and wrote ${configPath(H)}.\nNext: a2a agents add agent://${info.org}/<name> --runtime claude`);
+      return 0;
+    }
+
+    case "agents": {
+      const [sub, ...a] = args;
+      const config = loadConfig(H);
+      if (sub === "list" || sub === undefined) {
+        if (!config.agents.length) console.log("No agents configured. Add one with `a2a agents add`.");
+        for (const ag of config.agents) console.log(`${ag.address}${ag.address === config.default_agent ? " (default)" : ""}\n  runtime: ${ag.runtime}${ag.workdir ? `  workdir: ${ag.workdir}` : ""}`);
+        return 0;
+      }
+      if (sub !== "add") throw new Error(`unknown agents command: ${sub}`);
+      const { values, positionals } = parseArgs({
+        args: a,
+        allowPositionals: true,
+        options: {
+          runtime: { type: "string", default: "none" },
+          command: { type: "string" },
+          workdir: { type: "string" },
+          "allowed-tools": { type: "string" },
+          model: { type: "string" },
+          instructions: { type: "string" },
+          "display-name": { type: "string" },
+          description: { type: "string" },
+          "admin-token": { type: "string" },
+          "max-concurrent": { type: "string" },
+          timeout: { type: "string" },
+          default: { type: "boolean" },
+        },
+      });
+      const address = positionals[0];
+      if (!address || !ADDRESS_RE.test(address)) throw new Error("usage: a2a agents add agent://<org>/<name> [options]");
+      const runtime = values.runtime as RuntimeKind;
+      if (!["none", "claude", "codex", "command"].includes(runtime)) throw new Error("--runtime must be none, claude, codex or command");
+      if (runtime === "command" && !values.command) throw new Error("--runtime command needs --command");
+
+      let entry = config.agents.find((x) => x.address === address);
+      let pem: string;
+      if (entry) {
+        pem = readFileSync(keyPath(H, entry), "utf8");
+      } else {
+        pem = generateAgentKeyPair().privateKeyPem;
+        entry = { address, key: writeKey(H, address.split("/").pop()!, pem), runtime };
+        config.agents.push(entry);
+      }
+      const updated: AgentConfig = {
+        ...entry,
+        runtime,
+        ...(values.command ? { command: splitCommand(values.command) } : {}),
+        ...(values.workdir ? { workdir: resolve(values.workdir) } : {}),
+        ...(values["allowed-tools"] ? { allowed_tools: values["allowed-tools"].split(",").map((s) => s.trim()).filter(Boolean) } : {}),
+        ...(values.model ? { model: values.model } : {}),
+        ...(values.instructions ? { instructions: values.instructions } : {}),
+        ...(values["display-name"] ? { display_name: values["display-name"] } : {}),
+        ...(values.description ? { description: values.description } : {}),
+        ...(values["max-concurrent"] ? { max_concurrent: Number(values["max-concurrent"]) } : {}),
+        ...(values.timeout ? { timeout: values.timeout } : {}),
+      };
+      if (!values.command && runtime !== "command" && runtime !== "codex") delete updated.command;
+      const index = config.agents.indexOf(entry);
+      config.agents[index] = entry = updated;
+      if (values.default || !config.default_agent) config.default_agent = address;
+      const r = await registerAgent(config.server, address, loadPrivateKey(pem).export({ type: "pkcs8", format: "pem" }).toString(), {
+        display_name: entry.display_name,
+        description: entry.description,
+        adminToken: values["admin-token"] ?? process.env.A2A_ADMIN_TOKEN,
+      });
+      saveConfig(H, config);
+      console.log(`${address} registered on ${config.server}: ${r.status}${r.status === "pending" ? "\nAn admin must approve it in the relay console before it can send or receive." : ""}\nRestart \`a2a run\` to pick up the change.`);
+      return 0;
+    }
+
+    case "run": {
+      const daemon = new Daemon({ home: H });
+      await daemon.start();
+      const cfg = daemon.config;
+      console.log(`a2a client "${cfg.name}" running for ${cfg.agents.map((x) => `${x.address} [${x.runtime}]`).join(", ")}`);
+      let stopping = false;
+      for (const sig of ["SIGINT", "SIGTERM"] as const) {
+        process.on(sig, async () => {
+          if (stopping) process.exit(1);
+          stopping = true;
+          await daemon.stop();
+          process.exit(0);
+        });
+      }
+      await new Promise(() => {});
+      return 0;
+    }
+
+    case "install": {
+      const { values } = parseArgs({ args, options: { load: { type: "boolean" } } });
+      console.log(installService(H, loadConfig(H).name, !!values.load));
+      return 0;
+    }
+
+    case "mcp": {
+      const { values } = parseArgs({ args, options: { agent: { type: "string" } } });
+      await runMcpServer(H, values.agent);
+      return -1;
+    }
+
+    case "info": {
+      const { values } = parseArgs({ args, options: { json: { type: "boolean" } } });
+      const r = await ipc<{ name: string; server: string; connected: boolean; outbox_pending: number; agents: { address: string; runtime: string; online: boolean; rejected: string | null; running: number; queued: number }[] }>(H, "GET", "/info");
+      print(!!values.json, r, () =>
+        [
+          `${r.name} -> ${r.server}: ${r.connected ? "connected" : "not connected"}${r.outbox_pending ? `, ${r.outbox_pending} message(s) waiting to send` : ""}`,
+          ...r.agents.map((a) => `  ${a.online ? "●" : "○"} ${a.address} [${a.runtime}]${a.rejected ? ` not accepted: ${a.rejected}` : ""}${a.running ? `, ${a.running} running` : ""}${a.queued ? `, ${a.queued} queued` : ""}`),
+        ].join("\n"),
+      );
+      return 0;
+    }
+
+    case "runs": {
+      const r = await ipc<{ runs: Record<string, unknown>[] }>(H, "GET", "/runs");
+      for (const x of r.runs) console.log(`${x.started_at} ${x.id} ${x.agent} [${x.runtime}] ${x.status}${x.error ? `: ${x.error}` : ""}`);
+      if (!r.runs.length) console.log("No runs yet.");
+      return 0;
+    }
+
+    case "send": {
+      const { values, positionals } = parseArgs({
+        args,
+        allowPositionals: true,
+        options: { from: { type: "string" }, scope: { type: "string" }, thread: { type: "string" }, wait: { type: "string" }, notify: { type: "boolean" }, json: { type: "boolean" } },
+      });
+      const [to, ...words] = positionals;
+      if (!to || !words.length) throw new Error("usage: a2a send <to> <text|->");
+      const wait = values.notify ? 0 : Number(values.wait ?? 0);
+      const r = await ipc<Record<string, unknown>>(H, "POST", "/send", {
+        from: values.from,
+        to,
+        text: readText(words),
+        scope: values.scope,
+        thread_id: values.thread,
+        kind: values.notify ? "notify" : "request",
+        expects_reply: !values.notify,
+        wait_seconds: wait,
+      });
+      const reply = r.reply as { from: string; text: string; redacted: boolean } | undefined;
+      print(!!values.json, r, () => {
+        const head = `${r.id} (thread ${r.thread_id}): ${r.state}${r.reason_code ? ` (${r.reason_code})` : ""}`;
+        if (reply) return `${head}\n\nReply from ${reply.from}${reply.redacted ? " (redacted by relay)" : ""}:\n${reply.text}`;
+        if (r.timed_out) return `${head}\nNo reply within ${wait}s. Check later with: a2a thread ${r.thread_id}`;
+        return head;
+      });
+      return r.state === "blocked" || r.state === "rejected" ? 2 : 0;
+    }
+
+    case "reply": {
+      const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { from: { type: "string" }, json: { type: "boolean" } } });
+      const [id, ...words] = positionals;
+      if (!id || !words.length) throw new Error("usage: a2a reply <message-id> <text|->");
+      const r = await ipc<Record<string, unknown>>(H, "POST", "/reply", { from: values.from, in_reply_to: id, text: readText(words) });
+      print(!!values.json, r, () => `${r.id}: ${r.state}${r.reason_code ? ` (${r.reason_code})` : ""}`);
+      return 0;
+    }
+
+    case "status": {
+      const { positionals } = parseArgs({ args, allowPositionals: true, options: {} });
+      console.log(JSON.stringify(await ipc(H, "GET", `/status?id=${encodeURIComponent(positionals[0] ?? "")}`), null, 2));
+      return 0;
+    }
+
+    case "thread": {
+      const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { agent: { type: "string" }, json: { type: "boolean" } } });
+      const t = await ipc<{ id: string; scope: string; messages: { from: string; to: string; state: string; reason_code: string | null; text: string | null; created_at: string }[] }>(
+        H, "GET", `/thread?id=${encodeURIComponent(positionals[0] ?? "")}${values.agent ? `&agent=${encodeURIComponent(values.agent)}` : ""}`,
+      );
+      print(!!values.json, t, () =>
+        [`Thread ${t.id} (${t.scope})`, ...t.messages.map((m) => `\n[${m.created_at.slice(11, 19)}] ${m.from} -> ${m.to}  ${m.state}${m.reason_code ? ` (${m.reason_code})` : ""}\n${m.text ?? "(not delivered)"}`)].join("\n"),
+      );
+      return 0;
+    }
+
+    case "inbox": {
+      const { values } = parseArgs({ args, options: { agent: { type: "string" }, next: { type: "boolean" }, wait: { type: "string" }, json: { type: "boolean" } } });
+      if (values.next) {
+        const r = await ipc<{ message: Record<string, unknown> | null }>(H, "POST", "/inbox/next", { agent: values.agent, wait_seconds: Number(values.wait ?? 0) });
+        print(!!values.json, r, () => (r.message ? `${r.message.id} from ${r.message.from} (thread ${r.message.thread_id}):\n${r.message.text}` : "No new messages."));
+        return 0;
+      }
+      const r = await ipc<{ messages: Record<string, unknown>[] }>(H, "GET", `/inbox${values.agent ? `?agent=${encodeURIComponent(values.agent)}` : ""}`);
+      print(!!values.json, r, () => (r.messages.length ? r.messages.map((m) => `${m.handled ? " " : "•"} ${m.received_at} ${m.id} ${m.from} -> ${m.to}\n  ${String(m.text).replace(/\s+/g, " ").slice(0, 160)}`).join("\n") : "Inbox is empty."));
+      return 0;
+    }
+
+    case "directory": {
+      const { values } = parseArgs({ args, options: { agent: { type: "string" }, json: { type: "boolean" } } });
+      const r = await ipc<{ agents: { address: string; online: boolean; display_name: string | null; scopes: { name: string }[] }[] }>(H, "GET", `/directory${values.agent ? `?agent=${encodeURIComponent(values.agent)}` : ""}`);
+      print(!!values.json, r, () => (r.agents.length ? r.agents.map((a) => `${a.online ? "●" : "○"} ${a.address}${a.display_name ? ` (${a.display_name})` : ""}  scopes: ${a.scopes.map((s) => s.name).join(", ")}`).join("\n") : "This agent has no links to other agents in the relay policy."));
+      return 0;
+    }
+
+    default:
+      throw new Error(`unknown command: ${cmd}\n\n${HELP}`);
+  }
+}
+
+main(process.argv.slice(2)).then(
+  (code) => {
+    if (code >= 0) process.exitCode = code;
+  },
+  (err) => {
+    console.error(err instanceof NotRunningError ? err.message : `a2a: ${(err as Error).message}`);
+    process.exitCode = 1;
+  },
+);

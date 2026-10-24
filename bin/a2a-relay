@@ -1,0 +1,5 @@
+#!/bin/sh
+# A2A relay server entry point.
+SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+DIR=$(cd "$(dirname "$SELF")/.." && pwd)
+exec node --disable-warning=ExperimentalWarning "$DIR/packages/server/src/main.ts" "$@"
