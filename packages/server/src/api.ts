@@ -325,8 +325,19 @@ export function createApi(opts: ApiOptions): Api {
         const onEvent = (e: RelayEvent): void => write(`event: ${e.type}\ndata: ${JSON.stringify(e.data)}\n\n`);
         relay.on("event", onEvent);
         const ping = setInterval(() => write(": ping\n\n"), 20_000);
+        // End every stream after a minute; the browser reconnects on its own. An endless stream would keep
+        // a Durable Object on its old code after a deploy, because Cloudflare lets in-flight work finish first.
+        const end = setTimeout(() => {
+          cleanup();
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        }, 55_000);
         cleanup = () => {
           clearInterval(ping);
+          clearTimeout(end);
           relay.off("event", onEvent);
         };
       },

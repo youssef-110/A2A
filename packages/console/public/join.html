@@ -88,10 +88,11 @@
       return v.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 40);
     }
     function render() {
-      const name = slug($("name").value) || "your-name";
-      $("claude-say").textContent = `Join A2A with ${link} as ${name}`;
+      // No name typed: leave it out, and the client uses the computer's user name.
+      const name = slug($("name").value);
+      $("claude-say").textContent = name ? `Join A2A with ${link} as ${name}` : `Join A2A with ${link}`;
       $("dl-cmd").textContent = os === "win" ? `iwr ${location.origin}/a2a.mjs -OutFile a2a.mjs` : `curl -fsSLO ${location.origin}/a2a.mjs`;
-      $("join-cmd").textContent = `node a2a.mjs join ${link} --name ${name}`;
+      $("join-cmd").textContent = name ? `node a2a.mjs join ${link} --name ${name}` : `node a2a.mjs join ${link}`;
       $("codex-cmd").textContent = os === "win" ? `codex mcp add a2a -- node "$PWD\\a2a.mjs" mcp` : `codex mcp add a2a -- node "$PWD/a2a.mjs" mcp`;
       document.querySelectorAll("[data-os]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.os === os)));
     }

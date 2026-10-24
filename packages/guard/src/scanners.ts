@@ -128,6 +128,7 @@ function scanPlain(text: string, source: Finding["source"], span?: [number, numb
 }
 
 const TEXT_MIME_RE = /^(?:text\/|application\/(?:json|xml|yaml|x-yaml|csv|javascript|x-sh))/;
+const TEXT_NAME_RE = /\.(?:md|markdown|txt|json|ya?ml|csv|xml|html?|js|ts|py|sh|ps1)$/i;
 const RISKY_MIME_RE = /^application\/(?:x-msdownload|x-executable|x-mach-binary|x-sh|x-msdos-program|vnd\.microsoft\.portable-executable|java-archive)/;
 
 export interface AttachmentInput {
@@ -154,7 +155,8 @@ export function scan(n: Normalized, attachments: AttachmentInput[] = []): Findin
     if (RISKY_MIME_RE.test(a.mime) || /\.(?:exe|dll|scr|bat|cmd|ps1|sh|app|dmg|pkg|jar)$/i.test(a.name)) {
       findings.push({ category: "attachment_type", detail: `Executable attachment: ${a.name}`, source: "attachment" });
     }
-    if (TEXT_MIME_RE.test(a.mime)) {
+    // Judge by name as well as declared type, so "notes.md" sent as octet-stream is still read.
+    if (TEXT_MIME_RE.test(a.mime) || TEXT_NAME_RE.test(a.name)) {
       const content = Buffer.from(a.data, "base64").toString("utf8").normalize("NFKC");
       for (const f of scanPlain(content, "attachment")) findings.push({ ...f, detail: `${f.detail} (in ${a.name})`, start: undefined, end: undefined });
     }

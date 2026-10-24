@@ -159,7 +159,7 @@ test("admin sessions are signed cookies, and logging out revokes them", async ()
 });
 
 test("a capsule rides along as an attachment, and the receiver gets a saved file and its Brief", async () => {
-  const { readAttachments, capsuleBrief } = await import("../packages/client/src/attachments.ts");
+  const { readAttachments, readCapsuleAttachments, capsuleBrief } = await import("../packages/client/src/attachments.ts");
   const { readFileSync } = await import("node:fs");
   const { r, dir } = await openRelay();
   const homes = [tempDir("cap-sender"), tempDir("cap-receiver")];
@@ -185,6 +185,17 @@ test("a capsule rides along as an attachment, and the receiver gets a saved file
     assert.equal(file.name, "dashboard.capsule.md");
     assert.equal(readFileSync(file.path, "utf8"), readFileSync(capsule, "utf8"));
     assert.equal(capsuleBrief(readFileSync(file.path, "utf8")), "A2A dashboard: Talk page needs push-to-talk polish.");
+
+    // Agents (MCP) may only attach sealed capsules from outside the a2a folder.
+    const outside = tempDir("cap-outside");
+    const plain = join(outside, "id_ed25519");
+    writeFileSync(plain, "-----BEGIN OPENSSH PRIVATE KEY-----");
+    assert.throws(() => readCapsuleAttachments([plain], homes[0]!), /Only context capsules/);
+    const unsealed = join(outside, "draft.capsule.md");
+    writeFileSync(unsealed, "# not sealed");
+    assert.throws(() => readCapsuleAttachments([unsealed], homes[0]!), /isn't a sealed capsule/);
+    assert.throws(() => readCapsuleAttachments([capsule], homes[0]!), /inside the a2a folder/);
+    cleanup(outside);
 
     assert.throws(() => readAttachments([capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule, capsule]), /limit is 180 KiB/);
   } finally {

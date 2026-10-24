@@ -272,7 +272,14 @@ export class Daemon {
     let senderVerified = false;
     if (d.envelope) {
       const key = await this.senderKey(d.from, d.to);
-      senderVerified = !!key && verifyEnvelope(d.envelope, key) && d.envelope.id === d.id && d.envelope.body.text === d.text && d.envelope.from === d.from;
+      senderVerified =
+        !!key &&
+        verifyEnvelope(d.envelope, key) &&
+        d.envelope.id === d.id &&
+        d.envelope.body.text === d.text &&
+        d.envelope.from === d.from &&
+        // Files are covered by the sender's signature too, not only by the relay's.
+        canonicalize(d.envelope.body.attachments ?? null) === canonicalize(d.attachments ?? null);
       if (!senderVerified) {
         this.log(`dropped ${d.id}: sender signature did not verify`);
         return;
@@ -380,7 +387,7 @@ export class Daemon {
       const data = Buffer.from(a.data, "base64");
       const path = join(dir, name);
       writeFileSync(path, data, { mode: 0o600 });
-      return { name, path, bytes: data.length };
+      return { name, path, bytes: data.length, mime: a.mime };
     });
   }
 

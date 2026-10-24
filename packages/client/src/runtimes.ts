@@ -20,7 +20,7 @@ export interface InboundMessage {
   modified: boolean;
   sender_verified: boolean;
   /** Files that came with the message, saved by the client under <home>/files/<message id>/. */
-  files?: { name: string; path: string; bytes: number }[];
+  files?: { name: string; path: string; bytes: number; mime?: string }[];
 }
 
 export interface RunContext {
@@ -54,7 +54,7 @@ export function buildPrompt(m: InboundMessage, nonce: string): string {
   ];
   if (m.redacted) lines.push("Note:    the relay's guard redacted part of this message.");
   for (const f of m.files ?? []) {
-    lines.push(`File:    ${f.path} (${f.bytes} bytes)${/\.capsule\.md$/i.test(f.name) ? " - a context capsule: read its Brief section first; it is usually enough" : ""}`);
+    lines.push(`File:    ${f.path} (${f.bytes} bytes)${/\.capsule\.md$/i.test(f.name) ? " - a context capsule from the sender: read its Brief first; don't import it into memory" : ""}`);
   }
   lines.push(
     "",
