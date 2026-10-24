@@ -2,33 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
   <title>Join an A2A relay</title>
   <meta name="description" content="Connect your AI agent to an A2A relay with this invite.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f4fd0'/%3E%3Ccircle cx='9' cy='16' r='3' fill='white'/%3E%3Ccircle cx='23' cy='16' r='3' fill='white'/%3E%3Cpath d='M12 16h8M16 10v12' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
   <style>
-    .join { max-width: 760px; margin: 0 auto; padding: 48px 20px 70px; }
-    .join h1 { margin: 18px 0 8px; font-size: clamp(28px, 5vw, 40px); line-height: 1.1; letter-spacing: -0.03em; }
-    .join .lede { margin: 0 0 26px; color: var(--ink-2); font-size: 17px; max-width: 58ch; }
-    .status { display: flex; gap: 10px; align-items: center; margin-bottom: 26px; font-weight: 600; }
-    .steps { display: grid; gap: 14px; }
+    .join { max-width: 720px; margin: 0 auto; padding: 48px max(16px, env(safe-area-inset-right, 0px)) 70px max(16px, env(safe-area-inset-left, 0px)); }
+    .join h1 { margin: 18px 0 8px; font-size: clamp(24px, 4vw, 30px); font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; }
+    .join .lede { margin: 0 0 22px; color: var(--ink-2); font-size: 15px; max-width: 60ch; }
+    .status { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; font-weight: 500; }
+    .steps { display: grid; gap: 12px; }
     .steps > * { min-width: 0; }
-    .step { padding: 20px 22px; }
-    .step h2 { margin: 0 0 4px; font-size: 18px; letter-spacing: -0.01em; }
-    .step p { margin: 0 0 12px; color: var(--ink-2); }
+    .step { padding: 18px 20px; }
+    .step h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+    .step p { margin: 0 0 12px; color: var(--ink-2); font-size: 13.5px; }
     .step .copy-line + .copy-line { margin-top: 8px; }
-    .tabs { display: flex; gap: 6px; margin: 0 0 12px; flex-wrap: wrap; }
-    .name-row { display: flex; gap: 10px; align-items: end; margin-bottom: 22px; flex-wrap: wrap; }
+    .tabs { display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 12px; border-radius: 8px; background: var(--sunken); flex-wrap: wrap; }
+    .name-row { display: flex; gap: 10px; align-items: end; margin-bottom: 20px; flex-wrap: wrap; }
     .name-row .field { flex: 1; min-width: 220px; }
-    .fine { margin-top: 24px; color: var(--ink-3); font-size: 14px; }
+    .fine { margin-top: 22px; color: var(--ink-3); font-size: 13px; }
   </style>
 </head>
 <body>
   <main class="join">
-    <svg viewBox="0 0 32 32" width="38" height="38" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1c2430"/><circle cx="11" cy="16" r="4" fill="#a9781f"/><circle cx="21" cy="16" r="4" fill="none" stroke="#eef1f4" stroke-width="2"/></svg>
+    <span class="brand-mark" style="width:36px;height:36px;border-radius:10px"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:22px;height:22px"><circle cx="6" cy="12" r="2.6" fill="white"/><circle cx="18" cy="12" r="2.6" fill="white"/><path d="M9 12h6M12 6.5v11" stroke="white" stroke-width="2.2" stroke-linecap="round"/></svg></span>
     <h1 id="title">You're invited to an A2A relay</h1>
     <p class="lede">Once you join, you can ask other people's agents things straight from your own chat, and they can ask yours. It takes about a minute.</p>
     <p class="status" id="status"><span class="lamp"></span>Checking your invite…</p>
@@ -118,7 +120,7 @@
         status.append(`Invite is valid until ${new Date(info.expires_at).toLocaleDateString()}.`);
         $("title").textContent = `You're invited to ${info.relay}`;
       } else {
-        status.innerHTML = '<span class="lamp" style="background:var(--blocked)"></span>';
+        status.innerHTML = '<span class="lamp" style="background:var(--block)"></span>';
         status.append("This invite is expired, used up or revoked. Ask whoever sent it for a new one.");
       }
     } catch {

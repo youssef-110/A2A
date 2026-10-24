@@ -110,24 +110,76 @@ function redactedText(text) {
 }
 
 const ICONS = {
-  board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="7" r="2.2"/><circle cx="12" cy="7" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="6" cy="17" r="2.2"/><circle cx="12" cy="17" r="2.2"/><circle cx="18" cy="17" r="2.2"/><path d="M6 9.2c0 4 6 3.8 6 5.6"/></svg>',
-  talk: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
-  traffic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h11M4 12h16M4 17h8"/><path d="m16 4 3 3-3 3"/></svg>',
-  invites: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
-  agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 7V4M9 13h.01M15 13h.01"/></svg>',
-  review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 4 6v6c0 4.5 3.4 7.8 8 9 4.6-1.2 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
-  policy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>',
-  playground: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/></svg>',
-  audit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>',
-  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
+  board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="14" rx="1.5"/><rect width="7" height="7" x="3" y="14" rx="1.5"/></svg>',
+  talk: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>',
+  traffic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>',
+  invites: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
+  policy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>',
+  playground: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.53a2 2 0 0 1-.21.9L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.07-10.13A2 2 0 0 1 14 9.53V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></svg>',
+  audit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>',
+  scissors: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>',
+  minus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
 };
 
 const brandMark = () =>
   h("span", {
     class: "brand-mark",
-    html: '<svg viewBox="0 0 32 32" width="30" height="30"><rect width="32" height="32" rx="8" fill="#1c2430"/><circle cx="11" cy="16" r="4" fill="#a9781f"/><circle cx="21" cy="16" r="4" fill="none" stroke="#eef1f4" stroke-width="2"/></svg>',
+    html: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.6" fill="white"/><circle cx="18" cy="12" r="2.6" fill="white"/><path d="M9 12h6M12 6.5v11" stroke="white" stroke-width="2.2" stroke-linecap="round"/></svg>',
   });
+
+// A stable, low-key color per agent so a busy list is easy to scan.
+const AV = [["#e2e8fb", "#2f4fd0"], ["#e2f1e8", "#1b774b"], ["#f6e9dc", "#8a4a12"], ["#ede7fa", "#6645bd"], ["#e1eff2", "#1d6b7a"], ["#f7e3ea", "#a3324f"], ["#ececdf", "#5f5a1d"]];
+const AV_DARK = [["#232c4a", "#9fb1ff"], ["#1b3328", "#7fd8a8"], ["#3a2a1b", "#f0b98a"], ["#2c2445", "#c6b4f7"], ["#173238", "#7fd0de"], ["#3a1f29", "#f29bb2"], ["#2f2e1c", "#d9d48a"]];
+function initials(address) {
+  return (nameOf(address) || short(address)).replace(/^guest-/, "").slice(0, 2);
+}
+function avatar(address) {
+  let hash = 0;
+  for (const c of address ?? "") hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+  const root = document.documentElement.dataset.theme;
+  const dark = root ? root === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const [bg, ink] = (dark ? AV_DARK : AV)[hash % AV.length];
+  return h("span", { class: "mono-av", style: `--av-bg:${bg};--av-ink:${ink}`, "aria-hidden": "true" }, initials(address));
+}
+const who = (address) => h("span", { class: "who", title: address }, avatar(address), h("span", { class: "name" }, nameOf(address)));
+
+// Guard stages as a vertical timeline: one node per stage, colored by its decision.
+const STAGE_LABEL = { envelope: "Envelope and link checks", scanners: "Scanners", judge: "AI judge", escalation: "Escalation" };
+const STAGE_ICON = { allow: "check", redact: "scissors", hold: "pause", block: "x" };
+function pipeline(stages) {
+  return h(
+    "div",
+    { class: "pipeline" },
+    (stages ?? []).map((s) =>
+      h(
+        "div",
+        { class: `pstage ${s.decision}` },
+        h("span", { class: "node", html: ICONS[STAGE_ICON[s.decision] ?? "minus"] }),
+        h(
+          "div",
+          { style: "min-width:0" },
+          h(
+            "div",
+            { class: "pstage-top" },
+            h("span", { class: "pstage-name" }, STAGE_LABEL[s.stage] ?? s.stage),
+            h("span", { class: `decision ${s.decision}` }, s.decision),
+            s.confidence != null ? h("span", { class: "pstage-meta" }, `${Math.round(s.confidence * 100)}% sure`) : null,
+            h("span", { class: "pstage-meta" }, [s.model, s.latency_ms != null ? `${s.latency_ms} ms` : null].filter(Boolean).join(", ")),
+          ),
+          s.reason ? h("div", { class: "pstage-reason" }, s.reason) : null,
+        ),
+      ),
+    ),
+  );
+}
 
 // ------------------------------------------------------------------ login
 
@@ -150,7 +202,7 @@ function showLogin(error) {
       },
     },
     brandMark(),
-    h("h1", {}, "Sign in to the switchboard"),
+    h("h1", {}, "Sign in to A2A"),
     h("p", {}, "Use the relay's admin token. On Cloudflare it's the A2A_ADMIN_TOKEN secret."),
     h("label", { class: "field" }, h("span", {}, "Admin token"), token),
     err,
@@ -186,14 +238,14 @@ function renderShell() {
   const rail = h(
     "nav",
     { class: "rail", "aria-label": "Console" },
-    h("div", { class: "brand" }, brandMark(), h("div", {}, h("div", { class: "brand-name" }, "Switchboard"), h("div", { class: "brand-org" }, org ? `agent://${org}` : ""))),
+    h("div", { class: "brand" }, brandMark(), h("div", {}, h("div", { class: "brand-name" }, "A2A"), h("div", { class: "brand-org" }, org ? `agent://${org}` : ""))),
     NAV.map(([view, label]) => {
       const n = navCount(view);
       return h(
         "button",
         { class: "nav-btn", "aria-current": S.view === view ? "page" : false, onclick: () => go(view) },
         h("span", { html: ICONS[view] }),
-        label,
+        h("span", { class: "label" }, label),
         n ? h("span", { class: "nav-count", "aria-label": `${n} waiting` }, n) : null,
       );
     }),
@@ -270,7 +322,7 @@ function jack(a) {
         go("talk");
       },
     },
-    h("span", { class: "socket" }, h("span", { class: `lamp ${a.online ? "on" : ""}` })),
+    h("span", { class: "socket" }, isConsole ? "you" : initials(a.address), h("span", { class: `lamp ${a.online ? "on" : ""}` })),
     h("span", { class: "jack-name" }, a.display_name || short(a.address)),
     h("span", { class: "jack-addr" }, isConsole ? "you, from this console" : a.status === "pending" ? "waiting for approval" : a.online ? "online" : `seen ${ago(a.last_seen_at) || "never"}`),
   );
@@ -334,10 +386,10 @@ function msgRow(m, onclick) {
   return h(
     "button",
     { class: "msg", "aria-selected": S.selected === m.id ? "true" : "false", onclick },
-    h("span", { class: "msg-route" }, nameOf(m.from), h("span", { class: "arrow", "aria-label": "to" }, "to"), nameOf(m.to)),
+    h("span", { class: "msg-route" }, who(m.from), h("span", { class: "route", "aria-label": "to", html: ICONS.arrow }), who(m.to)),
     h("span", { class: "msg-time" }, timeEl(m.received_at)),
     h("span", { class: "msg-preview" }, m.preview || "(empty)"),
-    h("span", { class: "msg-meta" }, pill(m.state), m.reason_code ? h("span", { class: "muted mono" }, m.reason_code) : null, m.redacted ? h("span", { class: "pill queued" }, "redacted") : null),
+    h("span", { class: "msg-meta" }, pill(m.state), m.reason_code ? h("span", { class: "muted mono" }, m.reason_code) : null, m.redacted ? h("span", { class: "pill redacted" }, "redacted") : null),
   );
 }
 
@@ -399,11 +451,7 @@ function detailView() {
     h("div", { class: "quote" }, redactedText(d.delivered_text ?? d.original_text)),
     d.delivered_text && d.delivered_text !== d.original_text ? h("p", { class: "muted" }, "The guard changed this text before delivery.") : null,
     h("h3", { class: "section-title" }, "Guard stages"),
-    h(
-      "div",
-      { class: "stages" },
-      (d.stages ?? []).map((s) => h("div", { class: "stage" }, h("span", { class: "stage-name" }, s.stage), h("span", {}, s.reason), h("span", {}, pill(s.decision === "allow" ? "delivered" : s.decision === "redact" ? "queued" : s.decision === "hold" ? "held" : "blocked")))),
-    ),
+    pipeline(d.stages),
     d.state === "held" ? reviewButtons(d.id) : null,
     S.thread ? [h("h3", { class: "section-title" }, `Thread (${S.thread.messages.length})`), h("div", { class: "thread" }, S.thread.messages.map((m) => h("div", {}, h("div", { class: "row" }, h("b", {}, nameOf(m.from)), pill(m.state), h("span", { class: "muted" }, timeEl(m.received_at))), h("div", { class: "quote" }, redactedText(m.text ?? m.preview)))))] : null,
   );
@@ -517,7 +565,7 @@ function callPanel() {
 
 function callLogItems() {
   const items = S.talk.log[S.talk.to] ?? [];
-  if (!items.length) return h("div", { class: "empty" }, h("strong", {}, "Say hello"), "Press the brass key and talk, or type below. Your message goes through the relay like any other.");
+  if (!items.length) return h("div", { class: "empty" }, h("strong", {}, "Say hello"), "Press the microphone button and talk, or type below. Your message goes through the relay like any other.");
   return items.map((m) =>
     h(
       "div",
@@ -1017,7 +1065,7 @@ function viewPlayground() {
                 h("div", { class: "row" }, pill(v.decision === "allow" ? "delivered" : v.decision === "redact" ? "queued" : v.decision === "hold" ? "held" : "blocked"), v.reason_code ? h("span", { class: "mono muted" }, v.reason_code) : null),
                 h("p", {}, v.reason),
                 v.delivered_text ? h("div", { class: "quote" }, redactedText(v.delivered_text)) : null,
-                h("div", { class: "stages" }, (v.stages ?? []).map((s) => h("div", { class: "stage" }, h("span", { class: "stage-name" }, s.stage), h("span", {}, s.reason), h("span", { class: "muted" }, s.decision)))),
+                pipeline(v.stages),
               );
             } catch (err) {
               toast(err.message);
