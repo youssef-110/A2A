@@ -154,7 +154,11 @@ export async function createWorkspace(env: AccountsEnv, userId: string, name: st
   return { id, slug, name, do_name: `ws:${id}`, role: "owner" };
 }
 
-/** The original single relay (Durable Object "relay", agent://acme) belongs to the legacy owner's account. */
+/**
+ * The original single relay (Durable Object "relay", agent://acme) belongs to the legacy owner's account.
+ * Only call this for an identity whose email is proven (Google with email_verified): password sign-ups
+ * don't verify email, so matching on them would hand the relay to whoever registers the address first.
+ */
 async function attachLegacyRelay(env: AccountsEnv, user: User): Promise<void> {
   if (!env.A2A_LEGACY_OWNER || user.email.toLowerCase() !== env.A2A_LEGACY_OWNER.toLowerCase()) return;
   const slug = env.A2A_ORG || "acme";
@@ -202,14 +206,13 @@ export async function signIn(env: AccountsEnv, input: { email?: unknown; passwor
   // Hash even when the account is unknown, so response time doesn't reveal which emails exist.
   const ok = await verifyPassword(typeof input.password === "string" ? input.password : "", row?.password_hash ?? "pbkdf2$100000$AAAAAAAAAAAAAAAAAAAAAA$x");
   if (!row || !ok) return null;
-  await attachLegacyRelay(env, row);
   return { id: row.id, email: row.email, name: row.name, avatar_url: row.avatar_url };
 }
 
+/** A new account's own workspace. Nothing here depends on the email being verified. */
 async function onFirstSignIn(env: AccountsEnv, user: User): Promise<void> {
   const first = (user.name ?? user.email).split(/\s+/)[0]!;
   await createWorkspace(env, user.id, `${first}'s workspace`, first);
-  await attachLegacyRelay(env, user);
 }
 
 // ------------------------------------------------------------------ Google sign-in
@@ -266,14 +269,23 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
   if (!claims.email || !claims.email_verified) return { error: "Your Google account needs a verified email address." };
   const email = claims.email.toLowerCase();
 
-  let user = await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url FROM users WHERE google_sub = ? OR email = ? ORDER BY google_sub IS NULL LIMIT 1")
+  const existing = await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url, google_sub FROM users WHERE google_sub = ? OR email = ? ORDER BY google_sub IS NULL LIMIT 1")
     .bind(claims.sub, email)
-    .first<User>();
-  if (user) {
+    .first<User & { google_sub: string | null }>();
+  let user: User;
+  if (existing) {
+    user = { id: existing.id, email: existing.email, name: existing.name, avatar_url: existing.avatar_url };
+    if (!existing.google_sub) {
+      // A password account with this email, never verified. Google proves who owns the address, so the
+      // Google user takes it over: the old password and every session it opened stop working.
+      await env.ACCOUNTS.batch([
+        env.ACCOUNTS.prepare("UPDATE users SET password_hash = NULL WHERE id = ?").bind(user.id),
+        env.ACCOUNTS.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(user.id),
+      ]);
+    }
     await env.ACCOUNTS.prepare("UPDATE users SET google_sub = ?, avatar_url = COALESCE(?, avatar_url), name = COALESCE(name, ?) WHERE id = ?")
       .bind(claims.sub, claims.picture ?? null, claims.name ?? null, user.id)
       .run();
-    await attachLegacyRelay(env, user);
   } else {
     user = { id: newId("usr"), email, name: claims.name ?? email.split("@")[0]!, avatar_url: claims.picture ?? null };
     await env.ACCOUNTS.prepare("INSERT INTO users (id, email, name, google_sub, avatar_url, created_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -281,6 +293,7 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
       .run();
     await onFirstSignIn(env, user);
   }
+  await attachLegacyRelay(env, user); // Google has verified this email
   let next = "/app";
   try {
     const decoded = new TextDecoder().decode(fromB64url(nextB64 ?? ""));

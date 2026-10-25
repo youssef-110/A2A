@@ -472,12 +472,14 @@ export class Relay extends EventEmitter {
         .run(address, public_key, str(input.display_name, 80), str(input.description, 400), str(input.host, 120), activate ? "active" : "pending", now, now);
       this.audit(admin ? "admin" : address, admin ? "agent.register" : invite ? "agent.join" : activate ? "agent.register_open" : "agent.request", address, invite ? { invite: invite.code.slice(0, 6) } : undefined);
     }
-    if (invite && (!existing || existing.status === "pending")) this.db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(invite.code);
     if (invite) {
-      // What the invite was for: one session, or the owner's own agents.
+      // What the invite was for: one session, or the owner's own agents. Whatever it grants costs a use,
+      // so an agent that is already registered can't replay a link to collect memberships for free.
       const target = this.db.prepare("SELECT session_id, owner FROM invite_targets WHERE code = ?").get(invite.code) as { session_id: string | null; owner: number } | undefined;
-      if (target?.owner) this.db.prepare("INSERT OR IGNORE INTO owner_agents (address, added_at) VALUES (?, ?)").run(address, now);
-      if (target?.session_id) this.db.prepare("INSERT OR IGNORE INTO session_members (session_id, address, joined_at) VALUES (?, ?, ?)").run(target.session_id, address, now);
+      const grants = !!target && existing?.status !== "disabled";
+      if (grants || !existing || existing.status === "pending") this.db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(invite.code);
+      if (grants && target!.owner) this.db.prepare("INSERT OR IGNORE INTO owner_agents (address, added_at) VALUES (?, ?)").run(address, now);
+      if (grants && target!.session_id) this.db.prepare("INSERT OR IGNORE INTO session_members (session_id, address, joined_at) VALUES (?, ?, ?)").run(target!.session_id, address, now);
     }
     const agent = this.getAgent(address)!;
     this.emitEvent("agent", this.agentView(agent));

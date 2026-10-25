@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "packages/web/public/app.html"
+        ],
+        "createdAt": "2026-10-25T14:40:34.463Z",
+        "reason": "Claude: the only pulses mark genuinely live states (a message mid-screening, the mic while listening), each with a text label"
+      }
+    ]
+  }
+}

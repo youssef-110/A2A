@@ -161,7 +161,12 @@ export default {
     }
 
     // The original relay at the root, unchanged for agents already connected to it.
-    if (p.startsWith("/v1/") || p === "/healthz") return env.RELAY.get(env.RELAY.idFromName("relay")).fetch(req);
+    if (p.startsWith("/v1/") || p === "/healthz") {
+      // Internal x-a2a-* headers are the Worker's to set; drop any a client sent.
+      const headers = new Headers(req.headers);
+      for (const k of [...headers.keys()]) if (k.startsWith("x-a2a-")) headers.delete(k);
+      return env.RELAY.get(env.RELAY.idFromName("relay")).fetch(new Request(req, { headers }));
+    }
     if (p.startsWith("/join/")) return asset(env, req, "/join.html");
 
     if (p === "/app" || p.startsWith("/app/")) {
