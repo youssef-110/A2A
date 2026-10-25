@@ -143,10 +143,10 @@ async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
   }
   if (url.pathname === "/api/device" && req.method === "GET") {
     // Wrong codes count against the person, so codes can't be guessed.
-    if (await tooManyFailures(env, [`code:${user.id}`])) return json({ error: "Too many wrong codes. Wait a few minutes and try again." }, 429);
+    if (await tooManyFailures(env, [`code:${user.id}`, `code-ip:${ip}`])) return json({ error: "Too many wrong codes. Wait a few minutes and try again." }, 429);
     const link = await deviceLinkByCode(env, url.searchParams.get("code") ?? "");
     if (!link) {
-      await recordFailure(env, [`code:${user.id}`]);
+      await recordFailure(env, [`code:${user.id}`, `code-ip:${ip}`]);
       return json({ error: "That code expired or doesn't exist. Start again from the app." }, 404);
     }
     return json({ code: link.user_code, host: link.host, status: link.status, expires_at: link.expires_at, origin_ip: link.origin_ip, origin_place: link.origin_place, your_ip: ip });
@@ -154,8 +154,12 @@ async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
   if (url.pathname === "/api/device/approve" && req.method === "POST") {
     const body = await readJson(req);
     const code = String(body.code ?? "").trim().toUpperCase();
+    if (await tooManyFailures(env, [`code:${user.id}`, `code-ip:${ip}`])) return json({ error: "Too many wrong codes. Wait a few minutes and try again." }, 429);
     const link = await deviceLinkByCode(env, code);
-    if (!link || link.status !== "pending") return json({ error: "That code expired or was already used. Start again from the app." }, 404);
+    if (!link || link.status !== "pending") {
+      await recordFailure(env, [`code:${user.id}`, `code-ip:${ip}`]);
+      return json({ error: "That code expired or was already used. Start again from the app." }, 404);
+    }
     if (body.deny === true) {
       await decideDeviceLink(env, code, user.id, "deny");
       return json({ ok: true, status: "denied" });

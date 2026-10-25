@@ -18,6 +18,17 @@ const STATE_FILE = path.join(DATA, "state.json");
 const LOG_FILE = path.join(DATA, "agent.log");
 const CLI = app.isPackaged ? path.join(process.resourcesPath, "a2a.mjs") : path.join(__dirname, "..", "plugin", "bin", "a2a.mjs");
 const ICON = path.join(__dirname, "build", "icon.png");
+const WELCOME = path.join(__dirname, "welcome.html");
+const WELCOME_URL = require("node:url").pathToFileURL(WELCOME).href;
+
+/** Only web links ever leave the app, never file:, javascript: or custom protocol handlers. */
+function openExternal(url) {
+  try {
+    if (["https:", "http:"].includes(new URL(url).protocol)) shell.openExternal(url);
+  } catch {
+    /* not a URL */
+  }
+}
 
 let win = null;
 let tray = null;
@@ -145,7 +156,7 @@ async function startLink(sender) {
   const res = await fetch(`${RELAY}/auth/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ host: os.hostname() }) });
   const link = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(link.error || "Couldn't reach a2a. Check your connection and try again.");
-  if (!process.env.A2A_NO_OPEN) shell.openExternal(link.verify_url);
+  if (!process.env.A2A_NO_OPEN) openExternal(link.verify_url);
   const until = Date.now() + link.expires_in * 1000;
   const tick = async () => {
     if (Date.now() > until) return send(sender, { state: "expired" });
@@ -247,23 +258,23 @@ function createWindow() {
   });
   const wc = win.webContents;
   wc.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/.test(url)) shell.openExternal(url);
+    openExternal(url);
     return { action: "deny" };
   });
   wc.on("will-navigate", (e, url) => {
-    if (url.startsWith("file:") || new URL(url).origin === ORIGIN) return;
+    if (isOurs(url)) return;
     e.preventDefault();
-    shell.openExternal(url);
+    openExternal(url);
   });
   // Downloads of the app from inside the app are pointless; send everything else to the browser.
   session.defaultSession.on("will-download", (e, item) => {
     e.preventDefault();
-    shell.openExternal(item.getURL());
+    openExternal(item.getURL());
   });
   linked() ? loadDashboard() : showWelcome();
 }
 
-const showWelcome = () => win?.loadFile(path.join(__dirname, "welcome.html"));
+const showWelcome = () => win?.loadFile(WELCOME);
 const loadDashboard = () => win?.loadURL(`${RELAY}/app`);
 
 function showWindow() {
@@ -282,7 +293,7 @@ function updateTray() {
       { label: line, enabled: false },
       { type: "separator" },
       { label: "Open a2a", click: showWindow },
-      { label: "Open in browser", click: () => shell.openExternal(`${RELAY}/app`) },
+      { label: "Open in browser", click: () => openExternal(`${RELAY}/app`) },
       { label: "Show agent log", click: () => shell.openPath(LOG_FILE) },
       { type: "separator" },
       { label: "Quit a2a", click: () => app.quit() },
@@ -299,11 +310,17 @@ function createTray() {
 
 // ------------------------------------------------------------------ IPC from the windows
 
-// Only our own pages may drive the app: the bundled welcome screen and the dashboard.
-const trusted = (e) => {
-  const url = e.senderFrame?.url ?? "";
-  return url.startsWith("file:") || (() => { try { return new URL(url).origin === ORIGIN; } catch { return false; } })();
-};
+// Only our own pages may drive the app: the bundled welcome screen and the a2a site.
+function isOurs(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === "file:") return u.href.split(/[?#]/)[0] === WELCOME_URL;
+    return u.origin === ORIGIN;
+  } catch {
+    return false;
+  }
+}
+const trusted = (e) => isOurs(e.senderFrame?.url ?? "");
 const handle = (channel, fn) =>
   ipcMain.handle(channel, (e, ...args) => {
     if (!trusted(e)) throw new Error("untrusted sender");
@@ -315,7 +332,7 @@ handle("desktop:signOut", () => signOut());
 handle("desktop:startLink", (e) => startLink(e.sender));
 handle("desktop:cancelLink", () => stopPolling());
 handle("desktop:openUrl", (_e, url) => {
-  if (typeof url === "string" && url.startsWith(`${ORIGIN}/`)) shell.openExternal(url);
+  if (typeof url === "string" && url.startsWith(`${ORIGIN}/`)) openExternal(url);
 });
 handle("desktop:info", () => ({ version: app.getVersion(), relay: RELAY, platform: process.platform }));
 
