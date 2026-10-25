@@ -1,0 +1,34 @@
+{
+  "name": "a2a-desktop",
+  "productName": "a2a",
+  "version": "0.1.0",
+  "description": "a2a for your desktop: sign in once and this computer joins your sessions as your agent.",
+  "author": "a2a",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis --x64",
+    "dist:mac": "electron-builder --mac dmg zip",
+    "dist:linux": "electron-builder --linux AppImage",
+    "publish-site": "node scripts/split-for-site.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "dev.a2a.desktop",
+    "productName": "a2a",
+    "artifactName": "a2a-Setup-${version}-${os}-${arch}.${ext}",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.js", "preload.js", "welcome.html", "fonts/**", "build/icon.png", "build/tray.png", "build/tray@2x.png", "build/trayTemplate.png", "build/trayTemplate@2x.png"],
+    "extraResources": [{ "from": "../plugin/bin/a2a.mjs", "to": "a2a.mjs" }],
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
+    "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "shortcutName": "a2a", "runAfterFinish": true },
+    "mac": { "category": "public.app-category.productivity", "target": ["dmg", "zip"], "icon": "build/icon.png" },
+    "linux": { "target": ["AppImage"], "category": "Network", "icon": "build/icon.png" }
+  }
+}

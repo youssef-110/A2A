@@ -5,17 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in to a2a</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Onest:wght@400;500;600&display=swap">
+  <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
 </head>
 <body>
   <main class="auth">
     <div class="auth-card">
       <a class="logo" href="/" aria-label="a2a home">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="#ededf3" stroke-width="3" stroke-linecap="round" opacity=".55"/><circle cx="9" cy="22" r="5" fill="#ededf3"/><circle cx="23" cy="10" r="5" fill="#5266eb"/></svg>
-        a2a
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
+        <span>a2a</span>
       </a>
       <div>
         <h1 id="title">Welcome back</h1>
@@ -40,7 +38,9 @@
     (() => {
       const signup = location.pathname === "/signup";
       const params = new URLSearchParams(location.search);
-      const next = (params.get("next") || "/app").startsWith("/app") ? params.get("next") || "/app" : "/app";
+      // Only same-site destinations: the dashboard, or the page that links a desktop app.
+      const want = params.get("next") || "/app";
+      const next = /^\/(app|link)(\/|\?|$)/.test(want) ? want : "/app";
       const $ = (id) => document.getElementById(id);
       const error = $("error");
 

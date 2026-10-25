@@ -81,12 +81,16 @@ export function cookie(name: string, value: string, maxAgeS: number, secure: boo
 
 // ------------------------------------------------------------------ sessions
 
-export async function createSession(env: AccountsEnv, userId: string, secure: boolean): Promise<string> {
+async function newSessionToken(env: AccountsEnv, userId: string): Promise<string> {
   const token = randomToken();
   await env.ACCOUNTS.prepare("INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
     .bind(await sha256Hex(token), userId, iso(), iso(Date.now() + SESSION_DAYS * 86_400_000))
     .run();
-  return cookie(COOKIE, token, SESSION_DAYS * 86_400, secure);
+  return token;
+}
+
+export async function createSession(env: AccountsEnv, userId: string, secure: boolean): Promise<string> {
+  return cookie(COOKIE, await newSessionToken(env, userId), SESSION_DAYS * 86_400, secure);
 }
 
 export async function currentUser(env: AccountsEnv, req: Request): Promise<User | null> {
@@ -297,9 +301,80 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
   let next = "/app";
   try {
     const decoded = new TextDecoder().decode(fromB64url(nextB64 ?? ""));
-    if (decoded.startsWith("/app")) next = decoded;
+    if (/^\/(app|link)(\/|\?|$)/.test(decoded)) next = decoded;
   } catch {
     /* default */
   }
   return { user, next };
+}
+
+// ------------------------------------------------------------------ desktop app sign-in
+
+const LINK_MINUTES = 10;
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
+
+function userCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  const chars = [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+  return `${chars.slice(0, 4)}-${chars.slice(4)}`;
+}
+
+export interface DeviceLink {
+  user_code: string;
+  host: string;
+  status: "pending" | "approved" | "denied";
+  user_id: string | null;
+  workspace_slug: string | null;
+  invite_url: string | null;
+  expires_at: string;
+}
+
+/** The app asks for a code. Only the secret device code can collect the result. */
+export async function startDeviceLink(env: AccountsEnv, host: string): Promise<{ device_code: string; user_code: string; expires_in: number }> {
+  await env.ACCOUNTS.prepare("DELETE FROM device_links WHERE expires_at < ?").bind(iso()).run();
+  const device_code = randomToken(32);
+  const code = userCode();
+  await env.ACCOUNTS.prepare("INSERT INTO device_links (device_hash, user_code, host, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(await sha256Hex(device_code), code, host.slice(0, 60) || "Computer", iso(), iso(Date.now() + LINK_MINUTES * 60_000))
+    .run();
+  return { device_code, user_code: code, expires_in: LINK_MINUTES * 60 };
+}
+
+export async function deviceLinkByCode(env: AccountsEnv, code: string): Promise<DeviceLink | null> {
+  return env.ACCOUNTS.prepare("SELECT user_code, host, status, user_id, workspace_slug, invite_url, expires_at FROM device_links WHERE user_code = ? AND expires_at > ?")
+    .bind(code.trim().toUpperCase(), iso())
+    .first<DeviceLink>();
+}
+
+export async function decideDeviceLink(env: AccountsEnv, code: string, userId: string, decision: { workspace: string; invite_url: string } | "deny"): Promise<boolean> {
+  const r =
+    decision === "deny"
+      ? await env.ACCOUNTS.prepare("UPDATE device_links SET status = 'denied', user_id = ? WHERE user_code = ? AND status = 'pending' AND expires_at > ?").bind(userId, code, iso()).run()
+      : await env.ACCOUNTS.prepare("UPDATE device_links SET status = 'approved', user_id = ?, workspace_slug = ?, invite_url = ? WHERE user_code = ? AND status = 'pending' AND expires_at > ?")
+          .bind(userId, decision.workspace, decision.invite_url, code, iso())
+          .run();
+  return (r.meta.changes ?? 0) > 0;
+}
+
+/** The app polls. An approved link is handed over once, with a fresh session, then deleted. */
+export async function pollDeviceLink(
+  env: AccountsEnv,
+  deviceCode: string,
+): Promise<{ status: "pending" | "denied" | "expired" } | { status: "approved"; session_token: string; invite_url: string; workspace: string; user: User }> {
+  const hash = await sha256Hex(deviceCode);
+  const row = await env.ACCOUNTS.prepare("SELECT status, user_id, workspace_slug, invite_url, expires_at FROM device_links WHERE device_hash = ?")
+    .bind(hash)
+    .first<{ status: string; user_id: string | null; workspace_slug: string | null; invite_url: string | null; expires_at: string }>();
+  if (!row || row.expires_at < iso()) return { status: "expired" };
+  if (row.status === "denied") {
+    await env.ACCOUNTS.prepare("DELETE FROM device_links WHERE device_hash = ?").bind(hash).run();
+    return { status: "denied" };
+  }
+  if (row.status !== "approved" || !row.user_id || !row.invite_url || !row.workspace_slug) return { status: "pending" };
+  // Delete first: if two polls race, only the one that deletes the row gets the session.
+  const del = await env.ACCOUNTS.prepare("DELETE FROM device_links WHERE device_hash = ? AND status = 'approved'").bind(hash).run();
+  if (!del.meta.changes) return { status: "expired" };
+  const user = await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").bind(row.user_id).first<User>();
+  if (!user) return { status: "expired" };
+  return { status: "approved", session_token: await newSessionToken(env, user.id), invite_url: row.invite_url, workspace: row.workspace_slug, user };
 }

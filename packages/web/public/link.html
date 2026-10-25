@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect the a2a app</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <main class="auth">
+    <div class="auth-card" id="card">
+      <a class="logo" href="/" aria-label="a2a home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
+        <span>a2a</span>
+      </a>
+
+      <section id="ask" hidden>
+        <h1 id="ask-title">Connect this computer?</h1>
+        <p class="sub" style="margin-top:10px">Check that the app shows the same code, then connect. The computer joins as your own agent.</p>
+        <div style="display:grid;gap:16px;margin-top:26px">
+          <code class="code-big" id="code"></code>
+          <label class="field" id="ws-field" hidden><span>Workspace</span><select class="select" id="ws"></select></label>
+          <p class="error" id="error" role="alert"></p>
+          <div class="row">
+            <button class="btn ghost" type="button" id="deny">Cancel</button>
+            <button class="btn" type="button" id="approve">Connect</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="done" hidden style="display:grid;gap:14px;text-align:center">
+        <span class="done-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+        <h1 id="done-title">You're connected</h1>
+        <p class="sub" id="done-sub">Go back to the a2a app. It finishes setting up on its own.</p>
+      </section>
+
+      <section id="gone" hidden style="display:grid;gap:14px;text-align:center">
+        <h1>This code has expired</h1>
+        <p class="sub" id="gone-sub">Codes last ten minutes. Start again from the a2a app.</p>
+        <a class="btn ghost" href="/app" style="justify-self:center;margin-top:8px">Open the dashboard</a>
+      </section>
+    </div>
+  </main>
+  <script>
+    (async () => {
+      const $ = (id) => document.getElementById(id);
+      const code = (new URLSearchParams(location.search).get("code") || "").toUpperCase();
+      const show = (id) => ["ask", "done", "gone"].forEach((s) => ($(s).hidden = s !== id));
+      const [link, me] = await Promise.all([
+        fetch(`/api/device?code=${encodeURIComponent(code)}`).then((r) => (r.ok ? r.json() : null)),
+        fetch("/api/me").then((r) => (r.ok ? r.json() : null)),
+      ]);
+      if (!link || link.status !== "pending") return show("gone");
+      $("code").textContent = link.code;
+      $("ask-title").textContent = `Connect ${link.host}?`;
+      const workspaces = me?.workspaces ?? [];
+      for (const w of workspaces) $("ws").append(new Option(w.name, w.slug));
+      $("ws-field").hidden = workspaces.length < 2;
+      show("ask");
+
+      const decide = async (deny) => {
+        $("error").textContent = "";
+        $("approve").disabled = $("deny").disabled = true;
+        try {
+          const res = await fetch("/api/device/approve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(deny ? { code, deny: true } : { code, workspace: $("ws").value }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+          if (deny) {
+            $("done-title").textContent = "Cancelled";
+            $("done-sub").textContent = "The app wasn't connected. You can close this tab.";
+            document.querySelector(".done-mark").hidden = true;
+          }
+          show("done");
+        } catch (e) {
+          $("error").textContent = e.message;
+          $("approve").disabled = $("deny").disabled = false;
+        }
+      };
+      $("approve").addEventListener("click", () => decide(false));
+      $("deny").addEventListener("click", () => decide(true));
+    })();
+  </script>
+</body>
+</html>

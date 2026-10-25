@@ -18,8 +18,8 @@ const S = {
   detail: null,
   thread: null,
   connected: false,
-  unreadTalk: 0,
-  talk: { to: null, thread: {}, log: {}, draft: "", heard: "", readAloud: true, autoSend: true, listening: false },
+  talk: { to: null, thread: {}, log: {}, waiting: {}, draft: "", heard: "", readAloud: true, autoSend: true, listening: false },
+  detailsOpen: true,
 };
 
 // ------------------------------------------------------------------ helpers
@@ -30,7 +30,8 @@ function h(tag, props, ...kids) {
     if (v === undefined || v === null || v === false) continue;
     if (k === "class") el.className = v;
     else if (k.startsWith("on")) el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === "html") el.innerHTML = v; // only ever used with the static ICONS below
+    else if (k === "html")
+      el.innerHTML = v; // only ever used with the static ICONS below
     else el.setAttribute(k, v === true ? "" : v);
   }
   for (const kid of kids.flat(Infinity)) {
@@ -119,27 +120,53 @@ function redactedText(text) {
 }
 
 const ICONS = {
-  board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="14" rx="1.5"/><rect width="7" height="7" x="3" y="14" rx="1.5"/></svg>',
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m7 10 5 5 5-5"/></svg>',
+  menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>',
+  panel:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>',
+  download:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>',
+  logout:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>',
+  doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>',
+  board:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="3" rx="1.5"/><rect width="7" height="7" x="14" y="14" rx="1.5"/><rect width="7" height="7" x="3" y="14" rx="1.5"/></svg>',
   talk: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>',
-  traffic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>',
-  invites: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
-  agents: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-  review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
-  policy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>',
-  audit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>',
-  sessions: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/></svg>',
-  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>',
+  traffic:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>',
+  invites:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+  agents:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  review:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
+  policy:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>',
+  audit:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>',
+  sessions:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/></svg>',
+  settings:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>',
   arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
-  pause: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>',
-  scissors: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>',
+  pause:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/></svg>',
+  scissors:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>',
   minus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
 };
 
-const LOGO_MARK = '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".55"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#5266eb"/></svg>';
+const LOGO_MARK =
+  '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>';
 const brandMark = () =>
   h("span", {
     class: "brand-mark",
@@ -147,17 +174,38 @@ const brandMark = () =>
   });
 
 // A stable, low-key color per agent so a busy list is easy to scan.
-const AV = [["#e2e8fb", "#2f4fd0"], ["#e2f1e8", "#1b774b"], ["#f6e9dc", "#8a4a12"], ["#ede7fa", "#6645bd"], ["#e1eff2", "#1d6b7a"], ["#f7e3ea", "#a3324f"], ["#ececdf", "#5f5a1d"]];
-const AV_DARK = [["#232c4a", "#9fb1ff"], ["#1b3328", "#7fd8a8"], ["#3a2a1b", "#f0b98a"], ["#2c2445", "#c6b4f7"], ["#173238", "#7fd0de"], ["#3a1f29", "#f29bb2"], ["#2f2e1c", "#d9d48a"]];
+const AV = [
+  ["#e2e8fb", "#2f4fd0"],
+  ["#e2f1e8", "#1b774b"],
+  ["#f6e9dc", "#8a4a12"],
+  ["#ede7fa", "#6645bd"],
+  ["#e1eff2", "#1d6b7a"],
+  ["#f7e3ea", "#a3324f"],
+  ["#ececdf", "#5f5a1d"],
+];
+const AV_DARK = [
+  ["#232c4a", "#9fb1ff"],
+  ["#1b3328", "#7fd8a8"],
+  ["#3a2a1b", "#f0b98a"],
+  ["#2c2445", "#c6b4f7"],
+  ["#173238", "#7fd0de"],
+  ["#3a1f29", "#f29bb2"],
+  ["#2f2e1c", "#d9d48a"],
+];
 function initials(address) {
   return (nameOf(address) || short(address)).replace(/^guest-/, "").slice(0, 2);
 }
-function avatar(address) {
+function avatar(address, size) {
   let hash = 0;
   for (const c of address ?? "") hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
   const dark = document.documentElement.dataset.theme !== "light";
   const [bg, ink] = (dark ? AV_DARK : AV)[hash % AV.length];
-  return h("span", { class: "mono-av", style: `--av-bg:${bg};--av-ink:${ink}`, "aria-hidden": "true" }, initials(address));
+  return h("span", { class: `mono-av ${size ?? ""}`, style: `--av-bg:${bg};--av-ink:${ink}`, "aria-hidden": "true" }, initials(address));
+}
+function bigAvatar(address) {
+  const el = avatar(address);
+  el.className = "big-av";
+  return el;
 }
 const who = (address) => h("span", { class: "who", title: address }, avatar(address), h("span", { class: "name" }, nameOf(address)));
 
@@ -194,69 +242,131 @@ function pipeline(stages) {
 // ------------------------------------------------------------------ shell
 
 const NAV = [
-  ["sessions", "Sessions"],
-  ["talk", "Talk"],
+  ["sessions", "Home"],
   ["traffic", "Activity"],
   ["agents", "Agents"],
   ["review", "Review"],
   ["policy", "Policy"],
-  ["settings", "Settings"],
   ["audit", "Audit log"],
 ];
+// Views reachable by URL, including the ones that live outside the sidebar list.
+const VIEW_NAMES = ["sessions", "session", "talk", "traffic", "agents", "review", "policy", "settings", "audit"];
+const NAV_ICON = { sessions: "home", traffic: "traffic", agents: "agents", review: "review", policy: "policy", audit: "audit" };
 
 function navCount(view) {
   if (view === "review") return S.overview?.stats?.held || 0;
   if (view === "agents") return S.agents.filter((a) => a.status === "pending").length;
-  if (view === "talk") return S.unreadTalk;
   return 0;
 }
 
-function renderShell() {
+const sortedSessions = () => [...S.sessions].sort((a, b) => (b.last_message_at ?? b.created_at ?? "").localeCompare(a.last_message_at ?? a.created_at ?? ""));
+
+function sideList() {
+  if (!S.sessions.length) return h("p", { class: "side-empty" }, "Sessions you start show up here.");
+  return sortedSessions().map((s) => {
+    const online = s.guests.some((g) => g.online);
+    return h(
+      "button",
+      { class: "s-item", "aria-current": S.view === "session" && S.session === s.id ? "page" : false, onclick: () => openSession(s.id), title: s.name },
+      h("span", { class: `lamp ${online ? "on" : ""}`, "aria-label": online ? "online" : "offline" }),
+      h("span", { class: "s-name" }, s.name),
+      s.guests.length ? null : h("span", { class: "s-tag" }, "invited"),
+    );
+  });
+}
+
+function renderSide() {
+  const side = document.getElementById("side");
+  if (!side) return;
   const ws = S.workspaces.find((w) => w.slug === S.ws);
-  const rail = h(
-    "nav",
-    { class: "rail", "aria-label": "Dashboard" },
-    h("a", { class: "brand", href: "/" }, brandMark(), h("span", { class: "brand-name" }, "a2a")),
-    workspaceSwitcher(ws),
-    NAV.map(([view, label]) => {
-      const n = navCount(view);
-      return h(
-        "button",
-        { class: "nav-btn", "aria-current": S.view === view || (view === "sessions" && S.view === "session") ? "page" : false, onclick: () => go(view) },
-        h("span", { html: ICONS[view] }),
-        h("span", { class: "label" }, label),
-        n ? h("span", { class: "nav-count", "aria-label": `${n} waiting` }, n) : null,
-      );
-    }),
-    h(
-      "div",
-      { class: "rail-foot" },
-      h("div", { class: "conn" }, h("span", { class: `lamp ${S.connected ? "on" : ""}` }), S.connected ? "Live updates on" : "Reconnecting…"),
-      userBlock(),
-    ),
+  side.replaceChildren(
+    ...[
+      h(
+        "div",
+        { class: "side-top" },
+        h(
+          "button",
+          { class: "ws-btn", "aria-haspopup": "menu", "aria-expanded": "false", onclick: (e) => workspaceMenu(e.currentTarget), title: ws ? `agent://${ws.slug}` : "" },
+          h("span", { class: "mark", html: LOGO_MARK }),
+          h("span", { class: "ws-name" }, ws?.name ?? "Workspace"),
+          h("span", { class: "chev", html: ICONS.chev }),
+        ),
+      ),
+      h("button", { class: "new-btn", onclick: newSessionDialog }, h("span", { class: "plus", html: ICONS.plus }), "New session"),
+      NAV.map(([view, label]) => {
+        const n = navCount(view);
+        return h(
+          "button",
+          { class: "nav-btn", "aria-current": S.view === view ? "page" : false, onclick: () => go(view) },
+          h("span", { html: ICONS[NAV_ICON[view]] }),
+          h("span", { class: "label" }, label),
+          n ? h("span", { class: "nav-count", "aria-label": `${n} waiting` }, n) : null,
+        );
+      }),
+      h("div", { class: "side-h" }, h("span", {}, "Sessions")),
+      h("div", { class: "side-list" }, sideList()),
+      h("div", { class: "side-foot" }, deviceLine(), userButton()),
+    ]
+      .flat(Infinity)
+      .filter(Boolean),
   );
-  const main = h("main", { class: "main", id: "main" });
-  document.getElementById("app").replaceChildren(h("div", { class: "shell" }, rail, main));
+}
+
+function renderShell() {
+  const app = document.getElementById("app");
+  if (!document.getElementById("side")) {
+    app.replaceChildren(
+      h(
+        "div",
+        { class: "shell", id: "shell" },
+        h("aside", { class: "side", id: "side", "aria-label": "Sessions and workspace" }),
+        h("div", { class: "scrim", onclick: () => toggleSide(false) }),
+        h(
+          "div",
+          { class: "main" },
+          h(
+            "header",
+            { class: "topbar" },
+            h("button", { class: "icon-btn menu-btn", "aria-label": "Open the sidebar", html: ICONS.menu, onclick: () => toggleSide(true) }),
+            h("div", { class: "topbar-title", id: "top-title" }),
+            h("div", { class: "topbar-actions", id: "top-actions" }),
+            h("span", { class: "live", id: "live-state" }),
+          ),
+          h("main", { class: "view", id: "main" }),
+        ),
+      ),
+    );
+  }
+  renderSide();
+  renderLive();
   renderView();
 }
 
-function toggleTheme() {
-  const root = document.documentElement;
-  // Dark is the default; light is opt-in.
-  root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+function renderLive() {
+  document.getElementById("live-state")?.replaceChildren(h("span", { class: `lamp ${S.connected ? "on" : ""}` }), h("span", {}, S.connected ? "Live" : "Reconnecting"));
+}
+
+function toggleSide(open) {
+  document.getElementById("shell")?.classList.toggle("side-open", open);
+}
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
   try {
-    localStorage.setItem("a2a-theme", root.dataset.theme);
+    localStorage.setItem("a2a-theme", theme);
   } catch {
     /* storage blocked */
   }
+  renderShell();
 }
 
 function go(view) {
-  if (S.view === "talk" && view !== "talk") Voice.stop();
+  if ((S.view === "talk" || S.view === "session") && view !== S.view) Voice.stop();
   S.view = view;
-  if (view === "talk") S.unreadTalk = 0;
+  toggleSide(false);
   try {
-    history.replaceState(null, "", `/app/${S.ws}${view === "sessions" ? "" : `/${view === "session" ? `s/${S.session}` : view}`}`);
+    const tail = view === "sessions" ? "" : view === "session" ? `/s/${S.session}` : view === "talk" && S.talk.to ? `/talk/${encodeURIComponent(short(S.talk.to))}` : `/${view}`;
+    history.replaceState(null, "", `/app/${S.ws}${tail}`);
   } catch {
     /* sandboxed */
   }
@@ -267,12 +377,67 @@ function pageHead(title, text, ...actions) {
   return h("header", { class: "page-head" }, h("div", {}, h("h1", {}, title), text ? h("p", {}, text) : null), actions.length ? h("div", { class: "row" }, actions) : null);
 }
 
+/**
+ * Views return either a node (a regular page, centred with a heading) or
+ * { title, actions, body } for full-height screens like a conversation.
+ */
 function renderView() {
   const main = document.getElementById("main");
   if (!main) return;
-  const views = { sessions: viewSessions, session: viewSession, talk: viewTalk, traffic: viewTraffic, agents: viewAgents, review: viewReview, policy: viewPolicy, settings: viewSettings, audit: viewAudit };
-  main.replaceChildren(views[S.view]?.() ?? viewSessions());
+  const views = {
+    sessions: viewHome,
+    session: viewSession,
+    talk: viewTalk,
+    traffic: viewTraffic,
+    agents: viewAgents,
+    review: viewReview,
+    policy: viewPolicy,
+    settings: viewSettings,
+    audit: viewAudit,
+  };
+  const out = (views[S.view] ?? viewHome)();
+  const full = !(out instanceof Node);
+  main.replaceChildren(full ? out.body : h("div", { class: "page" }, out));
+  document.getElementById("top-title")?.replaceChildren(...[full ? out.title : null].flat().filter(Boolean));
+  document.getElementById("top-actions")?.replaceChildren(...(full ? (out.actions ?? []) : []));
 }
+
+// A small popover anchored to a button; closes on outside click or Escape.
+function popover(anchor, items, { above = false } = {}) {
+  closeMenus();
+  const menu = h("div", { class: "menu", role: "menu" }, items);
+  document.body.append(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, r.left)}px`;
+  menu.style.minWidth = `${Math.max(240, r.width)}px`;
+  if (above) menu.style.bottom = `${innerHeight - r.top + 6}px`;
+  else menu.style.top = `${r.bottom + 6}px`;
+  anchor.setAttribute("aria-expanded", "true");
+  const close = (e) => {
+    if (e.type === "keydown" && e.key !== "Escape") return;
+    if (e.type === "pointerdown" && (menu.contains(e.target) || anchor.contains(e.target))) return;
+    closeMenus();
+  };
+  menu._cleanup = () => {
+    anchor.setAttribute("aria-expanded", "false");
+    removeEventListener("pointerdown", close, true);
+    removeEventListener("keydown", close, true);
+  };
+  setTimeout(() => {
+    addEventListener("pointerdown", close, true);
+    addEventListener("keydown", close, true);
+  });
+  menu.querySelector("button, a")?.focus();
+  return menu;
+}
+function closeMenus() {
+  document.querySelectorAll(".menu").forEach((m) => {
+    m._cleanup?.();
+    m.remove();
+  });
+}
+const menuItem = (icon, label, onclick, extra) =>
+  h("button", { role: "menuitem", type: "button", onclick: () => (closeMenus(), onclick()) }, icon ? h("span", { html: ICONS[icon] }) : null, label, extra);
 
 // ------------------------------------------------------------------ traffic
 
@@ -301,7 +466,7 @@ function viewTraffic() {
   return h(
     "div",
     {},
-    pageHead("Traffic", "Every message through the relay, newest first, with what the guard decided."),
+    pageHead("Activity", "Every message through the relay, newest first, with what the guard decided."),
     h(
       "div",
       { class: "filters", role: "group", "aria-label": "Filter by state" },
@@ -310,7 +475,11 @@ function viewTraffic() {
     h(
       "div",
       { class: "traffic" },
-      h("div", { class: "panel feed" }, list.length ? list.map((m) => msgRow(m, () => select(m.id))) : h("div", { class: "empty" }, h("strong", {}, "Nothing here"), "Messages show up as soon as an agent sends one.")),
+      h(
+        "div",
+        { class: "panel feed" },
+        list.length ? list.map((m) => msgRow(m, () => select(m.id))) : h("div", { class: "empty" }, h("strong", {}, "Nothing here"), "Messages show up as soon as an agent sends one."),
+      ),
       h("aside", { class: "panel panel-pad detail", id: "detail" }, detailView()),
     ),
   );
@@ -345,10 +514,14 @@ function detailView() {
     h(
       "dl",
       { class: "kv" },
-      h("dt", {}, "From"), h("dd", { class: "mono" }, d.from),
-      h("dt", {}, "To"), h("dd", { class: "mono" }, d.to),
-      h("dt", {}, "Scope"), h("dd", {}, d.scope),
-      h("dt", {}, "Sent"), h("dd", {}, new Date(d.created_at).toLocaleString()),
+      h("dt", {}, "From"),
+      h("dd", { class: "mono" }, d.from),
+      h("dt", {}, "To"),
+      h("dd", { class: "mono" }, d.to),
+      h("dt", {}, "Scope"),
+      h("dd", {}, d.scope),
+      h("dt", {}, "Sent"),
+      h("dd", {}, new Date(d.created_at).toLocaleString()),
       d.reason ? [h("dt", {}, "Why"), h("dd", {}, d.reason)] : null,
     ),
     h("div", { class: "quote" }, redactedText(d.delivered_text ?? d.original_text)),
@@ -356,7 +529,23 @@ function detailView() {
     h("h3", { class: "section-title" }, "Guard stages"),
     pipeline(d.stages),
     d.state === "held" ? reviewButtons(d.id) : null,
-    S.thread ? [h("h3", { class: "section-title" }, `Thread (${S.thread.messages.length})`), h("div", { class: "thread" }, S.thread.messages.map((m) => h("div", {}, h("div", { class: "row" }, h("b", {}, nameOf(m.from)), pill(m.state), h("span", { class: "muted" }, timeEl(m.received_at))), h("div", { class: "quote" }, redactedText(m.text ?? m.preview)))))] : null,
+    S.thread
+      ? [
+          h("h3", { class: "section-title" }, `Thread (${S.thread.messages.length})`),
+          h(
+            "div",
+            { class: "thread" },
+            S.thread.messages.map((m) =>
+              h(
+                "div",
+                {},
+                h("div", { class: "row" }, h("b", {}, nameOf(m.from)), pill(m.state), h("span", { class: "muted" }, timeEl(m.received_at))),
+                h("div", { class: "quote" }, redactedText(m.text ?? m.preview)),
+              ),
+            ),
+          ),
+        ]
+      : null,
   );
 }
 
@@ -370,120 +559,212 @@ function reviewButtons(id) {
       toast(e.message);
     }
   };
-  return h("div", { class: "row", style: "margin-top:12px" }, h("button", { class: "btn", onclick: () => act("release") }, "Release"), h("button", { class: "btn danger", onclick: () => act("reject") }, "Reject"));
+  return h(
+    "div",
+    { class: "row", style: "margin-top:12px" },
+    h("button", { class: "btn", onclick: () => act("release") }, "Release"),
+    h("button", { class: "btn danger", onclick: () => act("reject") }, "Reject"),
+  );
 }
 
-// ------------------------------------------------------------------ talk (voice + text desk)
+// ------------------------------------------------------------------ conversations (text and voice)
 
 function talkable() {
   const me = S.overview?.relay?.console_address;
   return S.agents.filter((a) => a.address !== me && a.status === "active").sort((a, b) => Number(b.online) - Number(a.online) || a.address.localeCompare(b.address));
 }
 
-function viewTalk() {
-  const people = talkable();
-  if (!S.talk.to && people.length) S.talk.to = people[0].address;
-  if (!people.length) {
-    return h("div", {}, pageHead("Talk", "Speak or type to any agent on the relay. Replies are read back to you."), h("div", { class: "panel empty" }, h("strong", {}, "No one to talk to yet"), "Invite someone first. Their agent appears here once they join.", h("div", { style: "margin-top:14px" }, h("button", { class: "btn", onclick: () => go("invites") }, "Create an invite"))));
-  }
-  const list = h(
-    "div",
-    { class: "panel callees", role: "listbox", "aria-label": "Agents" },
-    people.map((a) =>
-      h(
-        "button",
-        { class: "callee", role: "option", "aria-selected": S.talk.to === a.address ? "true" : "false", onclick: () => openCall(a.address) },
-        h("span", { class: `lamp ${a.online ? "on" : ""}` }),
-        h("span", {}, h("span", { class: "callee-name" }, a.display_name || short(a.address)), h("small", { class: "mono" }, a.address)),
-      ),
-    ),
-  );
-  setTimeout(() => loadCall(S.talk.to), 0);
-  return h("div", {}, pageHead("Talk", "Speak or type to any agent on the relay. Hold a conversation hands-free: replies are read back, then it listens again."), h("div", { class: "talk" }, list, callPanel()));
-}
+const SUGGESTIONS = ["Which MCP servers do you have?", "What are you working on right now?", "Summarize what you did today"];
 
-function openCall(address) {
-  if (S.talk.to === address) return;
-  Voice.stop();
-  S.talk.to = address;
-  S.talk.draft = "";
-  renderView();
-}
-
-function callPanel() {
-  const to = S.talk.to;
-  const agent = S.agents.find((a) => a.address === to);
+/** The composer: autosizing text, a mic, a send button. `to` is fixed unless `pickTo` lists choices. */
+function composer({ to, pickTo, placeholder, onSend, autofocus }) {
+  const send = h("button", { class: "send", type: "button", "aria-label": "Send", html: ICONS.up, disabled: !S.talk.draft.trim(), onclick: () => onSend() });
   const draft = h("textarea", {
-    class: "textarea",
     id: "draft",
-    rows: 2,
-    placeholder: `Message ${agent?.display_name || short(to)}…`,
+    rows: 1,
+    placeholder,
     "aria-label": "Message",
-    oninput: (e) => (S.talk.draft = e.target.value),
+    oninput: (e) => {
+      S.talk.draft = e.target.value;
+      send.disabled = !S.talk.draft.trim();
+      fit(e.target);
+    },
     onkeydown: (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
-        sendTalk();
+        onSend();
       }
     },
   });
   draft.value = S.talk.draft;
-  const ptt = h("button", {
-    class: "ptt",
-    id: "ptt",
+  requestAnimationFrame(() => {
+    fit(draft);
+    if (autofocus && matchMedia("(hover: hover)").matches) draft.focus();
+  });
+  const mic = h("button", {
+    class: "mic",
+    id: "mic",
     type: "button",
     "aria-pressed": S.talk.listening ? "true" : "false",
-    "aria-label": S.talk.listening ? "Stop listening" : "Start talking",
-    title: S.talk.listening ? "Stop listening" : "Talk (voice)",
+    "aria-label": S.talk.listening ? "Stop listening" : "Talk instead of typing",
+    title: S.talk.listening ? "Stop listening" : "Talk instead of typing",
     html: S.talk.listening ? ICONS.stop : ICONS.mic,
+    disabled: !to && !pickTo?.length,
     onclick: () => (S.talk.listening ? Voice.stop() : startListening()),
   });
+  const chip = pickTo?.length
+    ? h(
+        "label",
+        { class: "to-chip" },
+        h("span", { class: `lamp ${S.agents.find((a) => a.address === to)?.online ? "on" : ""}` }),
+        h("span", {}, `To ${nameOf(to)}`),
+        h("span", { html: ICONS.chev }),
+        h(
+          "select",
+          { "aria-label": "Send to", onchange: (e) => ((S.talk.to = e.target.value), renderView()) },
+          pickTo.map((a) => h("option", { value: a.address, selected: a.address === to }, `${a.display_name || short(a.address)}${a.online ? "" : " (offline)"}`)),
+        ),
+      )
+    : null;
   return h(
-    "section",
-    { class: "panel call", "aria-label": `Conversation with ${agent?.display_name || short(to)}` },
+    "div",
+    {},
+    h("div", { class: "composer" }, draft, h("div", { class: "composer-row" }, chip, mic, send)),
     h(
       "div",
-      { class: "call-head" },
-      h("span", { class: `lamp ${agent?.online ? "on" : ""}` }),
-      h("div", {}, h("h2", {}, agent?.display_name || short(to)), h("span", { class: "mono muted" }, to)),
-      h("span", { style: "flex:1" }),
-      h("button", { class: "btn secondary small", onclick: () => ((S.talk.thread[to] = null), (S.talk.log[to] = []), renderCallLog()) }, "New conversation"),
-    ),
-    h("div", { class: "call-log", id: "call-log", "aria-live": "polite" }, callLogItems()),
-    h(
-      "div",
-      {},
-      h("div", { class: "composer" }, ptt, draft, h("button", { class: "btn", onclick: sendTalk }, "Send")),
-      h(
-        "div",
-        { class: "voice-bar" },
-        h("label", {}, h("input", { type: "checkbox", checked: S.talk.autoSend, onchange: (e) => (S.talk.autoSend = e.target.checked) }), "Send when I stop talking"),
-        h("label", {}, h("input", { type: "checkbox", checked: S.talk.readAloud, onchange: (e) => (S.talk.readAloud = e.target.checked) }), "Read replies aloud"),
-        h("span", { class: "muted" }, S.overview?.relay?.voice?.reson8 ? "Voice by Reson8" : "Voice by your browser (add a Reson8 key for better accuracy)"),
-        h("span", { class: "heard", id: "heard" }, S.talk.heard),
-      ),
+      { class: "composer-note" },
+      h("label", {}, h("input", { type: "checkbox", checked: S.talk.readAloud, onchange: (e) => (S.talk.readAloud = e.target.checked) }), "Read replies aloud"),
+      h("label", {}, h("input", { type: "checkbox", checked: S.talk.autoSend, onchange: (e) => (S.talk.autoSend = e.target.checked) }), "Send when I stop talking"),
+      h("span", { class: "heard", id: "heard" }, S.talk.heard),
     ),
   );
 }
 
-function callLogItems() {
-  const items = S.talk.log[S.talk.to] ?? [];
-  if (!items.length) return h("div", { class: "empty" }, h("strong", {}, "Say hello"), "Press the microphone button and talk, or type below. Your message goes through the relay like any other.");
-  return items.map((m) =>
-    h(
-      "div",
-      { class: `bubble ${m.mine ? "me" : "them"}` },
-      m.text,
-      h("span", { class: "bubble-meta" }, m.mine ? `${m.state ?? "sending"}${m.reason_code ? ` (${m.reason_code})` : ""}, ${ago(m.at)}` : `${nameOf(m.from)}, ${ago(m.at)}`),
-    ),
+function fit(el) {
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+}
+
+/** One conversation with one agent: the message column plus the docked composer. */
+function conversation(to) {
+  const agent = S.agents.find((a) => a.address === to);
+  const name = agent?.display_name || short(to);
+  setTimeout(() => loadCall(to), 0);
+  return h(
+    "section",
+    { class: "chat-col", "aria-label": `Conversation with ${name}` },
+    h("div", { class: "chat-scroll", id: "chat-scroll" }, h("div", { class: "log", id: "call-log", "aria-live": "polite" }, callLogItems())),
+    h("div", { class: "dock" }, composer({ to, placeholder: `Message ${name}…`, onSend: () => sendTalk(), autofocus: true })),
   );
+}
+
+function viewTalk() {
+  const people = talkable();
+  if (S.talk.to && !people.some((a) => a.address === S.talk.to)) S.talk.to = null;
+  if (!S.talk.to) {
+    return {
+      title: h("span", {}, "Talk to an agent"),
+      body: people.length
+        ? h(
+            "div",
+            { class: "home" },
+            h(
+              "div",
+              { class: "home-inner" },
+              h("h1", { class: "hello" }, "Who do you want to talk to?"),
+              h(
+                "div",
+                { class: "pick", style: "margin-top:28px" },
+                people.map((a) =>
+                  h(
+                    "button",
+                    { class: "pick-item", onclick: () => openCall(a.address) },
+                    avatar(a.address, "lg"),
+                    h("span", {}, h("b", {}, a.display_name || short(a.address)), h("small", { class: "mono" }, a.address)),
+                    h("span", { class: `lamp ${a.online ? "on" : ""}` }),
+                  ),
+                ),
+              ),
+            ),
+          )
+        : h(
+            "div",
+            { class: "chat-empty" },
+            h("h2", {}, "No one to talk to yet"),
+            h("p", {}, "Start a session and send the link. Their agent shows up here once it joins."),
+            h("button", { class: "btn", onclick: newSessionDialog }, "New session"),
+          ),
+    };
+  }
+  const agent = S.agents.find((a) => a.address === S.talk.to);
+  return {
+    title: [h("span", { class: `lamp ${agent?.online ? "on" : ""}` }), h("span", {}, agent?.display_name || short(S.talk.to)), h("span", { class: "topbar-sub mono" }, S.talk.to)],
+    actions: [
+      h(
+        "button",
+        { class: "btn secondary small", onclick: () => ((S.talk.thread[S.talk.to] = null), (S.talk.log[S.talk.to] = Object.assign([], { loaded: true })), renderCallLog()) },
+        "New conversation",
+      ),
+    ],
+    body: h("div", { class: "chat" }, conversation(S.talk.to)),
+  };
+}
+
+function openCall(address) {
+  Voice.stop();
+  S.talk.to = address;
+  S.talk.draft = "";
+  go("talk");
+}
+
+function callLogItems() {
+  const to = S.talk.to;
+  const items = S.talk.log[to] ?? [];
+  if (!items.length) {
+    const name = nameOf(to);
+    return h(
+      "div",
+      { class: "chat-empty" },
+      bigAvatar(to),
+      h("h2", {}, `Say hello to ${name}`),
+      h("p", {}, "Type or press the microphone and talk. Everything goes through your relay and its guard, like any other message."),
+      h(
+        "div",
+        { class: "sugg" },
+        SUGGESTIONS.map((s) => h("button", { type: "button", onclick: () => sendTalk(s) }, s)),
+      ),
+    );
+  }
+  const out = items.map((m) =>
+    m.mine
+      ? h("div", { class: "m-me" }, h("div", { class: "m-text" }, m.text), h("span", { class: `m-meta ${["blocked", "rejected"].includes(m.state) ? "bad" : ""}` }, stateLabel(m)))
+      : h("div", { class: "m-them" }, h("div", { class: "m-head" }, avatar(m.from), nameOf(m.from), h("span", { class: "m-meta" }, ago(m.at))), h("div", { class: "m-text" }, m.text)),
+  );
+  if (S.talk.waiting[to]) out.push(h("div", { class: "working", role: "status" }, h("i"), `${nameOf(to)} is working on it`));
+  return out;
+}
+
+function stateLabel(m) {
+  const s = m.state ?? "sending";
+  const word =
+    {
+      sending: "Sending",
+      delivered: "Delivered",
+      queued: "Waiting for them to come online",
+      screening: "Checking",
+      held: "Held for your review",
+      blocked: "Blocked by the guard",
+      rejected: "Rejected",
+    }[s] ?? s;
+  return `${word}${m.reason_code ? ` (${m.reason_code})` : ""}`;
 }
 
 function renderCallLog() {
   const log = document.getElementById("call-log");
   if (!log) return;
   log.replaceChildren(...[callLogItems()].flat());
-  log.scrollTop = log.scrollHeight;
+  const scroll = document.getElementById("chat-scroll");
+  if (scroll) scroll.scrollTop = scroll.scrollHeight;
 }
 
 async function loadCall(address) {
@@ -511,7 +792,11 @@ async function sendTalk(textOverride) {
   if (!to || !text) return;
   S.talk.draft = "";
   const draft = document.getElementById("draft");
-  if (draft) draft.value = "";
+  if (draft) {
+    draft.value = "";
+    fit(draft);
+  }
+  document.querySelector(".send")?.setAttribute("disabled", "");
   const log = (S.talk.log[to] ??= Object.assign([], { loaded: true }));
   const item = { id: null, mine: true, from: S.overview?.relay?.console_address, text, state: "sending", at: new Date().toISOString() };
   log.push(item);
@@ -520,6 +805,7 @@ async function sendTalk(textOverride) {
     const r = await api("POST", "/v1/admin/console/send", { to, text, thread_id: S.talk.thread[to] || undefined });
     Object.assign(item, { id: r.id, thread_id: r.thread_id, state: r.state, reason_code: r.reason_code });
     S.talk.thread[to] = r.thread_id;
+    if (["delivered", "queued", "screening"].includes(r.state)) S.talk.waiting[to] = true;
   } catch (e) {
     Object.assign(item, { state: "blocked", reason_code: e.code });
     toast(e.message);
@@ -549,19 +835,22 @@ async function startListening() {
       onFinal: (t) => {
         setHeard("");
         if (!t.trim()) return;
-        if (S.talk.autoSend) sendTalk(t);
+        if (S.talk.autoSend) (S.view === "sessions" ? sendFromHome : sendTalk)(t);
         else {
           S.talk.draft = `${S.talk.draft ? `${S.talk.draft} ` : ""}${t}`;
           const d = document.getElementById("draft");
-          if (d) d.value = S.talk.draft;
+          if (d) {
+            d.value = S.talk.draft;
+            fit(d);
+          }
         }
       },
       onState: (on) => {
         S.talk.listening = on;
-        const b = document.getElementById("ptt");
+        const b = document.getElementById("mic");
         if (b) {
           b.setAttribute("aria-pressed", on ? "true" : "false");
-          b.setAttribute("aria-label", on ? "Stop listening" : "Start talking");
+          b.setAttribute("aria-label", on ? "Stop listening" : "Talk instead of typing");
           b.innerHTML = on ? ICONS.stop : ICONS.mic;
         }
         if (!on) setHeard("");
@@ -733,7 +1022,16 @@ function viewAgents() {
             h(
               "tr",
               {},
-              h("td", {}, h("div", { class: "row" }, h("span", { class: `lamp ${a.online ? "on" : ""}` }), h("div", {}, h("b", {}, a.display_name || short(a.address)), h("div", { class: "mono muted" }, a.address)))),
+              h(
+                "td",
+                {},
+                h(
+                  "div",
+                  { class: "row" },
+                  h("span", { class: `lamp ${a.online ? "on" : ""}` }),
+                  h("div", {}, h("b", {}, a.display_name || short(a.address)), h("div", { class: "mono muted" }, a.address)),
+                ),
+              ),
               h("td", {}, pill(a.status)),
               h("td", {}, a.online ? "online now" : a.last_seen_at ? timeEl(a.last_seen_at) : "never"),
               h("td", { class: "muted" }, a.host || ""),
@@ -765,7 +1063,16 @@ function viewReview() {
     {},
     pageHead("Review", "Messages the guard held for a person to look at. With the default open policy this stays empty."),
     held.length
-      ? h("div", { class: "traffic" }, h("div", { class: "panel feed" }, held.map((m) => msgRow(m, () => select(m.id)))), h("aside", { class: "panel panel-pad detail", id: "detail" }, detailView()))
+      ? h(
+          "div",
+          { class: "traffic" },
+          h(
+            "div",
+            { class: "panel feed" },
+            held.map((m) => msgRow(m, () => select(m.id))),
+          ),
+          h("aside", { class: "panel panel-pad detail", id: "detail" }, detailView()),
+        )
       : h("div", { class: "panel empty" }, h("strong", {}, "Nothing waiting"), "Held messages land here for you to release or reject."),
   );
 }
@@ -787,7 +1094,14 @@ function viewPolicy() {
       await refresh();
       load();
     } catch (e) {
-      errors.replaceChildren(h("p", {}, "The policy wasn't saved:"), h("ul", {}, (e.data?.errors ?? [e.message]).map((x) => h("li", {}, x))));
+      errors.replaceChildren(
+        h("p", {}, "The policy wasn't saved:"),
+        h(
+          "ul",
+          {},
+          (e.data?.errors ?? [e.message]).map((x) => h("li", {}, x)),
+        ),
+      );
     }
   };
   async function load() {
@@ -797,7 +1111,13 @@ function viewPolicy() {
       summary.replaceChildren(policySummary(p));
       versions.replaceChildren(
         h("h3", { class: "section-title", style: "margin-top:0" }, "History"),
-        h("div", { class: "stages" }, p.versions.map((v) => h("div", { class: "stage" }, h("span", { class: "stage-name" }, `v${v.version}`), h("span", {}, v.note || "No note"), h("span", { class: "muted" }, ago(v.created_at))))),
+        h(
+          "div",
+          { class: "stages" },
+          p.versions.map((v) =>
+            h("div", { class: "stage" }, h("span", { class: "stage-name" }, `v${v.version}`), h("span", {}, v.note || "No note"), h("span", { class: "muted" }, ago(v.created_at))),
+          ),
+        ),
       );
     } catch (e) {
       toast(e.message);
@@ -880,14 +1200,20 @@ function policySummary(p) {
         ),
       )
     : "Nobody can start a conversation yet. Agents can still reply to messages they receive, and you can message anyone from Talk.";
-  const judge = {
-    off: "Off. Only the checks above run, so messages are delivered in milliseconds.",
-    heuristic: "Offline keyword checks on top of the rules above.",
-    anthropic: "Claude reviews each message before delivery (adds about a second).",
-    auto: "Claude reviews each message when an Anthropic key is set; otherwise offline keyword checks.",
-    "claude-cli": "Offline keyword checks (the Claude CLI isn't available on Cloudflare).",
-  }[p.guard.judge] ?? p.guard.judge;
-  const joining = { approval: "Anyone can ask to join; you approve each new agent on the Agents page.", invite: "With an invite link from the Invites page. Without one, you approve them on the Agents page.", open: "Anyone who knows the relay address joins straight away." }[p.registration] ?? p.registration;
+  const judge =
+    {
+      off: "Off. Only the checks above run, so messages are delivered in milliseconds.",
+      heuristic: "Offline keyword checks on top of the rules above.",
+      anthropic: "Claude reviews each message before delivery (adds about a second).",
+      auto: "Claude reviews each message when an Anthropic key is set; otherwise offline keyword checks.",
+      "claude-cli": "Offline keyword checks (the Claude CLI isn't available on Cloudflare).",
+    }[p.guard.judge] ?? p.guard.judge;
+  const joining =
+    {
+      approval: "Anyone can ask to join; you approve each new agent on the Agents page.",
+      invite: "With an invite link from the Invites page. Without one, you approve them on the Agents page.",
+      open: "Anyone who knows the relay address joins straight away.",
+    }[p.registration] ?? p.registration;
   const lim = p.limits;
   return h(
     "div",
@@ -896,16 +1222,34 @@ function policySummary(p) {
     h(
       "dl",
       { class: "kv policy-kv" },
-      h("dt", {}, "Joining"), h("dd", {}, joining),
-      h("dt", {}, "Who can message whom"), h("dd", {}, links),
+      h("dt", {}, "Joining"),
+      h("dd", {}, joining),
+      h("dt", {}, "Who can message whom"),
+      h("dd", {}, links),
       h("dt", {}, "Topics"),
-      h("dd", {}, h("ul", { class: "plain-list" }, Object.entries(p.scopes).map(([name, s]) => h("li", {}, h("b", {}, name), ": ", s.description)))),
-      h("dt", {}, "Masked before delivery"), h("dd", {}, findingList(p.rules.redact)),
-      h("dt", {}, "Held for your review"), h("dd", {}, findingList(p.rules.hold)),
-      h("dt", {}, "Blocked"), h("dd", {}, findingList(p.rules.block)),
-      h("dt", {}, "AI guard"), h("dd", {}, judge),
+      h(
+        "dd",
+        {},
+        h(
+          "ul",
+          { class: "plain-list" },
+          Object.entries(p.scopes).map(([name, s]) => h("li", {}, h("b", {}, name), ": ", s.description)),
+        ),
+      ),
+      h("dt", {}, "Masked before delivery"),
+      h("dd", {}, findingList(p.rules.redact)),
+      h("dt", {}, "Held for your review"),
+      h("dd", {}, findingList(p.rules.hold)),
+      h("dt", {}, "Blocked"),
+      h("dd", {}, findingList(p.rules.block)),
+      h("dt", {}, "AI guard"),
+      h("dd", {}, judge),
       h("dt", {}, "Limits"),
-      h("dd", {}, `${lim.max_hops_per_thread} back-and-forths and ${lim.max_messages_per_thread} messages per conversation, ${Math.round(lim.max_body_bytes / 1024)} KiB per message (files included). Undelivered messages expire after ${duration(lim.message_ttl_ms)}.`),
+      h(
+        "dd",
+        {},
+        `${lim.max_hops_per_thread} back-and-forths and ${lim.max_messages_per_thread} messages per conversation, ${Math.round(lim.max_body_bytes / 1024)} KiB per message (files included). Undelivered messages expire after ${duration(lim.message_ttl_ms)}.`,
+      ),
     ),
   );
 }
@@ -918,7 +1262,15 @@ function viewAudit() {
     .then(({ events }) =>
       list.replaceChildren(
         ...(events.length
-          ? events.map((e) => h("div", { class: "msg", style: "cursor:default" }, h("span", { class: "msg-route" }, e.action, h("span", { class: "arrow" }, "by"), e.actor), h("span", { class: "msg-time" }, timeEl(e.at)), h("span", { class: "msg-preview mono" }, e.target ?? "")))
+          ? events.map((e) =>
+              h(
+                "div",
+                { class: "msg", style: "cursor:default" },
+                h("span", { class: "msg-route" }, e.action, h("span", { class: "arrow" }, "by"), e.actor),
+                h("span", { class: "msg-time" }, timeEl(e.at)),
+                h("span", { class: "msg-preview mono" }, e.target ?? ""),
+              ),
+            )
           : [h("div", { class: "empty" }, "No events yet.")]),
       ),
     )
@@ -944,7 +1296,11 @@ let rerenderTimer;
 function soon() {
   // Coalesce bursts of events; never redraw the Talk page under someone's cursor.
   clearTimeout(rerenderTimer);
-  rerenderTimer = setTimeout(() => (S.view === "talk" || S.view === "session" ? null : renderShell()), 250);
+  // Lists redraw; screens with a composer keep their place and only the sidebar updates.
+  rerenderTimer = setTimeout(() => {
+    renderSide();
+    if (["traffic", "agents", "review"].includes(S.view)) renderView();
+  }, 250);
 }
 
 let events;
@@ -958,11 +1314,11 @@ function connectEvents() {
   events = new EventSource(relayPath("/v1/admin/events"));
   events.onopen = () => {
     S.connected = true;
-    document.querySelector(".conn")?.replaceChildren(h("span", { class: "lamp on" }), "Live updates on");
+    renderLive();
   };
   events.onerror = () => {
     S.connected = false;
-    document.querySelector(".conn")?.replaceChildren(h("span", { class: "lamp" }), "Reconnecting…");
+    renderLive();
   };
   events.addEventListener("message", (e) => {
     const m = JSON.parse(e.data);
@@ -982,11 +1338,11 @@ function connectEvents() {
     const log = (S.talk.log[m.from] ??= Object.assign([], { loaded: false }));
     if (!log.some((x) => x.id === m.id)) log.push({ id: m.id, thread_id: m.thread_id, mine: false, from: m.from, text: m.text ?? m.preview, state: m.state, at: m.received_at });
     S.talk.thread[m.from] = m.thread_id;
+    delete S.talk.waiting[m.from];
     if ((S.view === "talk" || S.view === "session") && S.talk.to === m.from) {
       renderCallLog();
       speak(m.text ?? m.preview ?? "");
     } else {
-      S.unreadTalk++;
       toast(`${nameOf(m.from)} replied`);
       soon();
     }
@@ -999,7 +1355,11 @@ function connectEvents() {
     soon();
   });
   events.addEventListener("policy", () => refresh());
-  events.addEventListener("message", () => S.view === "sessions" && loadSessions().then(soon));
+  let sessionsTimer;
+  events.addEventListener("message", () => {
+    clearTimeout(sessionsTimer);
+    sessionsTimer = setTimeout(() => loadSessions().then(soon), 600);
+  });
 }
 
 // ------------------------------------------------------------------ dialogs
@@ -1040,35 +1400,30 @@ function inviteMessage(url, who) {
 
 // ------------------------------------------------------------------ workspace and account
 
-function workspaceSwitcher(ws) {
-  const select = h(
-    "select",
-    {
-      class: "ws-select",
-      "aria-label": "Workspace",
-      onchange: (e) => (e.target.value === "__new" ? newWorkspaceDialog(() => (e.target.value = S.ws)) : switchWorkspace(e.target.value)),
-    },
-    S.workspaces.map((w) => h("option", { value: w.slug, selected: w.slug === S.ws }, w.name)),
-    h("option", { value: "__new" }, "New workspace…"),
-  );
-  return h("label", { class: "ws", title: ws ? `agent://${ws.slug}` : "" }, h("span", { class: "ws-label" }, "Workspace"), select);
+function workspaceMenu(anchor) {
+  popover(anchor, [
+    h("div", { class: "menu-h" }, "Workspaces"),
+    S.workspaces.map((w) => menuItem(null, w.name, () => w.slug !== S.ws && switchWorkspace(w.slug), w.slug === S.ws ? h("span", { class: "check", html: ICONS.check }) : null)),
+    h("hr"),
+    menuItem("plus", "New workspace", () => newWorkspaceDialog()),
+    menuItem("settings", "Workspace settings", () => go("settings")),
+  ]);
 }
 
-function newWorkspaceDialog(onCancel) {
-  const name = h("input", { class: "input", placeholder: "Acme research", maxlength: 60, required: true });
-  let done = false;
+function newWorkspaceDialog() {
+  const name = h("input", { class: "input", placeholder: "Research team", maxlength: 60, required: true });
   const dlg = openDialog(
     "New workspace",
     h("p", { class: "muted" }, "A workspace has its own agents, sessions and policy. Use one per team or project."),
     h(
       "form",
       {
+        class: "dialog-form",
         onsubmit: async (e) => {
           e.preventDefault();
           try {
             const ws = await api("POST", "/api/workspaces", { name: name.value });
             S.workspaces.push(ws);
-            done = true;
             dlg.close();
             switchWorkspace(ws.slug);
           } catch (err) {
@@ -1077,10 +1432,9 @@ function newWorkspaceDialog(onCancel) {
         },
       },
       h("label", { class: "field" }, h("span", {}, "Name"), name),
-      h("div", { class: "dialog-actions" }, h("button", { class: "btn", type: "submit" }, "Create workspace")),
+      h("div", { class: "dialog-actions", style: "margin-top:16px" }, h("button", { class: "btn", type: "submit" }, "Create workspace")),
     ),
   );
-  dlg.addEventListener("close", () => !done && onCancel?.());
   name.focus();
 }
 
@@ -1090,6 +1444,7 @@ async function switchWorkspace(slug) {
   Object.assign(S, { ws: slug, session: null, sessionData: null, view: "sessions", selected: null, detail: null, messages: [], agents: [], sessions: [] });
   S.talk.log = {};
   S.talk.thread = {};
+  S.talk.waiting = {};
   S.talk.to = null;
   try {
     localStorage.setItem("a2a-ws", slug);
@@ -1101,33 +1456,73 @@ async function switchWorkspace(slug) {
   go("sessions");
 }
 
-function userBlock() {
+function face(u, cls = "user-av") {
+  return u.avatar_url
+    ? h("img", { class: cls, src: u.avatar_url, alt: "", referrerpolicy: "no-referrer" })
+    : h("span", { class: `${cls} initials`, "aria-hidden": "true" }, (u.name || u.email || "?").slice(0, 1).toUpperCase());
+}
+
+function userButton() {
   const u = S.me ?? {};
-  const face = u.avatar_url
-    ? h("img", { class: "user-av", src: u.avatar_url, alt: "", referrerpolicy: "no-referrer" })
-    : h("span", { class: "user-av initials", "aria-hidden": "true" }, (u.name || u.email || "?").slice(0, 1).toUpperCase());
+  return h(
+    "button",
+    { class: "user-btn", "aria-haspopup": "menu", "aria-expanded": "false", onclick: (e) => accountMenu(e.currentTarget) },
+    face(u),
+    h("span", { class: "user-text" }, h("span", { class: "user-name" }, u.name || "You"), h("span", { class: "user-mail" }, u.email || "")),
+  );
+}
+
+function accountMenu(anchor) {
+  const dark = document.documentElement.dataset.theme !== "light";
+  popover(
+    anchor,
+    [
+      h("div", { class: "menu-h" }, S.me?.email ?? ""),
+      menuItem("settings", "Settings", () => go("settings")),
+      menuItem(dark ? "sun" : "moon", dark ? "Light theme" : "Dark theme", () => setTheme(dark ? "light" : "dark")),
+      window.a2aDesktop ? null : menuItem("download", "Get the desktop app", () => (location.href = "/#desktop")),
+      h("a", { role: "menuitem", href: "/docs", target: "_blank", rel: "noopener" }, h("span", { html: ICONS.doc }), "Docs"),
+      h("hr"),
+      menuItem("logout", "Sign out", signOut),
+    ],
+    { above: true },
+  );
+}
+
+// In the desktop app, show whether this computer's agent is connected.
+let deviceState = null;
+function deviceLine() {
+  if (!window.a2aDesktop) return null;
+  const on = deviceState?.connected;
   return h(
     "div",
-    { class: "user" },
-    face,
-    h("div", { class: "user-text" }, h("span", { class: "user-name" }, u.name || "You"), h("span", { class: "user-mail" }, u.email || "")),
-    h(
-      "div",
-      { class: "user-actions" },
-      h("button", { type: "button", class: "link-btn", onclick: toggleTheme }, "Theme"),
-      h("button", { type: "button", class: "link-btn", onclick: signOut }, "Sign out"),
-    ),
+    { class: "device", title: deviceState?.address ?? "" },
+    h("span", { class: `lamp ${on ? "on" : ""}` }),
+    on ? "This computer is connected" : deviceState ? "This computer is offline" : "Checking this computer…",
   );
+}
+function watchDevice() {
+  if (!window.a2aDesktop) return;
+  const update = (s) => {
+    deviceState = s;
+    document.querySelector(".device")?.replaceWith(deviceLine());
+  };
+  window.a2aDesktop
+    .status()
+    .then(update)
+    .catch(() => {});
+  window.a2aDesktop.onStatus?.(update);
 }
 
 async function signOut() {
   Voice.stop();
   closeEvents();
   await fetch("/auth/signout", { method: "POST" });
+  if (window.a2aDesktop?.signOut) return window.a2aDesktop.signOut();
   location.href = "/";
 }
 
-// ------------------------------------------------------------------ sessions
+// ------------------------------------------------------------------ home and sessions
 
 async function loadSessions() {
   try {
@@ -1140,65 +1535,78 @@ async function loadSessions() {
 
 const ownerAgents = () => S.agents.filter((a) => a.owner && a.status === "active" && a.address !== S.overview?.relay?.console_address);
 
-function viewSessions() {
-  const isolated = S.overview?.relay?.isolation === "sessions";
-  const mine = ownerAgents();
-  return h(
-    "div",
-    {},
-    pageHead(
-      "Sessions",
-      "Each session is a private line between your agents and the people you invite. Guests only ever see their own session.",
-      h("button", { class: "btn secondary", onclick: connectAgentDialog }, "Connect your agent"),
-      h("button", { class: "btn", onclick: newSessionDialog }, "New session"),
-    ),
-    !isolated
-      ? h("div", { class: "callout" }, h("b", {}, "This workspace uses org-wide links."), " Everyone here can reach everyone the policy allows, so sessions are for organizing invites. New workspaces keep each session private.")
-      : null,
-    mine.length
-      ? h(
-          "div",
-          { class: "mine" },
-          h("span", { class: "muted small" }, "Your agents"),
-          mine.map((a) => h("span", { class: "chip-agent" }, h("span", { class: `lamp ${a.online ? "on" : ""}` }), a.display_name || short(a.address))),
-        )
-      : h(
-          "button",
-          { class: "callout callout-action", onclick: connectAgentDialog },
-          h("b", {}, "Connect your own agent first."),
-          " Your Claude Code (or any agent) joins as you, and can then talk to everyone in your sessions.",
-          h("span", { class: "callout-cta" }, "Connect"),
-        ),
-    S.sessions.length
-      ? h("div", { class: "session-grid" }, S.sessions.map(sessionCard))
-      : h(
-          "div",
-          { class: "panel empty big" },
-          h("div", { class: "empty-art", html: LOGO_MARK }),
-          h("strong", {}, "No sessions yet"),
-          h("p", {}, "Start one for each person whose agent you want to talk to. They get a link; their agent joins in one step."),
-          h("button", { class: "btn", onclick: newSessionDialog }, "New session"),
-        ),
-  );
+function greeting() {
+  const hr = new Date().getHours();
+  const part = hr < 5 ? "Good evening" : hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+  const first = (S.me?.name || "").split(/\s+/)[0];
+  return first ? `${part}, ${first}` : part;
 }
 
-function sessionCard(s) {
-  const waiting = !s.guests.length;
-  return h(
-    "button",
-    { class: "session-card", onclick: () => openSession(s.id) },
-    h(
+function viewHome() {
+  // The entrance plays once per visit, not on every refresh.
+  setTimeout(() => (S.homeShown = true), 900);
+  const people = talkable();
+  if (people.length && !people.some((a) => a.address === S.talk.to)) S.talk.to = people.find((a) => a.online)?.address ?? people[0].address;
+  const mine = ownerAgents();
+  const recent = sortedSessions().slice(0, 6);
+  const isolated = S.overview?.relay?.isolation === "sessions";
+  return {
+    title: null,
+    body: h(
       "div",
-      { class: "session-top" },
-      h("span", { class: "session-name" }, s.name),
-      waiting ? h("span", { class: "pill queued" }, "waiting to join") : h("span", { class: "faces" }, s.guests.slice(0, 4).map((g) => h("span", { class: "face" }, avatar(g.address), h("span", { class: `lamp ${g.online ? "on" : ""}` })))),
+      { class: `home ${S.homeShown ? "calm" : ""}` },
+      h(
+        "div",
+        { class: "home-inner" },
+        h("h1", { class: "hello" }, greeting()),
+        h("p", { class: "hello-sub" }, people.length ? "Ask any agent in your sessions. The answer comes back here." : "Start a session to bring someone's agent in."),
+        people.length ? composer({ to: S.talk.to, pickTo: people, placeholder: `Ask ${nameOf(S.talk.to)} anything…`, onSend: () => sendFromHome(), autofocus: true }) : null,
+        h(
+          "div",
+          { class: "sugg" },
+          h("button", { type: "button", onclick: newSessionDialog }, h("span", { html: ICONS.plus }), "New session"),
+          mine.length ? null : h("button", { type: "button", onclick: connectAgentDialog }, h("span", { html: ICONS.invites }), "Connect your agent"),
+          S.overview?.stats?.held ? h("button", { type: "button", onclick: () => go("review") }, h("span", { html: ICONS.review }), `Review ${S.overview.stats.held} held`) : null,
+          h("button", { type: "button", onclick: () => go("traffic") }, h("span", { html: ICONS.traffic }), "See activity"),
+        ),
+        !isolated ? h("div", { class: "banner" }, h("p", {}, h("b", {}, "Org-wide links. "), "Everyone here can reach everyone the policy allows. New workspaces keep each session private.")) : null,
+        recent.length
+          ? h(
+              "section",
+              { class: "recent", "aria-label": "Recent sessions" },
+              h("div", { class: "recent-h" }, h("span", {}, "Recent sessions")),
+              h(
+                "div",
+                { class: "recent-list" },
+                recent.map((s) =>
+                  h(
+                    "button",
+                    { class: "r-item", onclick: () => openSession(s.id) },
+                    h("span", { class: "r-name" }, s.name),
+                    h("span", { class: "r-time" }, s.last_message_at ? ago(s.last_message_at) : s.guests.length ? "" : "invited"),
+                    h("span", { class: "r-preview" }, s.last_preview || (s.guests.length ? "No messages yet." : "Waiting for them to join.")),
+                  ),
+                ),
+              ),
+            )
+          : null,
+      ),
     ),
-    h("p", { class: "session-preview" }, s.last_preview || (waiting ? "Send them the invite link to get started." : "No messages yet.")),
-    h("span", { class: "session-meta" }, s.last_message_at ? `Last message ${ago(s.last_message_at)}` : `Started ${ago(s.created_at)}`),
-  );
+  };
+}
+
+async function sendFromHome(textOverride) {
+  if (!S.talk.to) return;
+  const text = (typeof textOverride === "string" ? textOverride : S.talk.draft).trim();
+  if (!text) return;
+  S.talk.draft = "";
+  go("talk");
+  await sendTalk(text);
 }
 
 function newSessionDialog() {
+  closeMenus();
+  toggleSide(false);
   const name = h("input", { class: "input", placeholder: "David", maxlength: 80, required: true, autocomplete: "off" });
   const body = h(
     "form",
@@ -1208,6 +1616,7 @@ function newSessionDialog() {
         try {
           const s = await api("POST", "/v1/admin/sessions", { name: name.value });
           await loadSessions();
+          renderSide();
           body.replaceChildren(
             h("p", {}, `Send this link to ${s.name}. It works once and expires in 7 days.`),
             copyLine(s.invite.url, "Copy link"),
@@ -1225,8 +1634,8 @@ function newSessionDialog() {
       },
     },
     h("label", { class: "field" }, h("span", {}, "Who is this session for?"), name),
-    h("p", { class: "muted small" }, "Their agent will only be able to talk to your agents, never to people in your other sessions."),
-    h("div", { class: "dialog-actions" }, h("button", { class: "btn", type: "submit" }, "Create session and invite link")),
+    h("p", { class: "muted small", style: "margin-top:10px" }, "Their agent can only talk to your agents, never to people in your other sessions."),
+    h("div", { class: "dialog-actions", style: "margin-top:18px" }, h("button", { class: "btn", type: "submit" }, "Create session and link")),
   );
   const dlg = openDialog("New session", body);
   name.focus();
@@ -1237,9 +1646,24 @@ async function connectAgentDialog() {
     const inv = await api("POST", "/v1/admin/invites", { owner: true, note: "My agent", max_uses: 3, ttl_hours: 72 });
     openDialog(
       "Connect your agent",
-      h("p", {}, "Your agent joins as you: it can reach everyone in all your sessions. Use the link on up to three of your own machines in the next 3 days."),
+      h("p", {}, "Your agent joins as you and can reach everyone in your sessions. The easiest way is the desktop app: sign in and this computer connects on its own."),
+      window.a2aDesktop
+        ? null
+        : h(
+            "div",
+            { class: "row" },
+            h("a", { class: "btn", href: "/download/windows" }, h("span", { html: ICONS.download }), "Download for Windows"),
+            h("a", { class: "btn secondary", href: "/docs#desktop", target: "_blank" }, "Mac and Linux"),
+          ),
+      h("p", { class: "muted small" }, "Or connect Claude Code directly. The link works on up to three of your machines for 3 days."),
       inviteSteps(inv.url),
-      h("details", { class: "more" }, h("summary", {}, "Terminal, Codex or the SDK"), copyLine(`node a2a.mjs join ${inv.url}`), h("p", { class: "muted small" }, h("a", { href: "/docs#install" }, "Download a2a.mjs and the SDK"))),
+      h(
+        "details",
+        { class: "more" },
+        h("summary", {}, "Terminal, Codex or the SDK"),
+        copyLine(`node a2a.mjs join ${inv.url}`),
+        h("p", { class: "muted small" }, h("a", { href: "/docs#install" }, "Download a2a.mjs and the SDK")),
+      ),
     );
   } catch (err) {
     toast(err.message);
@@ -1267,11 +1691,12 @@ async function loadSession() {
 
 function viewSession() {
   const d = S.sessionData;
-  const back = h("button", { class: "back", onclick: () => go("sessions") }, h("span", { html: ICONS.arrow }), "All sessions");
-  if (!d) return h("div", {}, back, h("div", { class: "panel empty" }, "Loading the session…"));
-  if (d.error) return h("div", {}, back, h("div", { class: "panel empty" }, h("strong", {}, "This session isn't available"), "It may have been archived."));
+  const listed = S.sessions.find((s) => s.id === S.session);
+  if (!d) return { title: h("span", {}, listed?.name ?? "Session"), body: h("div", { class: "chat-empty" }, h("p", {}, "Loading the session…")) };
+  if (d.error) return { title: h("span", {}, "Session"), body: h("div", { class: "chat-empty" }, h("h2", {}, "This session isn't available"), h("p", {}, "It may have been archived.")) };
   const guests = d.members.filter((m) => m.role === "guest");
   const liveInvite = d.invites.find((i) => i.valid);
+  const me = S.overview?.relay?.console_address;
   const archive = async () => {
     if (!confirm(`Archive "${d.name}"? Its guests lose access to your agents. Messages stay in Activity.`)) return;
     await api("DELETE", `/v1/admin/sessions/${encodeURIComponent(d.id)}`);
@@ -1288,46 +1713,25 @@ function viewSession() {
       toast(err.message);
     }
   };
-  return h(
-    "div",
-    { class: "session-page" },
-    back,
-    pageHead(
-      d.name,
-      guests.length ? `Private between your agents and ${guests.map((g) => g.display_name || short(g.address)).join(", ")}.` : "Waiting for the first person to join.",
-      h("button", { class: "btn secondary", onclick: newInvite }, "Invite link"),
-      h("button", { class: "btn ghost-danger", onclick: archive }, "Archive"),
-    ),
-    h(
-      "div",
-      { class: "session-layout" },
-      guests.length
-        ? h(
-            "section",
-            { class: "session-main" },
-            guests.length > 1
-              ? h("div", { class: "seg", role: "tablist" }, guests.map((g) => h("button", { role: "tab", "aria-selected": S.talk.to === g.address ? "true" : "false", onclick: () => ((S.talk.to = g.address), renderView()) }, g.display_name || short(g.address))))
-              : null,
-            callPanel(),
-          )
-        : h(
-            "section",
-            { class: "panel panel-pad waiting" },
-            h("h2", {}, `Waiting for ${d.name}`),
-            liveInvite ? h("div", {}, h("p", { class: "muted" }, "Send them this link. The session opens as soon as their agent joins."), copyLine(liveInvite.url, "Copy link"), inviteSteps(liveInvite.url)) : h("div", {}, h("p", { class: "muted" }, "The last link was used or expired."), h("button", { class: "btn", onclick: newInvite }, "Create a new link")),
-          ),
-      h(
+  const toggleDetails = () => {
+    S.detailsOpen = !S.detailsOpen;
+    renderView();
+  };
+  const between = d.messages.filter((m) => m.from !== me && m.to !== me);
+
+  const details = S.detailsOpen
+    ? h(
         "aside",
-        { class: "session-side" },
+        { class: "details", "aria-label": "Session details" },
         h(
           "section",
-          { class: "panel panel-pad" },
-          h("h3", { class: "side-title" }, "People"),
+          {},
+          h("h3", {}, "People"),
           h(
             "ul",
             { class: "people" },
             d.members
-              .filter((m) => m.address !== S.overview?.relay?.console_address)
+              .filter((m) => m.address !== me)
               .map((m) =>
                 h(
                   "li",
@@ -1353,22 +1757,76 @@ function viewSession() {
         ),
         h(
           "section",
-          { class: "panel panel-pad" },
-          h("h3", { class: "side-title" }, "Agent-to-agent"),
-          d.messages.filter((m) => m.from !== S.overview?.relay?.console_address && m.to !== S.overview?.relay?.console_address).length
+          {},
+          h("h3", {}, "Between the agents"),
+          between.length
             ? h(
                 "ul",
                 { class: "a2a-feed" },
-                d.messages
-                  .filter((m) => m.from !== S.overview?.relay?.console_address && m.to !== S.overview?.relay?.console_address)
+                between
                   .slice(-12)
-                  .map((m) => h("li", {}, h("div", { class: "a2a-route" }, h("b", {}, nameOf(m.from)), h("span", { class: "muted" }, " to "), h("b", {}, nameOf(m.to)), pill(m.state)), h("p", {}, m.preview), h("span", { class: "muted small" }, ago(m.received_at)))),
+                  .map((m) =>
+                    h(
+                      "li",
+                      {},
+                      h("div", { class: "a2a-route" }, h("b", {}, nameOf(m.from)), h("span", { class: "muted" }, " to "), h("b", {}, nameOf(m.to)), pill(m.state)),
+                      h("p", {}, m.preview),
+                      h("span", { class: "muted small" }, ago(m.received_at)),
+                    ),
+                  ),
               )
-            : h("p", { class: "muted small" }, "When your agent and theirs talk, the conversation shows up here."),
+            : h("p", { class: "muted small" }, "When your agent and theirs talk, it shows up here."),
+        ),
+        h("section", {}, h("h3", {}, "Invite"), liveInvite ? copyLine(liveInvite.url, "Copy") : h("button", { class: "btn secondary small", onclick: newInvite }, "Create a new link")),
+        h("section", {}, h("button", { class: "btn ghost-danger small", onclick: archive }, "Archive session")),
+      )
+    : null;
+
+  let main;
+  if (!guests.length) {
+    main = h(
+      "div",
+      { class: "chat-scroll" },
+      h(
+        "div",
+        { class: "chat-empty" },
+        h(
+          "div",
+          { class: "waiting-card" },
+          h("h2", {}, `Waiting for ${d.name}`),
+          liveInvite ? h("p", {}, "Send them this link. The session opens as soon as their agent joins.") : h("p", {}, "The last link was used or expired."),
+          liveInvite ? [copyLine(liveInvite.url, "Copy link"), inviteSteps(liveInvite.url)] : h("button", { class: "btn", onclick: newInvite, style: "justify-self:center" }, "Create a new link"),
         ),
       ),
-    ),
-  );
+    );
+  } else {
+    main = conversation(S.talk.to);
+    if (guests.length > 1) {
+      main.prepend(
+        h(
+          "div",
+          { class: "chat-tabs" },
+          h(
+            "div",
+            { class: "seg", role: "tablist" },
+            guests.map((g) =>
+              h("button", { role: "tab", "aria-selected": S.talk.to === g.address ? "true" : "false", onclick: () => ((S.talk.to = g.address), renderView()) }, g.display_name || short(g.address)),
+            ),
+          ),
+        ),
+      );
+      main.style.gridTemplateRows = "auto minmax(0, 1fr) auto";
+    }
+  }
+
+  return {
+    title: [h("span", {}, d.name), guests.length ? h("span", { class: "topbar-sub" }, `with ${guests.map((g) => g.display_name || short(g.address)).join(", ")}`) : null],
+    actions: [
+      h("button", { class: "btn secondary small", onclick: newInvite }, "Invite link"),
+      h("button", { class: "icon-btn", "aria-label": "Session details", "aria-pressed": S.detailsOpen ? "true" : "false", title: "Details", html: ICONS.panel, onclick: toggleDetails }),
+    ],
+    body: h("div", { class: "chat" }, main, details),
+  };
 }
 
 // ------------------------------------------------------------------ settings
@@ -1402,7 +1860,16 @@ function viewSettings() {
         },
         h("h2", { class: "side-title" }, "Workspace"),
         h("label", { class: "field" }, h("span", {}, "Name"), name),
-        h("dl", { class: "kv" }, h("dt", {}, "Agent addresses"), h("dd", { class: "mono" }, `agent://${r.org ?? ws?.slug}/<name>`), h("dt", {}, "Relay address"), h("dd", { class: "mono" }, r.url ?? ""), h("dt", {}, "Voice"), h("dd", {}, r.voice?.reson8 ? "Reson8 speech-to-text" : "Your browser's speech recognition")),
+        h(
+          "dl",
+          { class: "kv" },
+          h("dt", {}, "Agent addresses"),
+          h("dd", { class: "mono" }, `agent://${r.org ?? ws?.slug}/<name>`),
+          h("dt", {}, "Relay address"),
+          h("dd", { class: "mono" }, r.url ?? ""),
+          h("dt", {}, "Voice"),
+          h("dd", {}, r.voice?.reson8 ? "Reson8 speech-to-text" : "Your browser's speech recognition"),
+        ),
         h("div", { class: "row" }, h("button", { class: "btn", type: "submit" }, "Save")),
       ),
       h(
@@ -1425,6 +1892,8 @@ async function boot() {
   } catch {
     /* storage blocked */
   }
+  S.detailsOpen = innerWidth > 1180;
+  document.getElementById("app").replaceChildren(h("main", { class: "login" }, h("div", { class: "boot" }, h("span", { html: LOGO_MARK }), "Opening your workspace…")));
   const res = await fetch("/api/me");
   if (res.status === 401) {
     location.href = `/signin?next=${encodeURIComponent(location.pathname)}`;
@@ -1442,17 +1911,19 @@ async function boot() {
   }
   S.ws = (S.workspaces.find((w) => w.slug === slug) ?? S.workspaces.find((w) => w.slug === remembered) ?? S.workspaces[0])?.slug;
   if (!S.ws) {
-    document.getElementById("app").replaceChildren(h("main", { class: "login" }, h("div", { class: "panel empty" }, "No workspace yet.")));
+    document.getElementById("app").replaceChildren(h("main", { class: "login" }, h("div", { class: "empty" }, h("strong", {}, "No workspace yet"), "Sign out and back in to create one.")));
     return;
   }
   if (view === "s" && id) {
     S.view = "session";
     S.session = id;
-  } else if (NAV.some(([v]) => v === view)) S.view = view;
+  } else if (VIEW_NAMES.includes(view)) S.view = view;
   await Promise.all([refresh(), loadSessions()]);
+  if (S.view === "talk" && id) S.talk.to = talkable().find((a) => short(a.address) === decodeURIComponent(id))?.address ?? null;
   renderShell(); // both loads are in: draw with sessions included
   if (S.view === "session") await loadSession();
   connectEvents();
+  watchDevice();
 }
 
 boot();

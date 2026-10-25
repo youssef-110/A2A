@@ -3,13 +3,17 @@ import {
   createSession,
   createWorkspace,
   currentUser,
+  decideDeviceLink,
+  deviceLinkByCode,
   endSession,
   googleEnabled,
   googleFinish,
   googleStart,
+  pollDeviceLink,
   recordFailure,
   signIn,
   signUp,
+  startDeviceLink,
   tooManyFailures,
   workspaceBySlug,
   workspacesFor,
@@ -24,6 +28,7 @@ export { RelayDO } from "./relay-do.ts";
  *   /auth/*               sign-in endpoints     /api/*       account + workspace admin API
  *   /w/<slug>/v1/*        a workspace relay (agents)        /w/<slug>/join/<code>  invite page
  *   /v1/*, /join/<code>   the original single relay (agent://acme)
+ *   /link                 approve a desktop app sign-in         /download/<os>  desktop app installers
  */
 
 const PAGES: Record<string, string> = {
@@ -94,6 +99,20 @@ async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
     return json({ ok: true }, 200, { "set-cookie": await endSession(env, req, secure) });
   }
   if (url.pathname === "/auth/google-status") return json({ enabled: googleEnabled(env) });
+
+  // Desktop app sign-in, like a TV code: the app gets a code, the person approves it at /link.
+  if (url.pathname === "/auth/device/start" && req.method === "POST") {
+    if (await tooManyFailures(env, [`device:${ip}`])) return json({ error: "Too many sign-in codes. Wait a few minutes and try again." }, 429);
+    await recordFailure(env, [`device:${ip}`]);
+    const body = await readJson(req);
+    const link = await startDeviceLink(env, typeof body.host === "string" ? body.host.trim() : "");
+    return json({ ...link, verify_url: `${url.origin}/link?code=${link.user_code}`, interval: 2 });
+  }
+  if (url.pathname === "/auth/device/poll" && req.method === "POST") {
+    const body = await readJson(req);
+    if (typeof body.device_code !== "string" || body.device_code.length < 20) return json({ error: "device_code required" }, 400);
+    return json(await pollDeviceLink(env, body.device_code));
+  }
   if (url.pathname === "/auth/google") {
     if (!googleEnabled(env)) return Response.redirect(`${url.origin}/signin?error=google_unavailable`, 302);
     return googleStart(env, url, url.searchParams.get("next") ?? "/app");
@@ -117,6 +136,34 @@ async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
   if (url.pathname === "/api/me") {
     return json({ user, workspaces: workspaces.map(({ slug, name, role }) => ({ slug, name, role, url: `${url.origin}/w/${slug}` })), google: googleEnabled(env) });
   }
+  if (url.pathname === "/api/device" && req.method === "GET") {
+    const link = await deviceLinkByCode(env, url.searchParams.get("code") ?? "");
+    if (!link) return json({ error: "That code expired or doesn't exist. Start again from the app." }, 404);
+    return json({ code: link.user_code, host: link.host, status: link.status, expires_at: link.expires_at });
+  }
+  if (url.pathname === "/api/device/approve" && req.method === "POST") {
+    const body = await readJson(req);
+    const code = String(body.code ?? "").trim().toUpperCase();
+    const link = await deviceLinkByCode(env, code);
+    if (!link || link.status !== "pending") return json({ error: "That code expired or was already used. Start again from the app." }, 404);
+    if (body.deny === true) {
+      await decideDeviceLink(env, code, user.id, "deny");
+      return json({ ok: true, status: "denied" });
+    }
+    const ws = workspaces.find((w) => w.slug === body.workspace) ?? workspaces[0];
+    if (!ws) return json({ error: "You don't have a workspace yet." }, 400);
+    // A one-use owner invite: the app joins with it, as this person's own agent.
+    const inviteReq = new Request(new URL("/v1/admin/invites", url.origin), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ owner: true, max_uses: 1, ttl_hours: 1, note: `Desktop app on ${link.host}` }),
+    });
+    const res = await toRelay(env, inviteReq, ws.do_name, "/v1/admin/invites", workspaceHeaders(url, ws), true);
+    const invite = (await res.json().catch(() => ({}))) as { url?: string };
+    if (!res.ok || !invite.url) return json({ error: "Couldn't create an invite for this computer. Try again." }, 502);
+    if (!(await decideDeviceLink(env, code, user.id, { workspace: ws.slug, invite_url: invite.url }))) return json({ error: "That code expired. Start again from the app." }, 409);
+    return json({ ok: true, status: "approved", workspace: ws.slug });
+  }
   if (url.pathname === "/api/workspaces" && req.method === "POST") {
     const body = await readJson(req);
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : "New workspace";
@@ -139,6 +186,38 @@ async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
     return toRelay(env, req, ws.do_name, m[2]!, workspaceHeaders(url, ws), true);
   }
   return json({ error: "not_found" }, 404);
+}
+
+/**
+ * Desktop installers are bigger than the 25 MiB a single static asset may be, so the build splits
+ * each into parts and this joins them back into one download as a stream.
+ */
+async function download(env: Env, req: Request, url: URL, os: string): Promise<Response> {
+  const manifestRes = await asset(env, req, `/downloads/desktop/${os}.json`);
+  if (!manifestRes.ok) return Response.redirect(`${url.origin}/docs#desktop`, 302);
+  const m = (await manifestRes.json()) as { file: string; size: number; parts: string[] };
+  const { readable, writable } = new FixedLengthStream(m.size); // keeps Content-Length, so browsers show progress
+  const pump = async () => {
+    try {
+      for (const part of m.parts) {
+        const r = await asset(env, req, `/downloads/desktop/${part}`);
+        if (!r.ok || !r.body) throw new Error(`missing part ${part}`);
+        await r.body.pipeTo(writable, { preventClose: true });
+      }
+      await writable.close();
+    } catch (e) {
+      await writable.abort(e);
+    }
+  };
+  void pump();
+  return new Response(readable, {
+    headers: {
+      "content-type": "application/octet-stream",
+      "content-length": String(m.size),
+      "content-disposition": `attachment; filename="${m.file}"`,
+      "cache-control": "public, max-age=300",
+    },
+  });
 }
 
 export default {
@@ -168,6 +247,13 @@ export default {
       return env.RELAY.get(env.RELAY.idFromName("relay")).fetch(new Request(req, { headers }));
     }
     if (p.startsWith("/join/")) return asset(env, req, "/join.html");
+
+    if (p === "/link") {
+      if (!(await currentUser(env, req))) return Response.redirect(`${url.origin}/signin?next=${encodeURIComponent(p + url.search)}`, 302);
+      return asset(env, req, "/link.html");
+    }
+    const dl = /^\/download\/(windows|mac|linux)$/.exec(p);
+    if (dl) return download(env, req, url, dl[1]!);
 
     if (p === "/app" || p.startsWith("/app/")) {
       if (!(await currentUser(env, req))) return Response.redirect(`${url.origin}/signin?next=${encodeURIComponent(p)}`, 302);

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:">
+  <title>a2a</title>
+  <style>
+    @font-face { font-family: "Geist"; src: url("fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; }
+    @font-face { font-family: "Geist Mono"; src: url("fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; }
+    :root { --ink: #f5f5f7; --ink-2: #a1a1a6; --ink-3: #86868b; --hair: rgb(255 255 255 / 0.14); --ease: cubic-bezier(0.16, 1, 0.3, 1); color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body { background: #000; color: var(--ink); font: 400 15px/1.5 "Geist", -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; user-select: none; }
+    ::selection { background: rgb(41 151 255 / 0.4); }
+    .drag { position: fixed; inset: 0 0 auto 0; height: 52px; -webkit-app-region: drag; }
+    main { min-height: 100%; display: grid; place-items: center; padding: 64px 32px 48px; }
+    .card { width: min(440px, 100%); display: grid; justify-items: center; gap: 0; text-align: center; }
+    .mark { width: 64px; height: 64px; margin-bottom: 30px; animation: rise 0.9s var(--ease) both; }
+    h1 { margin: 0; font-size: 34px; line-height: 1.08; font-weight: 650; letter-spacing: -0.04em; text-wrap: balance; animation: rise 0.9s var(--ease) 60ms both; }
+    p { margin: 14px 0 0; color: var(--ink-2); font-size: 16px; line-height: 1.5; text-wrap: pretty; animation: rise 0.9s var(--ease) 120ms both; }
+    .actions { display: grid; gap: 10px; width: 100%; margin-top: 32px; animation: rise 0.9s var(--ease) 180ms both; }
+    button { -webkit-app-region: no-drag; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 24px; border: 0; border-radius: 999px; background: var(--ink); color: #000; font: 500 16px "Geist", system-ui, sans-serif; letter-spacing: -0.01em; cursor: pointer; transition: opacity 0.2s, transform 0.16s var(--ease), background-color 0.2s; }
+    button:hover { opacity: 0.9; }
+    button:active { transform: scale(0.97); }
+    button.ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--hair); }
+    button.ghost:hover { background: rgb(255 255 255 / 0.06); opacity: 1; }
+    button:disabled { opacity: 0.5; cursor: progress; }
+    button:focus-visible { outline: 2px solid #2997ff; outline-offset: 3px; }
+    .fine { margin-top: 20px; color: var(--ink-3); font-size: 13px; animation: rise 0.9s var(--ease) 240ms both; }
+    .code { margin-top: 28px; padding: 22px 28px; border-radius: 20px; background: #111112; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08); font: 600 36px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.14em; user-select: text; animation: rise 0.9s var(--ease) both; }
+    .wait { display: inline-flex; align-items: center; gap: 10px; margin-top: 22px; color: var(--ink-2); font-size: 14px; }
+    .wait i { width: 7px; height: 7px; border-radius: 50%; background: #30d158; animation: breathe 1.3s ease-in-out infinite; }
+    .err { color: #ff6961; }
+    .busy .mark { animation: breathe 1.4s ease-in-out infinite; }
+    [hidden] { display: none !important; }
+    @keyframes rise { from { opacity: 0; transform: translateY(10px); filter: blur(6px); } }
+    @keyframes breathe { 50% { opacity: 0.35; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; } }
+  </style>
+</head>
+<body>
+  <div class="drag" aria-hidden="true"></div>
+  <main>
+    <div class="card" id="card">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="#f5f5f7" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="#f5f5f7"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
+
+      <section id="intro">
+        <h1>Connect this computer to a2a</h1>
+        <p>Sign in with your browser. This computer then joins your sessions as your agent, and keeps answering while a2a runs in the background.</p>
+        <div class="actions"><button id="start" type="button">Sign in with your browser</button></div>
+        <p class="fine">Use Google or email, in your own browser.</p>
+      </section>
+
+      <section id="waiting" hidden>
+        <h1>Approve this code</h1>
+        <p>We opened a2a in your browser. Check the code matches, then press Connect.</p>
+        <div class="code" id="code"></div>
+        <span class="wait" role="status"><i></i>Waiting for your browser</span>
+        <div class="actions"><button class="ghost" id="reopen" type="button">Open the browser again</button><button class="ghost" id="cancel" type="button">Cancel</button></div>
+      </section>
+
+      <section id="joining" hidden>
+        <h1 id="joining-title">Setting up this computer</h1>
+        <p>Making a signing key that never leaves this machine, then joining your workspace.</p>
+      </section>
+
+      <section id="problem" hidden>
+        <h1>That didn't work</h1>
+        <p class="err" id="problem-text"></p>
+        <div class="actions"><button id="retry" type="button">Try again</button></div>
+      </section>
+    </div>
+  </main>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const show = (id) => {
+      for (const s of ["intro", "waiting", "joining", "problem"]) $(s).hidden = s !== id;
+      $("card").classList.toggle("busy", id === "joining");
+    };
+    let verifyUrl = null;
+    const fail = (msg) => {
+      $("problem-text").textContent = msg;
+      show("problem");
+    };
+    async function start() {
+      $("start").disabled = $("retry").disabled = true;
+      try {
+        const { code, url } = await window.a2aDesktop.startLink();
+        verifyUrl = url;
+        $("code").textContent = code;
+        show("waiting");
+      } catch (e) {
+        fail(String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+      } finally {
+        $("start").disabled = $("retry").disabled = false;
+      }
+    }
+    window.a2aDesktop.onLink((m) => {
+      if (m.state === "joining") {
+        $("joining-title").textContent = m.name ? `Welcome, ${m.name.split(" ")[0]}` : "Setting up this computer";
+        show("joining");
+      } else if (m.state === "expired") fail("The code expired. Codes last ten minutes.");
+      else if (m.state === "denied") fail("The sign-in was cancelled in the browser.");
+      else if (m.state === "error") fail(m.message || "Joining failed.");
+    });
+    $("start").addEventListener("click", start);
+    $("retry").addEventListener("click", start);
+    $("reopen").addEventListener("click", () => verifyUrl && window.a2aDesktop.openUrl(verifyUrl));
+    $("cancel").addEventListener("click", () => {
+      window.a2aDesktop.cancelLink();
+      show("intro");
+    });
+  </script>
+</body>
+</html>
