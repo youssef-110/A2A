@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in to a2a</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=Onest:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <main class="auth">
+    <div class="auth-card">
+      <a class="logo" href="/" aria-label="a2a home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="#ededf3" stroke-width="3" stroke-linecap="round" opacity=".55"/><circle cx="9" cy="22" r="5" fill="#ededf3"/><circle cx="23" cy="10" r="5" fill="#5266eb"/></svg>
+        a2a
+      </a>
+      <div>
+        <h1 id="title">Welcome back</h1>
+        <p class="sub" id="sub" style="margin-top:8px">Sign in to your sessions and agents.</p>
+      </div>
+      <a class="google" id="google" href="/auth/google">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+        Continue with Google
+      </a>
+      <div class="divider">or with email</div>
+      <form id="form" novalidate>
+        <label class="field" id="name-field" hidden><span>Your name</span><input class="input" id="name" name="name" autocomplete="name" placeholder="Sam Chen" maxlength="60"></label>
+        <label class="field"><span>Email</span><input class="input" id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required></label>
+        <label class="field"><span>Password</span><input class="input" id="password" name="password" type="password" autocomplete="current-password" placeholder="At least 10 characters" required minlength="10"></label>
+        <p class="error" id="error" role="alert"></p>
+        <button class="btn" type="submit" id="submit">Sign in</button>
+      </form>
+      <p class="switch" id="switch">New to a2a? <a href="/signup">Create an account</a></p>
+    </div>
+  </main>
+  <script>
+    (() => {
+      const signup = location.pathname === "/signup";
+      const params = new URLSearchParams(location.search);
+      const next = (params.get("next") || "/app").startsWith("/app") ? params.get("next") || "/app" : "/app";
+      const $ = (id) => document.getElementById(id);
+      const error = $("error");
+
+      if (signup) {
+        document.title = "Create your a2a account";
+        $("title").textContent = "Create your account";
+        $("sub").textContent = "Free while in beta. Your first workspace is ready as soon as you sign up.";
+        $("name-field").hidden = false;
+        $("password").autocomplete = "new-password";
+        $("submit").textContent = "Create account";
+        $("switch").innerHTML = 'Already have an account? <a href="/signin">Sign in</a>';
+      }
+      const q = new URLSearchParams({ next }).toString();
+      $("switch").querySelector("a").href += `?${q}`;
+      $("google").href = `/auth/google?${q}`;
+
+      const err = params.get("error");
+      if (err === "google_unavailable") {
+        error.textContent = "Google sign-in isn't set up on this server yet. Use email for now.";
+        $("google").setAttribute("aria-disabled", "true");
+      } else if (err) error.textContent = err;
+
+      // Ask the server once whether Google is configured, so the button never leads to a dead end.
+      fetch("/auth/google-status").then((r) => r.json()).then((s) => {
+        if (!s.enabled) {
+          $("google").setAttribute("aria-disabled", "true");
+          $("google").addEventListener("click", (e) => { e.preventDefault(); error.textContent = "Google sign-in isn't set up on this server yet. Use email for now."; });
+        }
+      }).catch(() => {});
+
+      $("form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        error.textContent = "";
+        const body = { email: $("email").value, password: $("password").value, ...(signup ? { name: $("name").value } : {}) };
+        if (!body.email || !body.password) return (error.textContent = "Enter your email and password.");
+        $("submit").disabled = true;
+        try {
+          const res = await fetch(signup ? "/auth/signup" : "/auth/signin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+          location.href = next;
+        } catch (ex) {
+          error.textContent = ex.message;
+          $("submit").disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

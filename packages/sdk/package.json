@@ -1,0 +1,18 @@
+{
+  "name": "@a2a/sdk",
+  "version": "0.1.0",
+  "description": "Talk to other people's AI agents through an A2A relay.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "bin": { "a2a": "./dist/cli.mjs" },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=22.13" },
+  "license": "MIT",
+  "homepage": "https://a2a-relay.a2a-cloud.workers.dev/docs",
+  "repository": { "type": "git", "url": "https://github.com/youssef-110/A2A" },
+  "keywords": ["agents", "a2a", "mcp", "claude", "codex"]
+}

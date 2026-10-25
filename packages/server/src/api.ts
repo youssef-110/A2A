@@ -33,7 +33,10 @@ type Handler = (ctx: Ctx) => Promise<unknown> | unknown;
 export interface ApiOptions {
   relay: Relay;
   adminToken: string;
-  name: string;
+  /** The relay's display name. A function lets a Durable Object show its workspace's current name. */
+  name: string | (() => string);
+  /** Trust the x-a2a-base header for the public base URL (set by the Cloudflare Worker for workspace relays). */
+  trustForwardedBase?: boolean;
   /** Reson8 API key. When set, the console can mint short-lived speech-to-text tokens for the voice desk. */
   reson8ApiKey?: string;
   fetch?: typeof fetch;
@@ -118,12 +121,15 @@ export function createApi(opts: ApiOptions): Api {
     return agent;
   };
   const secureCookie = (url: URL): string => (url.protocol === "https:" ? "; Secure" : "");
-  const inviteUrl = (url: URL, code: string): string => `${url.origin}/join/${code}`;
+  const relayName = (): string => (typeof opts.name === "function" ? opts.name() : opts.name);
+  /** Where agents reach this relay: the origin, or origin + /w/<slug> for a workspace behind the Worker. */
+  const baseOf = (ctx: Ctx): string => (opts.trustForwardedBase && ctx.req.headers.get("x-a2a-base")) || ctx.url.origin;
+  const inviteUrl = (ctx: Ctx, code: string): string => `${baseOf(ctx)}/join/${code}`;
 
   // ------------------------------------------------------------ public + agent API
   route("GET", "/healthz", () => ({ ok: true }));
   route("GET", "/v1/relay", () => ({
-    name: opts.name,
+    name: relayName(),
     version: RELAY_VERSION,
     org: relay.policy.org,
     relay_public_key: relay.relayPublicKey,
@@ -136,7 +142,7 @@ export function createApi(opts: ApiOptions): Api {
     ctx.status = r.status;
     return r.body;
   });
-  route("GET", "/v1/invites/:code", (ctx) => ({ ...relay.inviteInfo(decodeURIComponent(ctx.params[0]!)), relay: opts.name, server: ctx.url.origin }));
+  route("GET", "/v1/invites/:code", (ctx) => ({ ...relay.inviteInfo(decodeURIComponent(ctx.params[0]!)), relay: relayName(), server: baseOf(ctx) }));
   route("POST", "/v1/messages", async (ctx) => {
     const r = relay.submit(await ctx.body());
     ctx.status = r.status;
@@ -180,15 +186,16 @@ export function createApi(opts: ApiOptions): Api {
     requireAdmin(ctx);
     return {
       relay: {
-        name: opts.name,
+        name: relayName(),
         version: RELAY_VERSION,
         org: relay.policy.org,
         policy_version: relay.policyVersion,
         registration: relay.policy.registration,
+        isolation: relay.policy.isolation,
         judge: relay.judgeInfo(),
         console_address: relay.consoleAddress,
         voice: { reson8: !!opts.reson8ApiKey },
-        url: ctx.url.origin,
+        url: baseOf(ctx),
       },
       stats: relay.stats(),
     };
@@ -272,13 +279,60 @@ export function createApi(opts: ApiOptions): Api {
   // Invites: a link that lets one person (or a few) join without the admin token.
   route("GET", "/v1/admin/invites", (ctx) => {
     requireAdmin(ctx);
-    return { invites: relay.listInvites().map((i) => ({ ...i, url: inviteUrl(ctx.url, i.code) })) };
+    return { invites: relay.listInvites().map((i) => ({ ...i, url: inviteUrl(ctx, i.code) })) };
   });
   route("POST", "/v1/admin/invites", async (ctx) => {
     requireAdmin(ctx);
-    const invite = relay.createInvite(await ctx.body(), "admin");
+    let invite;
+    try {
+      invite = relay.createInvite(await ctx.body(), "admin");
+    } catch {
+      throw new HttpError(404, "unknown_session");
+    }
     ctx.status = 201;
-    return { ...invite, url: inviteUrl(ctx.url, invite.code) };
+    return { ...invite, url: inviteUrl(ctx, invite.code) };
+  });
+
+  // Sessions: private lines between the owner's agents and the people invited into each one.
+  route("GET", "/v1/admin/sessions", (ctx) => {
+    requireAdmin(ctx);
+    return { sessions: relay.listSessions() };
+  });
+  route("POST", "/v1/admin/sessions", async (ctx) => {
+    requireAdmin(ctx);
+    const b = await ctx.body();
+    const session = relay.createSession(b, "admin");
+    const invite = relay.createInvite({ session_id: session.id, note: session.name, max_uses: b.max_uses ?? 1, ttl_hours: b.ttl_hours }, "admin");
+    ctx.status = 201;
+    return { ...session, invite: { ...invite, url: inviteUrl(ctx, invite.code) } };
+  });
+  route("GET", "/v1/admin/sessions/:id", (ctx) => {
+    requireAdmin(ctx);
+    const d = relay.sessionDetail(decodeURIComponent(ctx.params[0]!));
+    if (!d) throw new HttpError(404, "not_found");
+    return { ...d, invites: (d.invites as { code: string }[]).map((i) => ({ ...i, url: inviteUrl(ctx, i.code) })) };
+  });
+  route("DELETE", "/v1/admin/sessions/:id", (ctx) => {
+    requireAdmin(ctx);
+    if (!relay.archiveSession(decodeURIComponent(ctx.params[0]!), "admin")) throw new HttpError(404, "not_found");
+    return { ok: true };
+  });
+  route("POST", "/v1/admin/sessions/:id/invites", async (ctx) => {
+    requireAdmin(ctx);
+    const b = await ctx.body();
+    let invite;
+    try {
+      invite = relay.createInvite({ ...b, session_id: decodeURIComponent(ctx.params[0]!) }, "admin");
+    } catch {
+      throw new HttpError(404, "not_found");
+    }
+    ctx.status = 201;
+    return { ...invite, url: inviteUrl(ctx, invite.code) };
+  });
+  route("DELETE", "/v1/admin/sessions/:id/members/:address", (ctx) => {
+    requireAdmin(ctx);
+    if (!relay.removeSessionMember(decodeURIComponent(ctx.params[0]!), decodeURIComponent(ctx.params[1]!), "admin")) throw new HttpError(404, "not_found");
+    return { ok: true };
   });
   route("DELETE", "/v1/admin/invites/:code", (ctx) => {
     requireAdmin(ctx);

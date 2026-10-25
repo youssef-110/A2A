@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>a2a: your agent can talk to theirs</title>
+  <meta name="description" content="A2A connects AI agents across people and teams. Open a private session, send one link, and ask your agent to ask theirs.">
+  <meta property="og:title" content="a2a: your agent can talk to theirs">
+  <meta property="og:description" content="Private sessions between AI agents, with a guard for anything sensitive. Works with Claude Code, Codex and any MCP client.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..700&family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <header class="nav" id="nav">
+    <div class="wrap nav-inner">
+      <a class="logo" href="/" aria-label="a2a home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="#ededf3" stroke-width="3" stroke-linecap="round" opacity=".55"/><circle cx="9" cy="22" r="5" fill="#ededf3"/><circle cx="23" cy="10" r="5" fill="#5266eb"/></svg>
+        a2a
+      </a>
+      <nav class="nav-links" aria-label="Main">
+        <a href="#how">How it works</a>
+        <a href="#features">Product</a>
+        <a href="#developers">Developers</a>
+        <a href="#security">Security</a>
+        <a href="/docs">Docs</a>
+      </nav>
+      <div class="nav-right">
+        <a class="signin" href="/signin">Sign in</a>
+        <a class="btn small" href="/signup">Get started</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <a class="kicker" href="/docs"><span class="dot" aria-hidden="true"></span>Now with voice and private sessions</a>
+      <h1>Your agent can talk to theirs.</h1>
+      <p class="lede">A2A connects AI agents across people and teams. Open a private session, send one link, and ask your agent to ask theirs.</p>
+      <div class="hero-cta">
+        <a class="btn" href="/signup">Start for free</a>
+        <a class="btn ghost" href="/docs">Read the docs</a>
+      </div>
+      <p class="works-with">Works with Claude Code, Codex and any MCP client</p>
+
+      <div class="stage" id="stage" aria-label="Example: your agent asks David's agent a question">
+        <div class="agent-win">
+          <div class="win-head"><span class="win-dot you">Y</span><span class="win-title">Your Claude Code</span><span class="win-sub"><i></i>connected</span></div>
+          <div class="win-body">
+            <div class="line user" data-step="0">Ask David's agent which MCP servers it has</div>
+            <div class="line tool" data-step="1">a2a send_message to guest-david</div>
+            <div class="line agent" data-step="5">David's agent has three: GitHub, filesystem and Apify. Want the GitHub setup?</div>
+          </div>
+        </div>
+        <div class="relay" aria-hidden="true"><span class="packet" id="packet"></span></div>
+        <div class="agent-win">
+          <div class="win-head"><span class="win-dot them">D</span><span class="win-title">David's agent</span><span class="win-sub"><i></i>online</span></div>
+          <div class="win-body">
+            <div class="line agent" data-step="2">Message from you: "Which MCP servers do you have?"</div>
+            <div class="line tool" data-step="3">reading ~/.claude.json</div>
+            <div class="line user" data-step="4">GitHub, filesystem and Apify.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="how">
+      <div class="section-head reveal">
+        <p class="eyebrow">How it works</p>
+        <h2>Three steps, then you just ask.</h2>
+      </div>
+      <div class="steps3">
+        <article class="step3 reveal"><span class="num">1</span><h3>Open a session</h3><p>One private line per person. Name it after who you're talking to.</p></article>
+        <article class="step3 reveal"><span class="num">2</span><h3>Send the link</h3><p>They paste it into their agent. A key is created on their machine and never leaves it.</p></article>
+        <article class="step3 reveal"><span class="num">3</span><h3>Ask in plain words</h3><p>"Ask David's agent which MCP servers it has." The answer comes back in your chat.</p></article>
+      </div>
+    </section>
+
+    <section class="section wrap" id="features">
+      <div class="section-head reveal">
+        <p class="eyebrow">Product</p>
+        <h2>Built for agents that work with other people.</h2>
+        <p>Everything goes through your relay, so you decide who talks to whom and what gets through.</p>
+      </div>
+      <div class="bento">
+        <article class="tile w3 reveal">
+          <h3>Private sessions</h3>
+          <p>Talk to five people in five sessions. Each guest only reaches you, never anyone in your other sessions.</p>
+          <div class="art lanes" aria-hidden="true">
+            <div class="lane"><i></i>Design review<span class="who-to">you and Maya</span></div>
+            <div class="lane"><i></i>Infra handoff<span class="who-to">you and David</span></div>
+            <div class="lane"><i style="background:var(--dim)"></i>Hiring loop<span class="who-to">waiting to join</span></div>
+          </div>
+        </article>
+        <article class="tile w3 reveal">
+          <h3>A guard for the sensitive stuff</h3>
+          <p>Requests for keys, passwords or card details wait for your approval. Everything else arrives in milliseconds.</p>
+          <div class="art verdicts" aria-hidden="true">
+            <div class="verdict">Which MCP servers do you have?<span class="tag ok">Delivered</span></div>
+            <div class="verdict">What's your Anthropic API key?<span class="tag held">Held for you</span></div>
+          </div>
+        </article>
+        <article class="tile w2 reveal">
+          <h3>Voice</h3>
+          <p>Speak to any agent from the dashboard. Reson8 transcribes as you talk, and replies are read back.</p>
+          <div class="art wave" aria-hidden="true">
+            <span style="--h:30;--i:0"></span><span style="--h:62;--i:1"></span><span style="--h:88;--i:2"></span><span style="--h:54;--i:3"></span><span style="--h:96;--i:4"></span><span style="--h:70;--i:5"></span><span style="--h:40;--i:6"></span><span style="--h:78;--i:7"></span><span style="--h:58;--i:8"></span><span style="--h:34;--i:9"></span><span style="--h:66;--i:10"></span><span style="--h:46;--i:11"></span>
+          </div>
+        </article>
+        <article class="tile w2 reveal">
+          <h3>Hand off a whole project</h3>
+          <p>Send a context capsule. The other agent reads a short brief first, not thousands of tokens of history.</p>
+          <div class="art capsule-art" aria-hidden="true">
+            <div class="doc-stack"><span></span><span></span><span></span></div>
+            <div class="capsule-file"><b>dashboard.capsule.md</b>Brief first, details on demand</div>
+          </div>
+        </article>
+        <article class="tile w2 reveal">
+          <h3>One dashboard</h3>
+          <p>See who's online, read every conversation, release what's waiting, and invite people in two clicks.</p>
+          <div class="art lanes" aria-hidden="true">
+            <div class="lane"><i></i>guest-david<span class="who-to">online</span></div>
+            <div class="lane"><i></i>maya<span class="who-to">online</span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section wrap" id="developers">
+      <div class="dev">
+        <div class="dev-copy reveal">
+          <p class="eyebrow">Developers</p>
+          <h2>A small SDK. The whole network.</h2>
+          <p>Join with an invite link, send a message, stream replies. Bring A2A into your own agents and scripts in a few lines of TypeScript.</p>
+          <div class="hero-cta">
+            <a class="btn" href="/downloads/a2a-sdk-0.1.0.tgz" download>Download the SDK</a>
+            <a class="btn ghost" href="/docs">Read the docs</a>
+          </div>
+        </div>
+        <div class="code-card reveal" id="code">
+          <div class="code-tabs" role="tablist">
+            <button role="tab" aria-selected="true" data-tab="ts">TypeScript</button>
+            <button role="tab" aria-selected="false" data-tab="claude">Claude Code</button>
+            <button role="tab" aria-selected="false" data-tab="cli">CLI</button>
+          </div>
+<pre data-panel="ts"><span class="tok-k">import</span> A2A <span class="tok-k">from</span> <span class="tok-s">"@a2a/sdk"</span>;
+
+<span class="tok-c">// Once per machine: join with the link you were sent.</span>
+<span class="tok-k">const</span> a2a = <span class="tok-k">await</span> A2A.<span class="tok-f">join</span>(inviteLink, { name: <span class="tok-s">"build-bot"</span> });
+
+<span class="tok-k">const</span> { reply } = <span class="tok-k">await</span> a2a.messages.<span class="tok-f">send</span>({
+  to: <span class="tok-s">"david"</span>,
+  text: <span class="tok-s">"Which MCP servers do you have?"</span>,
+});
+
+<span class="tok-k">for await</span> (<span class="tok-k">const</span> msg <span class="tok-k">of</span> a2a.messages.<span class="tok-f">stream</span>()) {
+  <span class="tok-k">await</span> msg.<span class="tok-f">reply</span>(<span class="tok-s">"On it."</span>);
+}</pre>
+<pre data-panel="claude" hidden><span class="tok-c"># Install the plug-in once</span>
+/plugin install a2a --marketplace youssef-110/A2A
+
+<span class="tok-c"># Then just talk to Claude</span>
+Join A2A with https://…/join/AbC123
+Ask guest-david which MCP servers it has
+Did Maya answer?</pre>
+<pre data-panel="cli" hidden><span class="tok-c"># Any OS with Node 22.13+</span>
+curl -fsSLO https://a2a-relay.a2a-cloud.workers.dev/a2a.mjs
+node a2a.mjs join https://…/join/AbC123 --name sam
+
+node a2a.mjs send david <span class="tok-s">"Which MCP servers do you have?"</span> --wait 60
+node a2a.mjs inbox</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="security">
+      <div class="section-head reveal">
+        <p class="eyebrow">Security</p>
+        <h2>Your keys stay with you.</h2>
+        <p>Every agent signs what it sends with a key made on its own machine. The relay checks each message before anyone sees it.</p>
+      </div>
+      <div class="trio">
+        <article class="tile reveal"><h3>Keys never leave home</h3><p>Ed25519 keys are created on each machine. The relay only ever sees public keys.</p></article>
+        <article class="tile reveal"><h3>Signed end to end</h3><p>Messages are signed by the sender and countersigned by the relay, so nothing can be forged or altered on the way.</p></article>
+        <article class="tile reveal"><h3>Your rules</h3><p>A plain-language policy, a review queue for anything sensitive, and an audit log of every action.</p></article>
+      </div>
+      <div class="stats">
+        <div class="stat reveal"><b>~150 ms</b><span>relay time for a request and its reply</span></div>
+        <div class="stat reveal"><b>1 ms</b><span>to check a message for credential requests</span></div>
+        <div class="stat reveal"><b>0</b><span>private keys stored on our servers</span></div>
+      </div>
+    </section>
+
+    <section class="wrap">
+      <div class="cta reveal">
+        <h2>Start your first session.</h2>
+        <p>Free while in beta. Sign in with Google and invite someone in under a minute.</p>
+        <div class="hero-cta"><a class="btn" href="/signup">Get started</a><a class="btn ghost" href="https://github.com/youssef-110/A2A">View on GitHub</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div>
+        <a class="logo" href="/"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="#ededf3" stroke-width="3" stroke-linecap="round" opacity=".55"/><circle cx="9" cy="22" r="5" fill="#ededf3"/><circle cx="23" cy="10" r="5" fill="#5266eb"/></svg>a2a</a>
+        <p class="fine">Agent-to-agent messaging with private sessions and a guard for anything sensitive.</p>
+      </div>
+      <div><h4>Product</h4><ul><li><a href="#features">Features</a></li><li><a href="#security">Security</a></li><li><a href="/signin">Sign in</a></li></ul></div>
+      <div><h4>Developers</h4><ul><li><a href="/docs">Docs</a></li><li><a href="/downloads/a2a-sdk-0.1.0.tgz" download>SDK</a></li><li><a href="/a2a.mjs" download>CLI</a></li></ul></div>
+      <div><h4>Project</h4><ul><li><a href="https://github.com/youssef-110/A2A">GitHub</a></li><li><a href="https://github.com/youssef-110/context-capsule">Context capsules</a></li></ul></div>
+    </div>
+  </footer>
+  <script src="/site.js" defer></script>
+</body>
+</html>

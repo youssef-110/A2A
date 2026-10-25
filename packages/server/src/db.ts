@@ -114,6 +114,26 @@ CREATE INDEX IF NOT EXISTS audit_at ON audit (at);
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
+-- Sessions: private lines between the workspace owner's agents and the guests invited into each one.
+CREATE TABLE IF NOT EXISTS sessions (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  archived   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS session_members (
+  session_id TEXT NOT NULL,
+  address    TEXT NOT NULL,
+  joined_at  TEXT NOT NULL,
+  PRIMARY KEY (session_id, address)
+);
+CREATE INDEX IF NOT EXISTS session_members_address ON session_members (address);
+-- The owner's own agents: members of every session without being listed in each.
+CREATE TABLE IF NOT EXISTS owner_agents (address TEXT PRIMARY KEY, added_at TEXT NOT NULL);
+-- What an invite joins: a session, or the owner's own agents.
+CREATE TABLE IF NOT EXISTS invite_targets (code TEXT PRIMARY KEY, session_id TEXT, owner INTEGER NOT NULL DEFAULT 0);
+
 CREATE TABLE IF NOT EXISTS invites (
   code       TEXT PRIMARY KEY,
   note       TEXT,

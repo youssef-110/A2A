@@ -52,9 +52,18 @@ export interface GuardSettings {
  */
 export type Registration = "approval" | "invite" | "open";
 
+/**
+ * Who may start a conversation with whom:
+ * - links: the `links` rules decide (the default).
+ * - sessions: the owner's agents reach everyone in the owner's sessions; guests reach only the
+ *   people who share a session with them. Each session is a private line set up from the dashboard.
+ */
+export type Isolation = "links" | "sessions";
+
 export interface Policy {
   org: string;
   registration: Registration;
+  isolation: Isolation;
   scopes: Record<string, ScopeDef>;
   links: LinkRule[];
   limits: Limits;
@@ -130,7 +139,7 @@ export function parsePolicy(text: string): { policy?: Policy; errors: string[] }
   }
   if (!raw || typeof raw !== "object") return { errors: ["policy must be a YAML mapping"] };
 
-  const known = new Set(["org", "version", "registration", "scopes", "links", "limits", "rules", "guard"]);
+  const known = new Set(["org", "version", "registration", "isolation", "scopes", "links", "limits", "rules", "guard"]);
   for (const k of Object.keys(raw)) if (!known.has(k)) errors.push(`unknown top-level key: ${k}`);
 
   const org = typeof raw.org === "string" && /^[a-z0-9][a-z0-9-]*$/.test(raw.org) ? raw.org : "";
@@ -138,6 +147,8 @@ export function parsePolicy(text: string): { policy?: Policy; errors: string[] }
 
   const registration = (raw.registration ?? "approval") as Registration;
   if (!["approval", "invite", "open"].includes(registration)) errors.push("registration: approval, invite or open");
+  const isolation = (raw.isolation ?? "links") as Isolation;
+  if (!["links", "sessions"].includes(isolation)) errors.push("isolation: links or sessions");
 
   const scopes: Record<string, ScopeDef> = {};
   const rawScopes = (raw.scopes ?? {}) as Record<string, unknown>;
@@ -217,7 +228,7 @@ export function parsePolicy(text: string): { policy?: Policy; errors: string[] }
   };
 
   if (errors.length) return { errors };
-  return { policy: { org, registration, scopes, links, limits, rules, guard }, errors };
+  return { policy: { org, registration, isolation, scopes, links, limits, rules, guard }, errors };
 }
 
 const globCache = new Map<string, RegExp>();

@@ -11,3 +11,6 @@ node_modules/
 packages/cloud/.dev.vars
 packages/cloud/.wrangler/
 packages/console/public/a2a.mjs
+packages/web/public/a2a.mjs
+packages/web/public/downloads/
+packages/sdk/dist/

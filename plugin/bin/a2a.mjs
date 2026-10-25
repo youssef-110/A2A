@@ -33786,9 +33786,9 @@ function parseInviteLink(link) {
   } catch {
     throw new Error(`That doesn't look like an invite link: ${link}`);
   }
-  const m = /\/join\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname);
+  const m = /^((?:\/w\/[a-z0-9-]+)?)\/join\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname);
   if (!m) throw new Error("Invite links look like https://<relay>/join/<code>.");
-  return { server: url.origin, code: m[1] };
+  return { server: url.origin + m[1], code: m[2] };
 }
 function defaultAgentName() {
   let name = "";

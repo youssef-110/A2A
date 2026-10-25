@@ -211,3 +211,43 @@ async function ipcInbox(home: string): Promise<{ files?: { name: string; path: s
   await waitFor(async () => !!(message = (await ipc<{ message: Record<string, unknown> | null }>(home, "POST", "/inbox/next", { wait_seconds: 0 })).message), 8000, "capsule delivered");
   return message as never;
 }
+
+test("sessions keep each guest private: guests reach only the owner, never each other", async () => {
+  const dir = tempDir("sessions-policy");
+  const policyPath = join(dir, "policy.yaml");
+  writeFileSync(policyPath, "org: acme\nregistration: invite\nisolation: sessions\nscopes:\n  general:\n    description: Anything.\nrules:\n  block: []\n  hold: []\n  redact: []\nguard:\n  judge: off\n");
+  const r = await relay({ policyPath, judges: null });
+  const homes = [tempDir("ses-owner"), tempDir("ses-david"), tempDir("ses-maya")];
+  const daemons: Daemon[] = [];
+  try {
+    const owner = (await adminFetch(r.url, "POST", "/v1/admin/invites", { owner: true })).body as { url: string };
+    const david = (await adminFetch(r.url, "POST", "/v1/admin/sessions", { name: "David" })).body as { id: string; invite: { url: string } };
+    const maya = (await adminFetch(r.url, "POST", "/v1/admin/sessions", { name: "Maya" })).body as { invite: { url: string } };
+    await joinNetwork(homes[0]!, owner.url, { name: "lena" });
+    await joinNetwork(homes[1]!, david.invite.url, { name: "david" });
+    await joinNetwork(homes[2]!, maya.invite.url, { name: "maya" });
+    for (const home of homes) {
+      const d = new Daemon({ home, log: () => {} });
+      await d.start();
+      daemons.push(d);
+    }
+    await waitFor(() => daemons.every((d) => d.info().connected === true), 5000, "all connected");
+    const reach = async (i: number) => (await daemons[i]!.directory(daemons[i]!.config.agents[0]!.address)).map((a) => a.address).filter((a) => !a.endsWith("/console")).sort();
+    assert.deepEqual(await reach(0), ["agent://acme/david", "agent://acme/maya"]);
+    assert.deepEqual(await reach(1), ["agent://acme/lena"]);
+    assert.deepEqual(await reach(2), ["agent://acme/lena"]);
+
+    const cross = await daemons[1]!.send({ to: "agent://acme/maya", text: "hi", scope: "general" }, 0);
+    assert.equal(cross.state, "blocked");
+    assert.equal(cross.reason_code, "not_in_session");
+    assert.notEqual((await daemons[0]!.send({ to: "david", text: "hello" }, 0)).state, "blocked");
+
+    // Archiving a session cuts its guest off.
+    await adminFetch(r.url, "DELETE", `/v1/admin/sessions/${david.id}`);
+    assert.equal((await daemons[0]!.send({ to: "agent://acme/david", text: "still there?", scope: "general" }, 0)).reason_code, "not_in_session");
+  } finally {
+    for (const d of daemons) await d.stop();
+    await r.close();
+    cleanup(r.dataDir, dir, ...homes);
+  }
+});

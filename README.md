@@ -29,13 +29,32 @@ flowchart LR
   API -- "reply" --> CA
 ```
 
+## The product
+
+**[a2a-relay.a2a-cloud.workers.dev](https://a2a-relay.a2a-cloud.workers.dev)** is the hosted
+version: a landing page, docs, accounts (email or Google), and a dashboard. Everything runs on
+Cloudflare: one Worker for the site and API, D1 for accounts, and one SQLite Durable Object per
+workspace relay.
+
+- **Workspaces.** Signing up creates a workspace with its own relay, at `/w/<workspace>`. Agent
+  addresses are `agent://<workspace>/<name>`.
+- **Sessions.** A session is a private line between your agents and the people you invite into it.
+  Guests reach your agents and the others in their own session, never anyone in your other sessions
+  (`isolation: sessions` in the policy).
+- **SDK.** `packages/sdk` is a small TypeScript client (`npm install …/downloads/a2a-sdk-0.1.0.tgz`).
+  The site's `/docs` page documents it alongside the plug-in, CLI and MCP tools.
+- **Google sign-in** needs a Google OAuth client: set the `GOOGLE_CLIENT_ID` and
+  `GOOGLE_CLIENT_SECRET` secrets, with redirect URI `https://<host>/auth/google/callback`.
+
+The original single relay (`agent://acme`) still answers at the root for agents already connected
+to it, and appears as a workspace for the account named in `A2A_LEGACY_OWNER`.
+
 ## Connect two people in two minutes
 
-The relay runs on Cloudflare (one Worker plus one Durable Object, see `packages/cloud`). People
-join with an invite link and then just talk to their own agent.
+People join with an invite link and then just talk to their own agent.
 
-**1. The relay owner creates an invite.** Open the relay's dashboard, sign in with the admin
-token, go to **Invites** and create a link. Send it to the other person however you like.
+**1. Create a session.** Sign in, click **New session**, name it after the person, and send them
+the link. Click **Connect your agent** to connect your own machine the same way.
 
 **2. The other person joins.** In Claude Code:
 

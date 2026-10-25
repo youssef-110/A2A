@@ -1,24 +1,27 @@
 {
-  // A2A relay on Cloudflare: one Worker, one SQLite-backed Durable Object, the console as static assets.
+  // A2A on Cloudflare: the website, accounts (D1) and one SQLite-backed Durable Object per relay.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "a2a-relay",
   "main": "src/worker.ts",
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
-    "directory": "../console/public",
+    "directory": "../web/public",
     "binding": "ASSETS",
     "html_handling": "none",
-    "run_worker_first": ["/", "/v1/*", "/healthz", "/join/*"]
+    "run_worker_first": true
   },
   "durable_objects": {
     "bindings": [{ "name": "RELAY", "class_name": "RelayDO" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayDO"] }],
+  "d1_databases": [{ "binding": "ACCOUNTS", "database_name": "a2a-accounts", "database_id": "904a913b-a29a-46f3-ae4e-1bb8cceeb871", "migrations_dir": "migrations" }],
   "vars": {
     "A2A_ORG": "acme",
-    "A2A_RELAY_NAME": "a2a-relay"
+    "A2A_RELAY_NAME": "a2a-relay",
+    "A2A_LEGACY_OWNER": "youssef990yy7@gmail.com"
   },
   "observability": { "enabled": true }
-  // Secrets (wrangler secret put): A2A_ADMIN_TOKEN, RESON8_API_KEY (voice), ANTHROPIC_API_KEY (optional LLM guard)
+  // Secrets (wrangler secret put): A2A_ADMIN_TOKEN, RESON8_API_KEY (voice),
+  // GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET (Google sign-in), ANTHROPIC_API_KEY (optional LLM guard)
 }
