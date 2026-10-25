@@ -327,21 +327,23 @@ export interface DeviceLink {
   workspace_slug: string | null;
   invite_url: string | null;
   expires_at: string;
+  origin_ip: string | null;
+  origin_place: string | null;
 }
 
 /** The app asks for a code. Only the secret device code can collect the result. */
-export async function startDeviceLink(env: AccountsEnv, host: string): Promise<{ device_code: string; user_code: string; expires_in: number }> {
+export async function startDeviceLink(env: AccountsEnv, host: string, origin: { ip: string; place: string | null }): Promise<{ device_code: string; user_code: string; expires_in: number }> {
   await env.ACCOUNTS.prepare("DELETE FROM device_links WHERE expires_at < ?").bind(iso()).run();
   const device_code = randomToken(32);
   const code = userCode();
-  await env.ACCOUNTS.prepare("INSERT INTO device_links (device_hash, user_code, host, created_at, expires_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(await sha256Hex(device_code), code, host.slice(0, 60) || "Computer", iso(), iso(Date.now() + LINK_MINUTES * 60_000))
+  await env.ACCOUNTS.prepare("INSERT INTO device_links (device_hash, user_code, host, origin_ip, origin_place, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(await sha256Hex(device_code), code, host.slice(0, 60) || "Computer", origin.ip, origin.place, iso(), iso(Date.now() + LINK_MINUTES * 60_000))
     .run();
   return { device_code, user_code: code, expires_in: LINK_MINUTES * 60 };
 }
 
 export async function deviceLinkByCode(env: AccountsEnv, code: string): Promise<DeviceLink | null> {
-  return env.ACCOUNTS.prepare("SELECT user_code, host, status, user_id, workspace_slug, invite_url, expires_at FROM device_links WHERE user_code = ? AND expires_at > ?")
+  return env.ACCOUNTS.prepare("SELECT user_code, host, status, user_id, workspace_slug, invite_url, expires_at, origin_ip, origin_place FROM device_links WHERE user_code = ? AND expires_at > ?")
     .bind(code.trim().toUpperCase(), iso())
     .first<DeviceLink>();
 }

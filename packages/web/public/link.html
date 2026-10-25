@@ -9,20 +9,40 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
+  <style>
+    .code-input { text-align: center; font: 600 28px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; min-height: 64px; }
+    .origin { display: grid; gap: 4px; padding: 14px 16px; border-radius: 14px; background: var(--card); box-shadow: inset 0 0 0 1px var(--hair); font-size: 14px; color: var(--ink-2); text-align: left; }
+    .origin b { color: var(--ink); font-weight: 550; }
+    .warn { padding: 14px 16px; border-radius: 14px; background: rgb(255 159 10 / 0.12); color: #ffb340; font-size: 14px; line-height: 1.5; text-align: left; }
+    .warn.strong { background: rgb(255 69 58 / 0.14); color: #ff8a80; }
+  </style>
 </head>
 <body>
   <main class="auth">
-    <div class="auth-card" id="card">
+    <div class="auth-card">
       <a class="logo" href="/" aria-label="a2a home">
         <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
         <span>a2a</span>
       </a>
 
+      <section id="enter">
+        <h1>Connect the a2a app</h1>
+        <p class="sub" style="margin-top:10px">Type the code the a2a app is showing on your computer.</p>
+        <form id="enter-form" style="display:grid;gap:16px;margin-top:26px" novalidate>
+          <label class="field"><span class="sr-only">Code</span><input class="input code-input" id="code-input" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" required></label>
+          <p class="error" id="enter-error" role="alert"></p>
+          <button class="btn" type="submit" id="next">Continue</button>
+        </form>
+      </section>
+
       <section id="ask" hidden>
-        <h1 id="ask-title">Connect this computer?</h1>
-        <p class="sub" style="margin-top:10px">Check that the app shows the same code, then connect. The computer joins as your own agent.</p>
-        <div style="display:grid;gap:16px;margin-top:26px">
-          <code class="code-big" id="code"></code>
+        <h1>Connect this computer?</h1>
+        <div style="display:grid;gap:14px;margin-top:22px">
+          <div class="origin">
+            <span>Computer name, as it reports itself: <b id="host"></b></span>
+            <span>Requested from: <b id="place"></b></span>
+          </div>
+          <p class="warn" id="warn">Only connect if you started this on your own computer in the last few minutes. It will act as you in all your sessions. If someone sent you here or asked you for a code, press Cancel.</p>
           <label class="field" id="ws-field" hidden><span>Workspace</span><select class="select" id="ws"></select></label>
           <p class="error" id="error" role="alert"></p>
           <div class="row">
@@ -37,30 +57,44 @@
         <h1 id="done-title">You're connected</h1>
         <p class="sub" id="done-sub">Go back to the a2a app. It finishes setting up on its own.</p>
       </section>
-
-      <section id="gone" hidden style="display:grid;gap:14px;text-align:center">
-        <h1>This code has expired</h1>
-        <p class="sub" id="gone-sub">Codes last ten minutes. Start again from the a2a app.</p>
-        <a class="btn ghost" href="/app" style="justify-self:center;margin-top:8px">Open the dashboard</a>
-      </section>
     </div>
   </main>
   <script>
-    (async () => {
+    (() => {
       const $ = (id) => document.getElementById(id);
-      const code = (new URLSearchParams(location.search).get("code") || "").toUpperCase();
-      const show = (id) => ["ask", "done", "gone"].forEach((s) => ($(s).hidden = s !== id));
-      const [link, me] = await Promise.all([
-        fetch(`/api/device?code=${encodeURIComponent(code)}`).then((r) => (r.ok ? r.json() : null)),
-        fetch("/api/me").then((r) => (r.ok ? r.json() : null)),
-      ]);
-      if (!link || link.status !== "pending") return show("gone");
-      $("code").textContent = link.code;
-      $("ask-title").textContent = `Connect ${link.host}?`;
-      const workspaces = me?.workspaces ?? [];
-      for (const w of workspaces) $("ws").append(new Option(w.name, w.slug));
-      $("ws-field").hidden = workspaces.length < 2;
-      show("ask");
+      const show = (id) => ["enter", "ask", "done"].forEach((s) => ($(s).hidden = s !== id));
+      let code = "";
+      const input = $("code-input");
+      input.addEventListener("input", () => {
+        const raw = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+        input.value = raw.length > 4 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : raw;
+      });
+      input.focus();
+
+      $("enter-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        $("enter-error").textContent = "";
+        code = input.value.trim().toUpperCase();
+        if (!/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) return ($("enter-error").textContent = "Codes look like KQ7M-4XTB.");
+        $("next").disabled = true;
+        const [link, me] = await Promise.all([
+          fetch(`/api/device?code=${encodeURIComponent(code)}`).then((r) => (r.ok ? r.json() : null)),
+          fetch("/api/me").then((r) => (r.ok ? r.json() : null)),
+        ]).catch(() => [null, null]);
+        $("next").disabled = false;
+        if (!link || link.status !== "pending") return ($("enter-error").textContent = "That code didn't match, or it expired. Codes last ten minutes.");
+        $("host").textContent = link.host;
+        $("place").textContent = [link.origin_place, link.origin_ip].filter(Boolean).join(", ") || "unknown";
+        // A request from a different network than this browser is the shape of a phishing attempt.
+        if (link.origin_ip && link.your_ip && link.origin_ip !== link.your_ip) {
+          $("warn").classList.add("strong");
+          $("warn").textContent = "This request came from a different network than this browser. Only connect if that computer is yours and you just started this on it. If someone sent you a code or a link, press Cancel.";
+        }
+        const workspaces = me?.workspaces ?? [];
+        $("ws").replaceChildren(...workspaces.map((w) => new Option(w.name, w.slug)));
+        $("ws-field").hidden = workspaces.length < 2;
+        show("ask");
+      });
 
       const decide = async (deny) => {
         $("error").textContent = "";
@@ -71,7 +105,7 @@
           if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
           if (deny) {
             $("done-title").textContent = "Cancelled";
-            $("done-sub").textContent = "The app wasn't connected. You can close this tab.";
+            $("done-sub").textContent = "Nothing was connected. You can close this tab.";
             document.querySelector(".done-mark").hidden = true;
           }
           show("done");

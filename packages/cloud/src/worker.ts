@@ -105,8 +105,12 @@ async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
     if (await tooManyFailures(env, [`device:${ip}`])) return json({ error: "Too many sign-in codes. Wait a few minutes and try again." }, 429);
     await recordFailure(env, [`device:${ip}`]);
     const body = await readJson(req);
-    const link = await startDeviceLink(env, typeof body.host === "string" ? body.host.trim() : "");
-    return json({ ...link, verify_url: `${url.origin}/link?code=${link.user_code}`, interval: 2 });
+    const cf = (req as Request & { cf?: { city?: string; region?: string; country?: string } }).cf;
+    const place = [cf?.city, cf?.region, cf?.country].filter(Boolean).join(", ") || null;
+    const link = await startDeviceLink(env, typeof body.host === "string" ? body.host.trim() : "", { ip, place });
+    // The code is never put in the link: the person types what their own app shows, so a link
+    // someone else sends them can't approve a sign-in they didn't start.
+    return json({ ...link, verify_url: `${url.origin}/link`, interval: 2 });
   }
   if (url.pathname === "/auth/device/poll" && req.method === "POST") {
     const body = await readJson(req);
@@ -132,14 +136,20 @@ async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
   const user = await currentUser(env, req);
   if (!user) return json({ error: "signed_out" }, 401);
   const workspaces = await workspacesFor(env, user.id);
+  const ip = req.headers.get("cf-connecting-ip") ?? "local";
 
   if (url.pathname === "/api/me") {
     return json({ user, workspaces: workspaces.map(({ slug, name, role }) => ({ slug, name, role, url: `${url.origin}/w/${slug}` })), google: googleEnabled(env) });
   }
   if (url.pathname === "/api/device" && req.method === "GET") {
+    // Wrong codes count against the person, so codes can't be guessed.
+    if (await tooManyFailures(env, [`code:${user.id}`])) return json({ error: "Too many wrong codes. Wait a few minutes and try again." }, 429);
     const link = await deviceLinkByCode(env, url.searchParams.get("code") ?? "");
-    if (!link) return json({ error: "That code expired or doesn't exist. Start again from the app." }, 404);
-    return json({ code: link.user_code, host: link.host, status: link.status, expires_at: link.expires_at });
+    if (!link) {
+      await recordFailure(env, [`code:${user.id}`]);
+      return json({ error: "That code expired or doesn't exist. Start again from the app." }, 404);
+    }
+    return json({ code: link.user_code, host: link.host, status: link.status, expires_at: link.expires_at, origin_ip: link.origin_ip, origin_place: link.origin_place, your_ip: ip });
   }
   if (url.pathname === "/api/device/approve" && req.method === "POST") {
     const body = await readJson(req);
