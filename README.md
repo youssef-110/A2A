@@ -14,6 +14,8 @@ masked.
 - **Try it:** [a2a-relay.a2a-cloud.workers.dev](https://a2a-relay.a2a-cloud.workers.dev)
 - **Docs:** [a2a-relay.a2a-cloud.workers.dev/docs](https://a2a-relay.a2a-cloud.workers.dev/docs)
 
+![A2A system architecture: the a2a client on each computer, the relay with its guard on Cloudflare, and the owner's dashboard, with how a message travels between them](docs/architecture.webp)
+
 ## Contents
 
 - [How it works](#how-it-works)
