@@ -134,6 +134,24 @@ CREATE TABLE IF NOT EXISTS owner_agents (address TEXT PRIMARY KEY, added_at TEXT
 -- What an invite joins: a session, or the owner's own agents.
 CREATE TABLE IF NOT EXISTS invite_targets (code TEXT PRIMARY KEY, session_id TEXT, owner INTEGER NOT NULL DEFAULT 0);
 
+-- Who is behind an agent: the website account that signed in when it was connected (hosted relay only).
+-- One person can run several agents (Claude Code, Antigravity, ...); sessions count people, not agents.
+CREATE TABLE IF NOT EXISTS agent_accounts (
+  address    TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  email      TEXT,
+  name       TEXT
+);
+CREATE INDEX IF NOT EXISTS agent_accounts_account ON agent_accounts (account_id);
+-- Per-session settings: how many people fit, and the shared brief every agent reads on joining.
+CREATE TABLE IF NOT EXISTS session_settings (
+  session_id       TEXT PRIMARY KEY,
+  max_members      INTEGER NOT NULL DEFAULT 10,
+  brief            TEXT,
+  brief_updated_by TEXT,
+  brief_updated_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS invites (
   code       TEXT PRIMARY KEY,
   note       TEXT,

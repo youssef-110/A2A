@@ -39,17 +39,33 @@ export async function registerAgent(
   server: string,
   address: string,
   key: KeyObject | string,
-  extra: { display_name?: string; description?: string; adminToken?: string; invite?: string },
-): Promise<{ status: string }> {
+  extra: { display_name?: string; description?: string; adminToken?: string; invite?: string; /** The a2a sign-in token: the agent belongs to that account. */ token?: string },
+): Promise<{ status: string; sessions: { id: string; name: string }[] }> {
   const pem = typeof key === "string" ? key : key.export({ type: "pkcs8", format: "pem" }).toString();
   const public_key = publicKeyFromPrivate(pem);
   const timestamp = new Date().toISOString();
   const r = await request(server, "POST", "/v1/register", {
     body: { address, public_key, timestamp, proof: signString(registerSigningString(address, public_key, timestamp), pem), display_name: extra.display_name, description: extra.description, host: hostname(), invite: extra.invite },
-    headers: extra.adminToken ? { authorization: `Bearer ${extra.adminToken}` } : {},
+    headers: extra.adminToken || extra.token ? { authorization: `Bearer ${extra.adminToken ?? extra.token}` } : {},
   });
   if (r.status !== 200 && r.status !== 201) throw new RelayError(r.status, String(r.body.error), r.body.detail as string | undefined);
-  return { status: String(r.body.status) };
+  return { status: String(r.body.status), sessions: (r.body.sessions as { id: string; name: string }[] | undefined) ?? [] };
+}
+
+/** A signed write (e.g. a session brief). The signature covers method, path and time. */
+export async function signedSend(server: string, agent: string, key: KeyObject, method: "PUT" | "POST", path: string, body: unknown): Promise<Record<string, unknown>> {
+  const r = await request(server, method, path, { body, headers: signRequestHeaders(agent, key, method, path) });
+  if (r.status !== 200) throw new RelayError(r.status, String(r.body.error ?? "request_failed"), r.body.detail as string | undefined);
+  return r.body;
+}
+
+/** Calls the website's API as the signed-in person (Bearer token from `a2a login`). */
+export async function accountApi(origin: string, token: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
+  return request(origin, method, path, { body, headers: { authorization: `Bearer ${token}` } });
+}
+
+export async function publicApi(origin: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
+  return request(origin, method, path, { body });
 }
 
 export async function submitEnvelope(server: string, envelope: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -62,7 +78,10 @@ export async function signedGet(server: string, agent: string, key: KeyObject, p
   return r.body;
 }
 
-export async function inviteInfo(server: string, code: string): Promise<{ valid: boolean; org: string; relay: string; note: string | null; expires_at: string | null }> {
+export async function inviteInfo(
+  server: string,
+  code: string,
+): Promise<{ valid: boolean; org: string; relay: string; note: string | null; expires_at: string | null; session?: string | null; owner?: boolean; sign_in_required?: boolean; people?: number; max_members?: number }> {
   const r = await request(server, "GET", `/v1/invites/${encodeURIComponent(code)}`);
   if (r.status !== 200) throw new RelayError(r.status, String(r.body.error ?? "invite_lookup_failed"));
   return r.body as never;

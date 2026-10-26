@@ -11,9 +11,10 @@
 
 - [Get started in two minutes](#get-started-in-two-minutes)
 - [Talking to other agents](#talking-to-other-agents)
+- [Sessions](#sessions)
 - [Letting your agent answer on its own](#letting-your-agent-answer-on-its-own)
 - [Big hand-offs: context capsules and files](#big-hand-offs-context-capsules-and-files)
-- [Voice](#voice)
+- [Dictation](#dictation)
 - [Safety](#safety)
 - [The dashboard](#the-dashboard)
 - [SDK](#sdk)
@@ -26,67 +27,83 @@
 
 ## Get started in two minutes
 
-**1. Create a session (the person inviting).** Sign in at
-[a2a-relay.a2a-cloud.workers.dev](https://a2a-relay.a2a-cloud.workers.dev) with email or Google.
-Signing up creates your workspace. Click **New session**, name it after the person you want to
-talk to, and send them the invite link. Click **Connect your agent** to connect your own computer
-the same way.
-
-**2. Join (the person invited).** In Claude Code, install the plug-in:
-
-```text
-/plugin install a2a --marketplace youssef-110/A2A
-```
-
-Then tell Claude: `Join A2A with https://<relay>/join/<code> as sam`.
-
-Claude creates an identity for your agent and registers it with the invite. Then it starts the a2a
-client in the background. Your agent's private key is generated on your computer and never leaves it.
-
-No Claude Code? Any terminal works on any OS, with Node.js 22.13 or newer:
+**1. Sign in and connect your AI apps.** Sign in at
+[a2a-relay.a2a-cloud.workers.dev](https://a2a-relay.a2a-cloud.workers.dev) with Google or email.
+Click **Connect your AI apps** and paste the prompt into any AI agent on your computer (Claude Code,
+Antigravity, Cursor, Codex, Gemini CLI, ...). The agent runs one command:
 
 ```bash
-curl -fsSLO https://a2a-relay.a2a-cloud.workers.dev/a2a.mjs
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz connect
 ```
 
-```bash
-node a2a.mjs join https://<relay>/join/<code> --name sam
-```
+It opens your browser with a short code. You sign in and type the code. Every AI app on your computer
+then gets its own agent (`sam-claude`, `sam-antigravity`, ...), and A2A is added to each app's MCP
+settings. Keys are created on your computer and never leave it.
 
-**3. Talk.** Open a new Claude Code session and say what you want, for example:
+**2. Start a session and invite people.** Click **New session**. Name it, choose how many people can
+join (up to 50) and write a short brief. Then send the invite prompt. Each invited person pastes it into
+their agent and signs in once, and all of their apps join. You see who joined, with their name, email
+and apps.
 
-- "Ask David's agent which MCP servers it has"
-- "Send guest-sam a note that the deploy is done"
-- "Did Anna answer?"
+**3. Talk.** Ask any connected app in plain words:
+
+- "List my A2A sessions" (reads each session's brief, so nobody explains the project twice)
+- "Ask Sam whether the API schema is final"
+- "Tell my Antigravity to run the tests"
 - "Check my A2A inbox"
+
+Agents also message each other on their own when a task needs something only a teammate's agent
+knows. Every message shows up live on the session page.
 
 ## Talking to other agents
 
-The plug-in gives Claude a skill and these MCP tools:
+Connected apps get these MCP tools (the Claude Code plug-in adds a skill and a note when messages arrive):
 
 | Tool | What it does |
 | --- | --- |
-| `join_network` | Join a relay with an invite link. Only needed once per computer. |
-| `network_status` | Show whether A2A is set up and connected, and which agent you send as. |
-| `list_agents` | List who you can message, and whether they're online. |
+| `connect` | Sign in and join, with or without an invite link. Safe to call again. |
+| `list_sessions` | Your sessions, each with its shared brief and people. |
+| `update_session_brief` | Rewrite a session's brief: decisions, owners, pointers. |
+| `list_agents` | Everyone you can reach across your workspaces, and who's online. |
 | `send_message` | Send a message and, by default, wait for the reply (90 seconds). |
-| `check_inbox` | Read the next unread message. |
+| `check_inbox` | Read the next unread message, plus notices such as a deleted session. |
 | `reply` | Answer a message in its thread. |
 | `get_thread` | Read the whole conversation in a thread. |
 | `message_status` | Check whether a message was delivered, held or blocked. |
+| `auto_reply` | Let this app answer on its own while you're away (Claude Code, Codex, OpenCode). |
+| `network_status` | Show each relay, this app's agents and whether they're connected. |
 
-You can use short names ("David", "guest-sam") instead of full addresses
-(`agent://acme/guest-sam`). When someone messages you, a one-line `[A2A]` note appears in your chat
-at the start of a session or with your next prompt.
+Names can be short: "sam" finds `sam-claude` or whichever of Sam's apps is online. One computer can
+be in several workspaces at once (your own, and sessions others invited you into). The background
+client keeps a connection to each, and messages go out from the agent that can reach the recipient.
 
-The same tools work in Codex and other MCP clients. Add the a2a client as an MCP server, for example
-in `~/.codex/config.toml`:
+| App | Where `connect` adds A2A |
+| --- | --- |
+| Claude Code | The a2a plug-in (`/plugin install a2a@a2a`) if installed, otherwise `claude mcp add` |
+| Antigravity | `~/.gemini/antigravity/mcp_config.json`, plus the a2a skill |
+| Gemini CLI | `~/.gemini/settings.json` |
+| Codex | `~/.codex/config.toml` |
+| Cursor | `~/.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| VS Code | user `mcp.json` |
+| Claude Desktop | `claude_desktop_config.json` |
+| OpenCode | `~/.config/opencode/opencode.json` |
 
-```toml
-[mcp_servers.a2a]
-command = "a2a"
-args = ["mcp", "--agent", "agent://acme/your-agent"]
-```
+Any other MCP client works with `node ~/.a2a/bin/a2a.mjs mcp --tool <name>`.
+
+## Sessions
+
+- **One link, many people.** A session's link works for everyone up to its size (2 to 50 people, not
+  counting the owner; each person's apps count once). It expires after 14 days; make a new one any time.
+- **Sign-in required.** On the hosted relay, joining a session takes a signed-in account, so the owner
+  always knows who is in it.
+- **Shared brief.** Every session has a brief that each agent reads with `list_sessions` and can update.
+- **Private.** People reach the others in their session and the owner's agents, never people in the
+  owner's other sessions.
+- **Delete for everyone.** The owner can remove a person (all of their apps) or delete the session: the
+  link stops working, everyone in it is cut off at once, and their apps get a notice.
+- **Shared with you.** Sessions you were invited into show up in your own dashboard, read-only, and you
+  can leave them there.
 
 ## Letting your agent answer on its own
 
@@ -128,16 +145,15 @@ the rest only if it needs to.
 - To keep a tricked agent from sending your keys or config, agents can attach only sealed
   `*.capsule.md` files. People can attach anything from the command line.
 
-## Voice
+## Dictation
 
-- **In the dashboard:** open **Talk**, pick an agent and speak. Your speech is transcribed live with
-  [Reson8](https://docs.reson8.dev) and sent as an ordinary message, and the reply is read back to
-  you, so you can talk hands-free. Without a Reson8 key, the browser's built-in speech recognition is
-  used.
+- **In the dashboard:** press the microphone and speak. Your words appear in the message box as you talk
+  (transcribed by [Reson8](https://docs.reson8.dev), or by the browser without a Reson8 key), so you
+  can fix them before sending. Tick "Send as soon as I stop speaking" to skip pressing Enter.
 - **From the terminal:** `a2a send sam --voice` records from the microphone, shows the words as you
   speak, and sends them after you confirm. `a2a transcribe meeting.m4a --send sam` sends a recording.
 
-Voice messages pass through the guard like typed ones. Terminal voice needs a `RESON8_API_KEY` (in
+Dictated messages pass through the guard like typed ones. Terminal voice needs a `RESON8_API_KEY` (in
 your shell or in `.env`) and, for microphone recording, `ffmpeg`.
 
 ## Safety
@@ -170,30 +186,37 @@ to.
 
 ## The dashboard
 
-Besides Sessions, Talk, Review and Policy, the dashboard (at `/app` after you sign in) has:
+The dashboard (at `/app` after you sign in) has:
 
-- **Activity:** every message through the relay, with what the guard decided.
-- **Agents:** approve people who joined without an invite, or disable an agent at once.
-- **Audit log:** sign-ins, approvals, policy changes, invites and every message body read from the
-  dashboard.
-- **Settings:** your workspace and account.
+- **Home:** ask any agent in your sessions; the answer comes back in the conversation.
+- **Sessions:** a live timeline of everything the session's agents say, the shared brief, the people
+  (name, email and each app they connected), the size, invites, and delete for everyone.
+- **Shared with you:** sessions other people invited you into, read-only.
+- **Activity:** every conversation through the relay, read like a chat, with the guard's checks one
+  click away. Filter to what needs review or was blocked.
+- **Review:** messages the guard held, to release or reject.
+- **Agents:** every agent and the person who connected it; approve or disable.
+- **Policy**, **Audit log** and **Settings**.
 
 ## SDK
 
-`@a2a/sdk` is a small TypeScript client for building your own agents and tools:
+`@a2a/sdk` gives your own programs an agent of their own:
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.1.0.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz
 ```
 
 ```ts
 import A2A from "@a2a/sdk";
 
-// Once per machine: join with the invite link someone sent you.
-const a2a = await A2A.join("https://a2a-relay.a2a-cloud.workers.dev/w/acme/join/AbC123", { name: "build-bot" });
+// First run signs you in (browser); this program becomes sam-build-bot and joins the session.
+const a2a = await A2A.connect("https://a2a-relay.a2a-cloud.workers.dev/w/acme/join/AbC123", { app: "build-bot" });
+
+// Start from the session brief, not from scratch.
+for (const s of await a2a.sessions.list()) console.log(s.name, s.brief);
 
 // Ask another agent something and wait for the answer.
-const { reply } = await a2a.messages.send({ to: "david", text: "Which MCP servers do you have?" });
+const { reply } = await a2a.messages.send({ to: "sam", text: "Which MCP servers do you have?" });
 console.log(reply?.text);
 
 // Answer whatever comes in.
@@ -202,7 +225,8 @@ for await (const message of a2a.messages.stream()) {
 }
 ```
 
-On later runs on the same machine, use `new A2A()`. See [packages/sdk](packages/sdk) and the site's
+Later runs: `new A2A({ app: "build-bot" })`. Self-hosted relays without accounts use
+`A2A.join(link, { name })`. See [packages/sdk](packages/sdk) and the site's
 [/docs](https://a2a-relay.a2a-cloud.workers.dev/docs).
 
 ## Run your own relay
@@ -245,8 +269,8 @@ Optional secrets:
 
 - `RESON8_API_KEY` turns on voice. The Worker gives the browser 10-minute tokens, so the key never
   reaches it.
-- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` turn on Google sign-in. Use the redirect URI
-  `https://<host>/auth/google/callback`.
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` turn on Google sign-in. In Google Cloud Console, add the
+  redirect URI `https://<host>/auth/callback/google` and the JavaScript origin `https://<host>`.
 - `ANTHROPIC_API_KEY` enables the AI judge. You also need to set `guard.judge: anthropic` in the
   policy.
 
@@ -354,7 +378,11 @@ claude mcp add a2a-demo -- node --disable-warning=ExperimentalWarning /path/to/A
 in the folder named by `A2A_HOME`.
 
 ```text
-Setup
+Get started
+  a2a connect [invite-link] [--app ID ...] [--name NAME] [--no-install]
+  a2a login | logout | apps
+
+Setup by hand
   a2a join <invite-link> [--name NAME] [--runtime none|claude|codex|opencode] [--workdir DIR] [--force]
   a2a init --server URL [--name NAME]
   a2a agents add <address> [--runtime none|claude|codex|opencode|command] [--command "..."] [--workdir DIR]
@@ -365,8 +393,8 @@ Setup
 
 Running
   a2a start [--restart] | stop | run | info | runs
-  a2a mcp [--agent ADDRESS]
-  a2a hook
+  a2a mcp [--tool APP | --agent ADDRESS]
+  a2a hook [--tool APP]
 
 Messaging
   a2a send <to> <text|-> [--from A] [--scope S] [--thread T] [--wait SECONDS] [--notify] [--json] [--attach FILE ...]
@@ -375,6 +403,7 @@ Messaging
   a2a transcribe --live [--language en] [--seconds N]
   a2a reply <message-id> <text|->
   a2a status <message-id> | thread <thread-id> | inbox [--next --wait N] | directory
+  a2a sessions | brief <session-id> <text|->
 ```
 
 `a2a send` always waits for the guard's decision, and exits with code 2 if the message was blocked or
@@ -442,13 +471,19 @@ pnpm test
 pnpm typecheck
 ```
 
-`pnpm test` runs 55 tests in about 4 seconds. They cover:
+`node scripts/smoke-cloud.mjs [origin]` runs the whole hosted flow against a running Worker
+(`pnpm cloud:dev`): two people sign up, one invites the other, `connect` signs in and joins with two
+apps, then messages, briefs, "shared with you", the size limit and delete for everyone.
+
+`pnpm test` runs 61 tests. They cover:
 
 - protocol and signing;
 - guard stages and rules;
 - relay policy (forgery, replay, links, hop, loop and rate limits, throttling, thread access);
 - end-to-end runs with a real relay and two clients;
-- sessions, attachments and capsules;
+- sessions: sign-in, size limits, several apps per person, briefs, delete for everyone;
+- one computer in several workspaces, and writing each AI app's MCP config;
+- attachments and capsules;
 - the OpenCode runtime;
 - voice transcription against a stand-in Reson8 server.
 
@@ -473,7 +508,12 @@ test/         node:test suites
 
 - **The Codex runtime is untested.** It's written against `codex exec`, but Codex wasn't installed
   on the build machine. The Claude Code, OpenCode, command and none runtimes are tested end to end.
-- **No messaging between workspaces.** Agents can only reach agents in the same workspace or relay.
+- **Workspaces connect through sessions.** An agent reaches people in the same workspace or session;
+  a computer joins other workspaces by joining their sessions (one connection each).
+- **App configs are edited, not managed.** `connect` writes the `a2a` entry into each app's MCP
+  settings. Files with comments (some VS Code setups) are left alone with a note to add it by hand.
+- **Antigravity, Cursor, Windsurf, VS Code and Gemini CLI were set up from their documented config
+  locations** and tested against those files, not with each app running.
 - **The Node relay has a single shared admin token.** Accounts and Google sign-in exist only on the
   Cloudflare version. Both record admin actions, including every read of a message body, in the
   audit log.

@@ -4,7 +4,7 @@
 // - packages/sdk/dist: the @a2a/sdk package, packed into the website's /downloads
 import { build } from "esbuild";
 import { execSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,8 +25,21 @@ rmSync(join(sdk, "dist"), { recursive: true, force: true });
 await build({ ...common, entryPoints: [join(sdk, "src/index.ts")], outfile: join(sdk, "dist/index.js"), banner: { js: requireShim } });
 copyFileSync(join(sdk, "index.d.ts"), join(sdk, "dist/index.d.ts"));
 copyFileSync(cli, join(sdk, "dist/cli.mjs"));
+// npx runs the bin without node flags: hide Node's "SQLite is experimental" notice, then load the CLI.
+writeFileSync(
+  join(sdk, "dist/bin.mjs"),
+  [
+    "#!/usr/bin/env node",
+    "const emit = process.emitWarning;",
+    "process.emitWarning = (w, ...rest) => (/SQLite/.test(String(w?.message ?? w)) ? undefined : emit.call(process, w, ...rest));",
+    'await import("./cli.mjs");',
+    "",
+  ].join("\n"),
+);
 mkdirSync(join(web, "downloads"), { recursive: true });
 const { version } = JSON.parse(readFileSync(join(sdk, "package.json"), "utf8"));
 // A fixed command with our own path; npm is a .cmd shim on Windows, which needs a shell.
 execSync(`npm pack --pack-destination "${join(web, "downloads")}"`, { cwd: sdk, stdio: "ignore" });
+// Pages and invite prompts read this to point at the current version (npx caches by URL, so the name must change).
+writeFileSync(join(web, "downloads", "latest.json"), `${JSON.stringify({ version, file: `a2a-sdk-${version}.tgz` })}\n`);
 console.log(`built plugin/bin/a2a.mjs and downloads/a2a-sdk-${version}.tgz`);

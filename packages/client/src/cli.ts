@@ -8,7 +8,10 @@ import { ipc, NotRunningError } from "./ipc.ts";
 import { Daemon } from "./daemon.ts";
 import { runMcpServer } from "./mcp.ts";
 import { installService } from "./install.ts";
-import { joinNetwork } from "./join.ts";
+import { joinNetwork, parseInviteLink } from "./join.ts";
+import { DEFAULT_ORIGIN, loadAccount, login, signOut } from "./account.ts";
+import { connectApps } from "./connect.ts";
+import { detectTools, toolById, TOOLS } from "./tools.ts";
 import { readAttachments } from "./attachments.ts";
 import { daemonRunning, ensureDaemon } from "./launcher.ts";
 import { existsSync } from "node:fs";
@@ -19,7 +22,16 @@ const HELP = `a2a: send and receive agent messages through an A2A relay.
 
 Usage: a2a [--home DIR] <command> [options]
 
-Setup
+Get started (one command)
+  connect [invite-link]                   Sign in (opens your browser), give each AI app on this computer
+                                          its own agent, join the session in the link, start in the background
+      [--app ID ...] [--name NAME] [--no-install]
+                                          Apps: claude-code, antigravity, gemini-cli, codex, cursor,
+                                          windsurf, vscode, claude-desktop, opencode (default: all installed)
+  login | logout                          Sign this computer in or out of your A2A account
+  apps                                    Show which AI apps are installed and connected
+
+Setup by hand
   join <invite-link> [--name NAME]        Join a relay with an invite link, then start in the background
       [--runtime none|claude|codex|opencode] [--workdir DIR] [--display-name NAME] [--no-start] [--force]
   init --server URL [--name NAME]         Create the client config and pin the relay's key
@@ -38,8 +50,8 @@ Running
   run                                     Connect to the relay, receive messages, start agents (foreground)
   info                                    Show connection and agent status
   runs                                    Show recent agent runs
-  mcp [--agent ADDRESS]                   MCP server over stdio for Claude Code, Codex and others
-  hook                                    One-line note about new messages, for Claude Code hooks
+  mcp [--tool APP | --agent ADDRESS]      MCP server over stdio for Claude Code, Antigravity, Cursor, Codex, ...
+  hook [--tool APP]                       One-line note about new messages, for Claude Code hooks
 
 Messaging
   send <to> <text|-> [--from A] [--scope S] [--thread T] [--wait SECONDS] [--notify] [--json]
@@ -53,6 +65,8 @@ Messaging
   thread <thread-id> [--agent A]
   inbox [--agent A] [--next [--wait SECONDS]]
   directory [--agent A]
+  sessions [--tool APP]                   Your sessions, with their brief and people
+  brief <session-id> <text|->            Rewrite a session's shared brief
 
 The home directory defaults to ~/.a2a, or A2A_HOME.`;
 
@@ -201,6 +215,52 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
 
+    case "connect": {
+      const { values, positionals } = parseArgs({
+        args,
+        allowPositionals: true,
+        options: { app: { type: "string", multiple: true }, name: { type: "string" }, "no-install": { type: "boolean" }, origin: { type: "string" } },
+      });
+      const link = positionals[0];
+      const origin = link ? new URL(parseInviteLink(link).server).origin : (values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN);
+      const wanted = values.app?.flatMap((a) => a.split(",")).map((a) => a.trim()).filter(Boolean) ?? [];
+      for (const a of wanted) if (a !== "all" && !toolById(a)) throw new Error(`Unknown app "${a}". Known: ${TOOLS.map((t) => t.id).join(", ")}`);
+      const apps = !wanted.length || wanted.includes("all") ? detectTools().map((t) => t.id) : wanted;
+
+      console.log(link ? `Connecting to ${origin} and joining the session in your link.` : `Connecting to ${origin}.`);
+      const account = await login(H, origin, (line) => console.log(line));
+      const r = await connectApps(H, account, { link, tools: apps, person: values.name, install: !values["no-install"] });
+      const daemon = (await daemonRunning(H)) ? (await ipc(H, "POST", "/reload", {}), "reloaded") : await ensureDaemon(H);
+
+      console.log(`\nConnected as ${account.user.email}.${r.session ? ` Joined the session "${r.session}".` : ""}`);
+      for (const a of r.agents) console.log(`  ${a.status === "active" ? "●" : "○"} ${a.address}${a.tool ? `  (${toolById(a.tool)?.label ?? a.tool})` : ""}${a.status !== "active" ? `  ${a.status}` : ""}`);
+      for (const i of r.installed) console.log(`  ${i.ok ? "✓" : "!"} ${toolById(i.tool)?.label ?? i.tool}: ${i.where}`);
+      if (!apps.length) console.log("  No AI apps found on this computer. Add one later with: a2a connect --app <app>");
+      console.log(`\nBackground client ${daemon}. Restart your AI apps (or reload their MCP servers) to pick up A2A,\nthen ask them: "list my A2A sessions" or "ask <name> ...".`);
+      return 0;
+    }
+
+    case "login": {
+      const { values } = parseArgs({ args, options: { origin: { type: "string" } } });
+      const a = await login(H, values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN, (line) => console.log(line));
+      console.log(`Signed in as ${a.user.email} (workspace ${a.workspace}).`);
+      return 0;
+    }
+
+    case "logout":
+      console.log((await signOut(H)) ? "Signed out on this computer. Your agents keep working; connecting new apps or sessions needs `a2a login`." : "This computer isn't signed in.");
+      return 0;
+
+    case "apps": {
+      const config = existsSync(configPath(H)) ? loadConfig(H) : null;
+      const installed = new Set(detectTools().map((t) => t.id));
+      for (const t of TOOLS) {
+        const agents = config?.agents.filter((a) => a.tool === t.id).map((a) => a.address) ?? [];
+        console.log(`${agents.length ? "●" : installed.has(t.id) ? "○" : " "} ${t.label.padEnd(15)} ${agents.length ? agents.join(", ") : installed.has(t.id) ? "installed, not connected (a2a connect)" : "not installed"}`);
+      }
+      return 0;
+    }
+
     case "start": {
       const { values } = parseArgs({ args, options: { restart: { type: "boolean" } } });
       loadConfig(H);
@@ -222,7 +282,9 @@ async function main(argv: string[]): Promise<number> {
       // For Claude Code SessionStart/UserPromptSubmit hooks: says something only when there is news, and never fails.
       try {
         if (!existsSync(configPath(H))) return 0;
-        const r = await ipc<{ messages: { id: string; from: string; text: string; handled: number }[] }>(H, "GET", "/inbox", undefined, 800);
+        const { values } = parseArgs({ args, options: { tool: { type: "string" } } });
+        const forApp = values.tool && loadConfig(H).agents.some((a) => a.tool === values.tool) ? `?tool=${encodeURIComponent(values.tool)}` : "";
+        const r = await ipc<{ messages: { id: string; from: string; text: string; handled: number }[] }>(H, "GET", `/inbox${forApp}`, undefined, 800);
         const seenFile = join(H, "run", "hook-seen.json");
         let seen: string[] = [];
         try {
@@ -348,18 +410,19 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "mcp": {
-      const { values } = parseArgs({ args, options: { agent: { type: "string" } } });
-      await runMcpServer(H, values.agent);
+      const { values } = parseArgs({ args, options: { agent: { type: "string" }, tool: { type: "string" } } });
+      await runMcpServer(H, values.agent, values.tool);
       return -1;
     }
 
     case "info": {
       const { values } = parseArgs({ args, options: { json: { type: "boolean" } } });
-      const r = await ipc<{ name: string; server: string; connected: boolean; outbox_pending: number; agents: { address: string; runtime: string; online: boolean; rejected: string | null; running: number; queued: number }[] }>(H, "GET", "/info");
+      const r = await ipc<{ name: string; relays: { server: string; connected: boolean }[]; outbox_pending: number; agents: { address: string; tool: string | null; runtime: string; online: boolean; rejected: string | null; running: number; queued: number }[] }>(H, "GET", "/info");
       print(!!values.json, r, () =>
         [
-          `${r.name} -> ${r.server}: ${r.connected ? "connected" : "not connected"}${r.outbox_pending ? `, ${r.outbox_pending} message(s) waiting to send` : ""}`,
-          ...r.agents.map((a) => `  ${a.online ? "●" : "○"} ${a.address} [${a.runtime}]${a.rejected ? ` not accepted: ${a.rejected}` : ""}${a.running ? `, ${a.running} running` : ""}${a.queued ? `, ${a.queued} queued` : ""}`),
+          `${r.name}${r.outbox_pending ? ` (${r.outbox_pending} message(s) waiting to send)` : ""}`,
+          ...(r.relays ?? []).map((l) => `  ${l.connected ? "connected" : "not connected"}: ${l.server}`),
+          ...r.agents.map((a) => `  ${a.online ? "●" : "○"} ${a.address}${a.tool ? ` (${toolById(a.tool)?.label ?? a.tool})` : ""} [${a.runtime}]${a.rejected ? ` not accepted: ${a.rejected}` : ""}${a.running ? `, ${a.running} running` : ""}${a.queued ? `, ${a.queued} queued` : ""}`),
         ].join("\n"),
       );
       return 0;
@@ -482,6 +545,28 @@ async function main(argv: string[]): Promise<number> {
       }
       const r = await ipc<{ messages: Record<string, unknown>[] }>(H, "GET", `/inbox${values.agent ? `?agent=${encodeURIComponent(values.agent)}` : ""}`);
       print(!!values.json, r, () => (r.messages.length ? r.messages.map((m) => `${m.handled ? " " : "•"} ${m.received_at} ${m.id} ${m.from} -> ${m.to}\n  ${String(m.text).replace(/\s+/g, " ").slice(0, 160)}`).join("\n") : "Inbox is empty."));
+      return 0;
+    }
+
+    case "sessions": {
+      const { values } = parseArgs({ args, options: { tool: { type: "string" }, json: { type: "boolean" } } });
+      const r = await ipc<{ sessions: { id: string; name: string; workspace: string; brief: string | null; members: { address: string; person: string | null; online: boolean }[] }[] }>(
+        H, "GET", `/sessions${values.tool ? `?tool=${encodeURIComponent(values.tool)}` : ""}`,
+      );
+      print(!!values.json, r, () =>
+        r.sessions.length
+          ? r.sessions.map((s) => `${s.name}  (${s.workspace}, ${s.id})\n  people: ${s.members.map((m) => `${m.online ? "●" : "○"} ${m.person ?? m.address.split("/").pop()}`).join(", ") || "just you"}\n  brief: ${s.brief?.replace(/\s+/g, " ").slice(0, 300) ?? "(none)"}`).join("\n\n")
+          : "You aren't in any sessions yet.",
+      );
+      return 0;
+    }
+
+    case "brief": {
+      const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { tool: { type: "string" } } });
+      const [id, ...words] = positionals;
+      if (!id || !words.length) throw new Error("usage: a2a brief <session-id> <text|->");
+      await ipc(H, "POST", "/sessions/brief", { session_id: id, text: readText(words), tool: values.tool });
+      console.log("Brief updated.");
       return 0;
     }
 

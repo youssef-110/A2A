@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS runs (
   status TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT, replied INTEGER NOT NULL DEFAULT 0,
   error TEXT, output TEXT, cost_usd REAL
 );
+CREATE TABLE IF NOT EXISTS notices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, address TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
+  created_at TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 export type State = DatabaseSync;

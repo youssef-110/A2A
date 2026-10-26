@@ -4,12 +4,35 @@ import { resolveHome } from "../../client/src/config.ts";
 import { joinNetwork, type JoinOptions } from "../../client/src/join.ts";
 import { daemonRunning } from "../../client/src/launcher.ts";
 import { readAttachments } from "../../client/src/attachments.ts";
+import { DEFAULT_ORIGIN, finishLogin, loadAccount, openBrowser, pendingLogin, startLogin, validAccount } from "../../client/src/account.ts";
+import { connectApps } from "../../client/src/connect.ts";
+import { parseInviteLink } from "../../client/src/join.ts";
 
 export interface ClientOptions {
   /** Where this machine's identity and state live. Default: A2A_HOME or ~/.a2a */
   home?: string;
   /** Which of this machine's agents sends. Default: the one you joined with. */
   agent?: string;
+  /** Speak as this app's agents (one per workspace), e.g. "build-bot". Set by A2A.connect. */
+  app?: string;
+}
+
+export interface ConnectOptions extends ClientOptions {
+  /** Your name in agent addresses: "sam" gives sam-<app>. Default: your account's first name. */
+  name?: string;
+  /** Shows the sign-in code (first time only). Default: prints it and opens the browser. */
+  onSignIn?: (info: { code: string; url: string }) => void;
+}
+
+export interface Session {
+  id: string;
+  name: string;
+  /** What the session is about, who owns what, decisions so far. */
+  brief: string | null;
+  workspace: string;
+  /** The agent you are in this session. */
+  you: string;
+  members: { address: string; display_name: string | null; person: string | null; online: boolean; role: string }[];
 }
 
 export interface Agent {
@@ -73,12 +96,22 @@ export class A2AError extends Error {}
 export class A2A {
   readonly home: string;
   private readonly agentFlag?: string;
+  private readonly app?: string;
   private daemon?: Daemon;
   private ready?: Promise<void>;
 
   readonly agents = {
     /** Agents you can message, with whether they're online right now. */
     list: async (): Promise<Agent[]> => (await this.call<{ agents: Agent[] }>("GET", `/directory${this.agentQuery("?")}`)).agents,
+  };
+
+  readonly sessions = {
+    /** The sessions you are in, each with its shared brief and people. */
+    list: async (): Promise<Session[]> => (await this.call<{ sessions: Session[] }>("GET", `/sessions${this.agentQuery("?")}`)).sessions,
+    /** Rewrites a session's brief, which every agent in it reads. */
+    setBrief: async (sessionId: string, text: string): Promise<void> => {
+      await this.call("POST", "/sessions/brief", { ...this.who(), session_id: sessionId, text });
+    },
   };
 
   readonly messages = {
@@ -89,7 +122,7 @@ export class A2A {
         "POST",
         "/send",
         {
-          from: this.agentFlag,
+          ...this.who(),
           to: params.to,
           text: params.text,
           thread_id: params.thread_id,
@@ -105,7 +138,7 @@ export class A2A {
 
     /** The next message sent to you, or null if none arrives within wait_seconds (default 0). */
     next: async (opts: { wait_seconds?: number } = {}): Promise<IncomingMessage | null> => {
-      const r = await this.call<{ message: Record<string, unknown> | null }>("POST", "/inbox/next", { agent: this.agentFlag, wait_seconds: opts.wait_seconds ?? 0 }, ((opts.wait_seconds ?? 0) + 30) * 1000);
+      const r = await this.call<{ message: Record<string, unknown> | null }>("POST", "/inbox/next", { ...this.who(), wait_seconds: opts.wait_seconds ?? 0 }, ((opts.wait_seconds ?? 0) + 30) * 1000);
       return r.message ? this.incoming(r.message) : null;
     },
 
@@ -123,6 +156,40 @@ export class A2A {
   constructor(opts: ClientOptions = {}) {
     this.home = resolveHome(opts.home);
     this.agentFlag = opts.agent;
+    this.app = opts.agent ? undefined : opts.app;
+  }
+
+  /**
+   * Signs in (in the browser, first time only), gives this program its own agent in your workspace,
+   * and with an invite link joins that session. Later runs are instant.
+   *
+   * ```ts
+   * const a2a = await A2A.connect("https://a2a.example/w/acme/join/AbC123", { app: "build-bot" });
+   * ```
+   */
+  static async connect(inviteLink?: string, opts: ConnectOptions = {}): Promise<A2A> {
+    const home = resolveHome(opts.home);
+    const app = opts.app ?? "sdk";
+    const origin = inviteLink ? new URL(parseInviteLink(inviteLink).server).origin : (loadAccount(home)?.origin ?? DEFAULT_ORIGIN);
+    let account = await validAccount(home, origin);
+    if (!account) {
+      const start = pendingLogin(home, origin) ?? (await startLogin(home, origin));
+      if (opts.onSignIn) opts.onSignIn({ code: start.user_code, url: start.verify_url });
+      else {
+        process.stderr.write(`Sign in to A2A: open ${start.verify_url} and enter ${start.user_code}\n`);
+        openBrowser(start.verify_url);
+      }
+      while (!account) account = await finishLogin(home, origin, 60_000);
+    }
+    await connectApps(home, account, { link: inviteLink, tools: [app], person: opts.name, install: false });
+    const client = new A2A({ home, app });
+    await client.connect();
+    if (client.daemon === undefined) await ipc(home, "POST", "/reload", {}).catch(() => {});
+    return client;
+  }
+
+  private who(): { from?: string; tool?: string } {
+    return this.agentFlag ? { from: this.agentFlag } : this.app ? { tool: this.app } : {};
   }
 
   /**
@@ -160,7 +227,8 @@ export class A2A {
   }
 
   private agentQuery(sep: "?" | "&"): string {
-    return this.agentFlag ? `${sep}agent=${encodeURIComponent(this.agentFlag)}` : "";
+    if (this.agentFlag) return `${sep}agent=${encodeURIComponent(this.agentFlag)}`;
+    return this.app ? `${sep}tool=${encodeURIComponent(this.app)}` : "";
   }
 
   private async call<T>(method: "GET" | "POST", path: string, body?: unknown, timeoutMs?: number): Promise<T> {
@@ -168,7 +236,7 @@ export class A2A {
     try {
       return await ipc<T>(this.home, method, path, body, timeoutMs);
     } catch (err) {
-      if (err instanceof NotRunningError) throw new A2AError("Not connected. Call A2A.join(<invite link>) once on this machine, then connect().");
+      if (err instanceof NotRunningError) throw new A2AError("Not connected. Call A2A.connect(<invite link>) once on this computer.");
       throw new A2AError((err as Error).message);
     }
   }

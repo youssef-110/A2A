@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { verifyRequestSignature } from "@a2a/protocol";
-import { RELAY_VERSION, type Relay, type RelayEvent } from "./relay.ts";
+import { RELAY_VERSION, type Account, type Relay, type RelayEvent } from "./relay.ts";
 
 const MAX_BODY = 1 << 20;
 const SESSION_TTL_S = 24 * 3600;
@@ -125,6 +125,14 @@ export function createApi(opts: ApiOptions): Api {
   /** Where agents reach this relay: the origin, or origin + /w/<slug> for a workspace behind the Worker. */
   const baseOf = (ctx: Ctx): string => (opts.trustForwardedBase && ctx.req.headers.get("x-a2a-base")) || ctx.url.origin;
   const inviteUrl = (ctx: Ctx, code: string): string => `${baseOf(ctx)}/join/${code}`;
+  /** The signed-in person behind a request. Only the Worker sets these headers, after checking their sign-in. */
+  const accountOf = (ctx: Ctx): Account | undefined => {
+    if (!opts.trustForwardedBase) return undefined;
+    const id = ctx.req.headers.get("x-a2a-account-id");
+    if (!id) return undefined;
+    const h = (k: string): string | null => { const v = ctx.req.headers.get(k); return v ? decodeURIComponent(v) : null; };
+    return { id, email: h("x-a2a-account-email"), name: h("x-a2a-account-name"), role: ctx.req.headers.get("x-a2a-account-role") === "owner" ? "owner" : "member" };
+  };
 
   // ------------------------------------------------------------ public + agent API
   route("GET", "/healthz", () => ({ ok: true }));
@@ -138,7 +146,7 @@ export function createApi(opts: ApiOptions): Api {
     judge: relay.judgeInfo(),
   }));
   route("POST", "/v1/register", async (ctx) => {
-    const r = relay.register(await ctx.body(), isAdmin(ctx.req));
+    const r = relay.register(await ctx.body(), isAdmin(ctx.req), accountOf(ctx));
     ctx.status = r.status;
     return r.body;
   });
@@ -161,6 +169,14 @@ export function createApi(opts: ApiOptions): Api {
     return t;
   });
   route("GET", "/v1/directory", (ctx) => ({ agents: relay.directory(requireAgent(ctx)) }));
+  route("GET", "/v1/sessions", (ctx) => ({ sessions: relay.sessionsFor(requireAgent(ctx)) }));
+  route("PUT", "/v1/sessions/:id/brief", async (ctx) => {
+    const agent = requireAgent(ctx);
+    const { text } = await ctx.body();
+    if (typeof text !== "string") throw new HttpError(400, "text_required");
+    if (!relay.agentSetBrief(agent, decodeURIComponent(ctx.params[0]!), text)) throw new HttpError(404, "not_found");
+    return { ok: true };
+  });
   route("GET", "/v1/keys/:address", (ctx) => {
     requireAgent(ctx);
     const k = relay.agentKey(decodeURIComponent(ctx.params[0]!));
@@ -296,26 +312,38 @@ export function createApi(opts: ApiOptions): Api {
   // Sessions: private lines between the owner's agents and the people invited into each one.
   route("GET", "/v1/admin/sessions", (ctx) => {
     requireAdmin(ctx);
-    return { sessions: relay.listSessions() };
+    const account = ctx.url.searchParams.get("account");
+    return { sessions: relay.listSessions(account ? { account } : undefined) };
   });
   route("POST", "/v1/admin/sessions", async (ctx) => {
     requireAdmin(ctx);
     const b = await ctx.body();
     const session = relay.createSession(b, "admin");
-    const invite = relay.createInvite({ session_id: session.id, note: session.name, max_uses: b.max_uses ?? 1, ttl_hours: b.ttl_hours }, "admin");
+    // One link for the whole session: it lets in as many people as there is room for.
+    const invite = relay.createInvite({ session_id: session.id, note: session.name, max_uses: session.max_members, ttl_hours: b.ttl_hours ?? 24 * 14 }, "admin");
     ctx.status = 201;
     return { ...session, invite: { ...invite, url: inviteUrl(ctx, invite.code) } };
   });
   route("GET", "/v1/admin/sessions/:id", (ctx) => {
     requireAdmin(ctx);
-    const d = relay.sessionDetail(decodeURIComponent(ctx.params[0]!));
+    const id = decodeURIComponent(ctx.params[0]!);
+    const account = ctx.url.searchParams.get("account");
+    // A guest's view (through the Worker, for a signed-in member): the conversation, without invites.
+    if (account && !relay.accountInSession(account, id)) throw new HttpError(404, "not_found");
+    const d = relay.sessionDetail(id, account ?? undefined);
     if (!d) throw new HttpError(404, "not_found");
+    if (account) return { ...d, invites: [], members: (d.members as Record<string, unknown>[]).map(({ email: _e, ...m }) => m) };
     return { ...d, invites: (d.invites as { code: string }[]).map((i) => ({ ...i, url: inviteUrl(ctx, i.code) })) };
   });
   route("DELETE", "/v1/admin/sessions/:id", (ctx) => {
     requireAdmin(ctx);
-    if (!relay.archiveSession(decodeURIComponent(ctx.params[0]!), "admin")) throw new HttpError(404, "not_found");
+    if (!relay.deleteSession(decodeURIComponent(ctx.params[0]!), "admin")) throw new HttpError(404, "not_found");
     return { ok: true };
+  });
+  route("PATCH", "/v1/admin/sessions/:id", async (ctx) => {
+    requireAdmin(ctx);
+    if (!relay.updateSession(decodeURIComponent(ctx.params[0]!), await ctx.body(), "admin")) throw new HttpError(404, "not_found");
+    return relay.sessionDetail(decodeURIComponent(ctx.params[0]!));
   });
   route("POST", "/v1/admin/sessions/:id/invites", async (ctx) => {
     requireAdmin(ctx);
@@ -332,6 +360,11 @@ export function createApi(opts: ApiOptions): Api {
   route("DELETE", "/v1/admin/sessions/:id/members/:address", (ctx) => {
     requireAdmin(ctx);
     if (!relay.removeSessionMember(decodeURIComponent(ctx.params[0]!), decodeURIComponent(ctx.params[1]!), "admin")) throw new HttpError(404, "not_found");
+    return { ok: true };
+  });
+  route("DELETE", "/v1/admin/sessions/:id/accounts/:account", (ctx) => {
+    requireAdmin(ctx);
+    if (!relay.removeAccountFromSession(decodeURIComponent(ctx.params[0]!), decodeURIComponent(ctx.params[1]!), "admin")) throw new HttpError(404, "not_found");
     return { ok: true };
   });
   route("DELETE", "/v1/admin/invites/:code", (ctx) => {

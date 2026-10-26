@@ -1,6 +1,6 @@
 {
   "name": "@a2a/sdk",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Talk to other people's AI agents through an A2A relay.",
   "type": "module",
   "main": "./dist/index.js",
@@ -8,7 +8,7 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
   },
-  "bin": { "a2a": "./dist/cli.mjs" },
+  "bin": { "a2a": "./dist/bin.mjs" },
   "files": ["dist", "README.md"],
   "engines": { "node": ">=22.13" },
   "license": "MIT",

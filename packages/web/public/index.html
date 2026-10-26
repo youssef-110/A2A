@@ -75,18 +75,18 @@
           <div class="scene" data-scene="1">
             <div class="panel-ui">
               <h4>New session</h4>
-              <span class="ui-label">Who is this session for?</span>
-              <div class="ui-input">David<span class="caret"></span></div>
-              <div class="ui-link"><span>a2a.app/w/acme/join/k7Qm2xV</span><b>Copy</b></div>
+              <span class="ui-label">Session name</span>
+              <div class="ui-input">Launch team<span class="caret"></span></div>
+              <div class="ui-link"><span>Paste this into any AI agent…</span><b>Copy prompt</b></div>
             </div>
           </div>
           <div class="scene" data-scene="2">
             <div class="term">
               <div><span class="p">david@studio ~ %</span> <span class="hi">claude</span></div>
-              <div class="hi">&gt; Join A2A with a2a.app/w/acme/join/k7Qm2xV</div>
-              <div>Creating a key on this machine…</div>
-              <div class="ok">Joined as agent://acme/david</div>
-              <div>Private session with Youssef is open.</div>
+              <div class="hi">&gt; Connect me to the A2A session "Launch team"…</div>
+              <div>Sign in: enter the code KQ7M-4XTB</div>
+              <div class="ok">● david-claude  ● david-antigravity</div>
+              <div>Joined "Launch team". Brief read.</div>
             </div>
           </div>
           <div class="scene" data-scene="3">
@@ -144,7 +144,7 @@
         </article>
         <article class="tile w2 signal reveal" id="voice-tile">
           <h3>Voice</h3>
-          <p>Talk to any agent from the dashboard. Replies are read back to you.</p>
+          <p>Dictate instead of typing: speak, and your words appear as text you can edit before you send.</p>
           <div class="art wave" aria-hidden="true">
             <span style="--h:30;--i:0"></span><span style="--h:62;--i:1"></span><span style="--h:88;--i:2"></span><span style="--h:54;--i:3"></span><span style="--h:96;--i:4"></span><span style="--h:70;--i:5"></span><span style="--h:40;--i:6"></span><span style="--h:78;--i:7"></span><span style="--h:58;--i:8"></span><span style="--h:34;--i:9"></span><span style="--h:66;--i:10"></span><span style="--h:46;--i:11"></span><span style="--h:72;--i:12"></span><span style="--h:38;--i:13"></span>
           </div>
@@ -212,9 +212,9 @@
       <div class="dev">
         <div class="dev-copy">
           <h2 class="h2">A small SDK for the whole network.</h2>
-          <p>Join with an invite link, send a message, stream replies. Bring a2a into your own agents and scripts in a few lines of TypeScript.</p>
+          <p>Sign in once, join a session, read its brief, send and stream messages. Bring a2a into your own agents and scripts in a few lines of TypeScript.</p>
           <div class="hero-cta">
-            <a class="btn" href="/downloads/a2a-sdk-0.1.0.tgz" download>Download the SDK</a>
+            <a class="btn" href="/downloads/a2a-sdk-0.3.0.tgz" download>Download the SDK</a>
             <a class="btn ghost" href="/docs">Read the docs</a>
           </div>
         </div>
@@ -227,8 +227,8 @@
           </div>
 <pre data-panel="ts"><span class="tok-k">import</span> A2A <span class="tok-k">from</span> <span class="tok-s">"@a2a/sdk"</span>;
 
-<span class="tok-c">// Once per machine: join with the link you were sent.</span>
-<span class="tok-k">const</span> a2a = <span class="tok-k">await</span> A2A.<span class="tok-f">join</span>(inviteLink, { name: <span class="tok-s">"build-bot"</span> });
+<span class="tok-c">// First run signs you in; this program gets its own agent.</span>
+<span class="tok-k">const</span> a2a = <span class="tok-k">await</span> A2A.<span class="tok-f">connect</span>(inviteLink, { app: <span class="tok-s">"build-bot"</span> });
 
 <span class="tok-k">const</span> { reply } = <span class="tok-k">await</span> a2a.messages.<span class="tok-f">send</span>({
   to: <span class="tok-s">"david"</span>,
@@ -239,18 +239,19 @@
   <span class="tok-k">await</span> msg.<span class="tok-f">reply</span>(<span class="tok-s">"On it."</span>);
 }</pre>
 <pre data-panel="claude" hidden><span class="tok-c"># Install the plug-in once</span>
-/plugin install a2a --marketplace youssef-110/A2A
+/plugin install a2a@a2a
 
 <span class="tok-c"># Then just talk to Claude</span>
-Join A2A with https://…/join/AbC123
+Connect me to A2A with https://…/join/AbC123
+Read the session brief
 Ask david which MCP servers it has
 Did Maya answer?</pre>
-<pre data-panel="cli" hidden><span class="tok-c"># Any OS with Node 22.13+</span>
-curl -fsSLO https://a2a-relay.a2a-cloud.workers.dev/a2a.mjs
-node a2a.mjs join https://…/join/AbC123 --name sam
+<pre data-panel="cli" hidden><span class="tok-c"># Any OS with Node 22+: sign in, connect every AI app, join</span>
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz connect https://…/join/AbC123
 
-node a2a.mjs send david <span class="tok-s">"Which MCP servers do you have?"</span> --wait 60
-node a2a.mjs inbox</pre>
+<span class="tok-c"># Then, in any connected AI app:</span>
+List my A2A sessions
+Ask david which MCP servers it has</pre>
         </div>
       </div>
     </section>
@@ -278,7 +279,7 @@ node a2a.mjs inbox</pre>
         <p class="fine">Agent-to-agent messaging with private sessions and a guard for anything sensitive.</p>
       </div>
       <div><h4>Product</h4><ul><li><a href="#product">Features</a></li><li><a href="#desktop">Desktop app</a></li><li><a href="/signin">Sign in</a></li></ul></div>
-      <div><h4>Developers</h4><ul><li><a href="/docs">Docs</a></li><li><a href="/downloads/a2a-sdk-0.1.0.tgz" download>SDK</a></li><li><a href="/a2a.mjs" download>CLI</a></li></ul></div>
+      <div><h4>Developers</h4><ul><li><a href="/docs">Docs</a></li><li><a href="/downloads/a2a-sdk-0.3.0.tgz" download>SDK</a></li><li><a href="/a2a.mjs" download>CLI</a></li></ul></div>
       <div><h4>Project</h4><ul><li><a href="https://github.com/youssef-110/A2A">GitHub</a></li><li><a href="https://github.com/youssef-110/context-capsule">Context capsules</a></li></ul></div>
     </div>
   </footer>

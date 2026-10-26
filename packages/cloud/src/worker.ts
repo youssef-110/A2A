@@ -6,11 +6,14 @@ import {
   decideDeviceLink,
   deviceLinkByCode,
   endSession,
+  GOOGLE_CALLBACK,
   googleEnabled,
   googleFinish,
   googleStart,
+  guestWorkspaces,
   pollDeviceLink,
   recordFailure,
+  recordGuestWorkspace,
   signIn,
   signUp,
   startDeviceLink,
@@ -72,6 +75,53 @@ function workspaceHeaders(url: URL, ws: { slug: string; name: string; do_name: s
   return { "x-a2a-base": `${url.origin}/w/${ws.slug}`, "x-a2a-org": ws.slug, "x-a2a-name": ws.name };
 }
 
+/**
+ * An agent registering with the a2a CLI's sign-in token: the relay learns which person it belongs to.
+ * The workspace's owner gets owner agents; anyone else joins as a guest and sees it under "Shared with you".
+ */
+async function registerAsAccount(env: Env, req: Request, url: URL, ws: { id: string; slug: string; name: string; do_name: string }): Promise<Response> {
+  const user = await currentUser(env, req);
+  if (!user) return json({ error: "signed_out", detail: "Your sign-in on this computer expired. Run `a2a login` and try again." }, 401);
+  const owner = (await workspacesFor(env, user.id)).some((w) => w.id === ws.id);
+  const res = await toRelay(env, req, ws.do_name, "/v1/register", {
+    ...workspaceHeaders(url, ws),
+    "x-a2a-account-id": user.id,
+    "x-a2a-account-email": encodeURIComponent(user.email),
+    "x-a2a-account-name": encodeURIComponent(user.name ?? user.email.split("@")[0]!),
+    "x-a2a-account-role": owner ? "owner" : "member",
+  });
+  if (res.ok && !owner) await recordGuestWorkspace(env, user.id, ws.id);
+  return res;
+}
+
+/** Sessions other people invited this person into: read-only, and only the sessions they are in. */
+async function handleShared(env: Env, req: Request, url: URL, userId: string): Promise<Response> {
+  const spaces = await guestWorkspaces(env, userId);
+  // toRelay appends the request's query to the path it is given, so pass the path without it.
+  const admin = (ws: (typeof spaces)[number], path: string, method = "GET"): Promise<Response> =>
+    toRelay(env, new Request(new URL(path, url.origin), { method }), ws.do_name, path.split("?")[0]!, workspaceHeaders(url, ws), true);
+  const noEmails = (people: Record<string, unknown>[] = []) => people.map(({ email: _e, ...p }) => p);
+
+  if (url.pathname === "/api/shared" && req.method === "GET") {
+    const out = await Promise.all(
+      spaces.map(async (ws) => {
+        const r = await admin(ws, `/v1/admin/sessions?account=${encodeURIComponent(userId)}`);
+        const { sessions = [] } = (await r.json().catch(() => ({}))) as { sessions?: Record<string, unknown>[] };
+        return sessions.map((s) => ({ ...s, guests: noEmails(s.guests as Record<string, unknown>[]), workspace: { slug: ws.slug, name: ws.name } }));
+      }),
+    );
+    return json({ sessions: out.flat() });
+  }
+  const m = /^\/api\/shared\/([a-z0-9-]+)\/sessions\/([A-Za-z0-9_-]+)(\/leave)?$/.exec(url.pathname);
+  const ws = m && spaces.find((w) => w.slug === m[1]);
+  if (!m || !ws) return json({ error: "not_found" }, 404);
+  const id = encodeURIComponent(m[2]!);
+  if (m[3] && req.method === "POST") return admin(ws, `/v1/admin/sessions/${id}/accounts/${encodeURIComponent(userId)}`, "DELETE");
+  const r = await admin(ws, `/v1/admin/sessions/${id}?account=${encodeURIComponent(userId)}`);
+  if (!r.ok) return json({ error: "not_found" }, 404);
+  return json({ ...((await r.json()) as object), workspace: { slug: ws.slug, name: ws.name } });
+}
+
 async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
   const secure = url.protocol === "https:";
   const ip = req.headers.get("cf-connecting-ip") ?? "local";
@@ -121,7 +171,8 @@ async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
     if (!googleEnabled(env)) return Response.redirect(`${url.origin}/signin?error=google_unavailable`, 302);
     return googleStart(env, url, url.searchParams.get("next") ?? "/app");
   }
-  if (url.pathname === "/auth/google/callback") {
+  // Google Cloud Console has /auth/callback/google registered; the older path still works.
+  if (url.pathname === GOOGLE_CALLBACK || url.pathname === "/auth/google/callback") {
     const r = await googleFinish(env, req, url);
     if ("error" in r) return Response.redirect(`${url.origin}/signin?error=${encodeURIComponent(r.error)}`, 302);
     const headers = new Headers({ location: `${url.origin}${r.next}` });
@@ -141,6 +192,7 @@ async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
   if (url.pathname === "/api/me") {
     return json({ user, workspaces: workspaces.map(({ slug, name, role }) => ({ slug, name, role, url: `${url.origin}/w/${slug}` })), google: googleEnabled(env) });
   }
+  if (url.pathname.startsWith("/api/shared")) return handleShared(env, req, url, user.id);
   if (url.pathname === "/api/device" && req.method === "GET") {
     // Wrong codes count against the person, so codes can't be guessed.
     if (await tooManyFailures(env, [`code:${user.id}`, `code-ip:${ip}`])) return json({ error: "Too many wrong codes. Wait a few minutes and try again." }, 429);
@@ -250,6 +302,7 @@ export default {
       if (!rest!.startsWith("/v1/") || rest!.startsWith("/v1/admin/") || rest!.startsWith("/v1/voice/")) return json({ error: "not_found" }, 404);
       const ws = await workspaceBySlug(env, slug!);
       if (!ws) return json({ error: "unknown_workspace" }, 404);
+      if (rest === "/v1/register" && req.headers.get("authorization")?.startsWith("Bearer ")) return registerAsAccount(env, req, url, ws);
       return toRelay(env, req, ws.do_name, rest!, workspaceHeaders(url, ws));
     }
 

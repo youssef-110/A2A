@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connect the a2a app</title>
+  <title>Connect a computer to a2a</title>
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#000000">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -26,8 +26,8 @@
       </a>
 
       <section id="enter">
-        <h1>Connect the a2a app</h1>
-        <p class="sub" style="margin-top:10px">Type the code the a2a app is showing on your computer.</p>
+        <h1>Connect your computer</h1>
+        <p class="sub" style="margin-top:10px">Type the code your AI agent, terminal or the a2a app is showing. Only enter a code you started yourself, just now.</p>
         <form id="enter-form" style="display:grid;gap:16px;margin-top:26px" novalidate>
           <label class="field"><span class="sr-only">Code</span><input class="input code-input" id="code-input" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" required></label>
           <p class="error" id="enter-error" role="alert"></p>
@@ -55,7 +55,7 @@
       <section id="done" hidden style="display:grid;gap:14px;text-align:center">
         <span class="done-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
         <h1 id="done-title">You're connected</h1>
-        <p class="sub" id="done-sub">Go back to the a2a app. It finishes setting up on its own.</p>
+        <p class="sub" id="done-sub">Go back to your agent or terminal. It finishes setting up on its own.</p>
       </section>
     </div>
   </main>

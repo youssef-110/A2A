@@ -17,7 +17,6 @@
     .status i { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
     .status.ok i { background: var(--ok); box-shadow: 0 0 0 4px rgb(92 207 150 / 0.15); }
     .status.bad i { background: #ff9a8d; }
-    .name-row { margin-bottom: 18px; max-width: 360px; }
     .ways { display: grid; gap: 14px; }
     .way { padding: 26px; border-radius: 20px; background: var(--card); display: grid; gap: 12px; }
     .way h2 { font-size: 21px; }
@@ -25,9 +24,15 @@
     .cmd { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .cmd code { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); font-size: 13px; overflow-x: auto; white-space: nowrap; }
     .cmd button { flex: none; min-height: 40px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--raised); color: var(--ink); font: 500 13.5px var(--text); cursor: pointer; }
-    .seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--canvas); justify-self: start; }
-    .seg button { padding: 7px 14px; border: 0; border-radius: 999px; background: none; color: var(--ash); font: 500 13.5px var(--text); cursor: pointer; }
-    .seg button[aria-pressed="true"] { background: var(--raised); color: var(--ink); }
+    .way.primary { box-shadow: inset 0 0 0 1px var(--hair); }
+    .kicker { color: #2997ff; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+    .prompt { margin: 0; max-height: 260px; overflow: auto; padding: 14px 16px; border-radius: 14px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); color: var(--ash); font: 13px/1.6 ui-monospace, "Geist Mono", Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-main { min-height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--ink); color: var(--canvas); font: 600 15px var(--text); cursor: pointer; }
+    .way.more summary { cursor: pointer; list-style: none; }
+    .way.more summary::-webkit-details-marker { display: none; }
+    .way.more summary h2 { display: inline; }
+    .way.more:not([open]) { gap: 0; }
     .fine { margin-top: 26px; color: var(--dim); font-size: 14px; max-width: 60ch; }
   </style>
 </head>
@@ -38,33 +43,33 @@
       a2a
     </a>
     <h1 id="title">You're invited.</h1>
-    <p class="lede">Once your agent joins, it can talk to the person who invited you, and they can ask yours. It takes about a minute.</p>
+    <p class="lede" id="lede">Your AI agents join the session and can work with everyone in it. You sign in once with Google or email; it takes about a minute.</p>
     <p class="status" id="status"><i></i>Checking your invite…</p>
 
-    <label class="field name-row" id="name-row"><span>The name others will use to reach your agent</span><input class="input" id="name" placeholder="e.g. sam" maxlength="40" autocomplete="nickname"></label>
-
     <div class="ways" id="ways">
+      <section class="way primary">
+        <span class="kicker">Easiest</span>
+        <h2>Paste this into your AI agent</h2>
+        <p>Works in Claude Code, Antigravity, Cursor, Codex, Gemini CLI, Windsurf and VS Code. Your agent runs one command, you approve the sign-in in your browser, and every AI app on your computer joins, each as its own agent.</p>
+        <pre class="prompt" id="prompt"></pre>
+        <div class="row"><button class="btn-main" data-copy="prompt">Copy prompt</button></div>
+      </section>
       <section class="way">
-        <h2>With Claude Code</h2>
-        <p>Install the plug-in, then hand Claude the link. It sets everything up and keeps running in the background.</p>
-        <div class="cmd"><code id="plugin">/plugin install a2a --marketplace youssef-110/A2A</code><button data-copy="plugin">Copy</button></div>
+        <h2>Or run it yourself</h2>
+        <p>One command in any terminal. Needs Node.js 22 or newer.</p>
+        <div class="cmd"><code id="npx"></code><button data-copy="npx">Copy</button></div>
+      </section>
+      <details class="way more">
+        <summary><h2>Claude Code plug-in, or your own code</h2></summary>
+        <p>With the plug-in, Claude Code also gets the A2A skill and a note when a message arrives.</p>
+        <div class="cmd"><code id="plugin">/plugin install a2a@a2a</code><button data-copy="plugin">Copy</button></div>
         <div class="cmd"><code id="say"></code><button data-copy="say">Copy</button></div>
-      </section>
-      <section class="way">
-        <h2>From a terminal</h2>
-        <p>For Codex, scripts or any agent. Needs Node 22.13 or newer.</p>
-        <div class="seg" role="group" aria-label="Your system"><button data-os="win" aria-pressed="false">Windows</button><button data-os="unix" aria-pressed="false">macOS or Linux</button></div>
-        <div class="cmd"><code id="dl"></code><button data-copy="dl">Copy</button></div>
-        <div class="cmd"><code id="joincmd"></code><button data-copy="joincmd">Copy</button></div>
-      </section>
-      <section class="way">
-        <h2>In your own code</h2>
-        <p>Install the SDK and join from TypeScript.</p>
+        <p>From TypeScript, with the SDK:</p>
         <div class="cmd"><code id="npm"></code><button data-copy="npm">Copy</button></div>
         <div class="cmd"><code id="sdk"></code><button data-copy="sdk">Copy</button></div>
-      </section>
+      </details>
     </div>
-    <p class="fine">Your agent's key is created on your computer and never leaves it. Messages pass through the relay, which checks them so it can hold back requests for passwords or keys.</p>
+    <p class="fine">Each agent's key is created on your computer and never leaves it. The person who invited you sees your name and email; people in the session see your name. Messages pass through the relay, which holds back requests for passwords or keys.</p>
   </main>
   <div id="live" class="sr-only" aria-live="polite"></div>
   <script type="module">
@@ -76,49 +81,64 @@
       $("status").className = "status bad";
       $("status").lastChild.textContent = "This invite link is malformed. Ask whoever sent it for a new one.";
       $("ways").remove();
-      $("name-row").remove();
       throw new Error("malformed invite link");
     }
     const base = location.origin + m[1];
     const link = `${base}/join/${m[2]}`;
-    let os = /Windows/i.test(navigator.userAgent) ? "win" : "unix";
-    const slug = (v) => v.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 40);
+    let cli = "a2a-sdk-0.3.0.tgz";
+    let session = null;
 
     function render() {
-      const name = slug($("name").value);
-      $("say").textContent = name ? `Join A2A with ${link} as ${name}` : `Join A2A with ${link}`;
-      $("dl").textContent = os === "win" ? `iwr ${location.origin}/a2a.mjs -OutFile a2a.mjs` : `curl -fsSLO ${location.origin}/a2a.mjs`;
-      $("joincmd").textContent = name ? `node a2a.mjs join ${link} --name ${name}` : `node a2a.mjs join ${link}`;
-      $("npm").textContent = `npm install ${location.origin}/downloads/a2a-sdk-0.1.0.tgz`;
-      $("sdk").textContent = `await A2A.join("${link}"${name ? `, { name: "${name}" }` : ""})`;
-      document.querySelectorAll("[data-os]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.os === os)));
+      const npx = `npx -y ${location.origin}/downloads/${cli} connect ${link}`;
+      $("npx").textContent = npx;
+      $("prompt").textContent = [
+        session ? `Connect me to the A2A session "${session}" so my AI agents can work with the others in it.` : "Connect me to this A2A workspace so my AI agents can work with the people in it.",
+        "",
+        "Run this in a terminal (it needs Node.js 22 or newer):",
+        "",
+        npx,
+        "",
+        "It opens my browser to sign in and prints a short code. Show me the code so I can enter it, then let the command keep running until I approve (up to 10 minutes; run it in the background or with a long timeout). It gives each AI app on this computer its own agent and adds A2A to their MCP settings.",
+        "When it finishes, tell me which apps it connected. Then reload your MCP servers (or tell me to restart you) and call the a2a list_sessions tool to read the session brief.",
+      ].join("\n");
+      $("say").textContent = `Connect me to A2A with ${link}`;
+      $("npm").textContent = `npm install ${location.origin}/downloads/${cli}`;
+      $("sdk").textContent = `const a2a = await A2A.connect("${link}")`;
     }
-    document.querySelectorAll("[data-os]").forEach((b) => b.addEventListener("click", () => ((os = b.dataset.os), render())));
     document.querySelectorAll("[data-copy]").forEach((b) =>
       b.addEventListener("click", async () => {
+        const label = b.textContent;
         try {
           await navigator.clipboard.writeText($(b.dataset.copy).textContent);
           b.textContent = "Copied";
           $("live").textContent = "Copied";
-          setTimeout(() => (b.textContent = "Copy"), 1600);
         } catch {
           b.textContent = "Select and copy";
         }
+        setTimeout(() => (b.textContent = label), 1600);
       }),
     );
-    $("name").addEventListener("input", render);
     render();
+
+    fetch("/downloads/latest.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => c?.file && ((cli = c.file), render()))
+      .catch(() => {});
 
     try {
       const info = await (await fetch(`${base}/v1/invites/${encodeURIComponent(m[2])}`)).json();
       const s = $("status");
       if (info.valid) {
+        session = info.session;
         s.className = "status ok";
-        s.lastChild.textContent = `Valid until ${new Date(info.expires_at).toLocaleDateString()}${info.session ? `, for the session "${info.session}"` : ""}.`;
-        if (info.relay) $("title").textContent = info.owner ? `Connect your agent to ${info.relay}.` : `You're invited to ${info.relay}.`;
+        const room = info.max_members ? ` ${info.people ?? 0} of ${info.max_members} places taken.` : "";
+        s.lastChild.textContent = `Valid until ${new Date(info.expires_at).toLocaleDateString()}.${room}`;
+        $("title").textContent = info.owner ? `Connect your agents to ${info.relay}.` : info.session ? `Join "${info.session}".` : `You're invited to ${info.relay}.`;
+        if (info.session) $("lede").textContent = `${info.relay} invited you to a shared session. Your AI agents join it and can work with everyone in it. You sign in once with Google or email; it takes about a minute.`;
+        render();
       } else {
         s.className = "status bad";
-        s.lastChild.textContent = "This invite is expired, used up or revoked. Ask whoever sent it for a new one.";
+        s.lastChild.textContent = "This invite expired, or the session was deleted. Ask whoever sent it for a new one.";
       }
     } catch {
       $("status").lastChild.textContent = "Couldn't check the invite. The steps below still work if the link is current.";

@@ -75,7 +75,9 @@ export function buildPrompt(m: InboundMessage, nonce: string): string {
 
 function run(cmd: string, args: string[], opts: { cwd?: string; env: Record<string, string>; stdin: string; timeoutMs: number }): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env }, stdio: ["pipe", "pipe", "pipe"] });
+    // Windows can't execute a .js/.mjs file directly (no shebangs), so run JavaScript programs with Node.
+    const [bin, argv] = /\.m?js$/i.test(cmd) ? [process.execPath, [cmd, ...args]] : [cmd, args];
+    const child = spawn(bin, argv, { cwd: opts.cwd, env: { ...process.env, ...opts.env }, stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;

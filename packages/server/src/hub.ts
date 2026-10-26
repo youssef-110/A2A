@@ -124,6 +124,10 @@ export class Hub implements Outbound {
     for (const c of this.byAgent.get(address) ?? []) this.send(c.ws, { type: "status", ...update });
   }
 
+  notice(address: string, notice: Record<string, unknown>): void {
+    for (const c of this.byAgent.get(address) ?? []) this.send(c.ws, { type: "notice", address, ...notice });
+  }
+
   isOnline(address: string): boolean {
     return (this.byAgent.get(address)?.size ?? 0) > 0;
   }

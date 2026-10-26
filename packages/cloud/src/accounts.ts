@@ -81,10 +81,10 @@ export function cookie(name: string, value: string, maxAgeS: number, secure: boo
 
 // ------------------------------------------------------------------ sessions
 
-async function newSessionToken(env: AccountsEnv, userId: string): Promise<string> {
+async function newSessionToken(env: AccountsEnv, userId: string, days = SESSION_DAYS): Promise<string> {
   const token = randomToken();
   await env.ACCOUNTS.prepare("INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)")
-    .bind(await sha256Hex(token), userId, iso(), iso(Date.now() + SESSION_DAYS * 86_400_000))
+    .bind(await sha256Hex(token), userId, iso(), iso(Date.now() + days * 86_400_000))
     .run();
   return token;
 }
@@ -93,8 +93,10 @@ export async function createSession(env: AccountsEnv, userId: string, secure: bo
   return cookie(COOKIE, await newSessionToken(env, userId), SESSION_DAYS * 86_400, secure);
 }
 
+/** The signed-in person: the website cookie, or a Bearer token the a2a CLI got by signing in at /link. */
 export async function currentUser(env: AccountsEnv, req: Request): Promise<User | null> {
-  const token = readCookie(req, COOKIE);
+  const auth = req.headers.get("authorization");
+  const token = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : readCookie(req, COOKIE);
   if (!token) return null;
   return env.ACCOUNTS.prepare(
     "SELECT u.id, u.email, u.name, u.avatar_url FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?",
@@ -104,7 +106,8 @@ export async function currentUser(env: AccountsEnv, req: Request): Promise<User 
 }
 
 export async function endSession(env: AccountsEnv, req: Request, secure: boolean): Promise<string> {
-  const token = readCookie(req, COOKIE);
+  const auth = req.headers.get("authorization");
+  const token = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : readCookie(req, COOKIE);
   if (token) await env.ACCOUNTS.prepare("DELETE FROM auth_sessions WHERE token_hash = ?").bind(await sha256Hex(token)).run();
   return cookie(COOKIE, "", 0, secure);
 }
@@ -221,6 +224,9 @@ async function onFirstSignIn(env: AccountsEnv, user: User): Promise<void> {
 
 // ------------------------------------------------------------------ Google sign-in
 
+/** The redirect URI registered in Google Cloud Console. /auth/google/callback is still accepted for old links. */
+export const GOOGLE_CALLBACK = "/auth/callback/google";
+
 export const googleEnabled = (env: AccountsEnv): boolean => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 
 export async function googleStart(env: AccountsEnv, url: URL, next: string): Promise<Response> {
@@ -230,7 +236,7 @@ export async function googleStart(env: AccountsEnv, url: URL, next: string): Pro
   const auth = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   auth.search = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID!,
-    redirect_uri: `${url.origin}/auth/google/callback`,
+    redirect_uri: `${url.origin}${GOOGLE_CALLBACK}`,
     response_type: "code",
     scope: "openid email profile",
     state,
@@ -256,7 +262,7 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
       code,
       client_id: env.GOOGLE_CLIENT_ID!,
       client_secret: env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: `${url.origin}/auth/google/callback`,
+      redirect_uri: `${url.origin}${GOOGLE_CALLBACK}`,
       grant_type: "authorization_code",
       code_verifier: verifier,
     }),
@@ -311,6 +317,8 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
 // ------------------------------------------------------------------ desktop app sign-in
 
 const LINK_MINUTES = 10;
+/** A computer that signed in keeps its token for half a year; it only needs it to add agents or join sessions. */
+const DEVICE_SESSION_DAYS = 180;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I
 
 function userCode(): string {
@@ -378,5 +386,21 @@ export async function pollDeviceLink(
   if (!del.meta.changes) return { status: "expired" };
   const user = await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").bind(row.user_id).first<User>();
   if (!user) return { status: "expired" };
-  return { status: "approved", session_token: await newSessionToken(env, user.id), invite_url: row.invite_url, workspace: row.workspace_slug, user };
+  return { status: "approved", session_token: await newSessionToken(env, user.id, DEVICE_SESSION_DAYS), invite_url: row.invite_url, workspace: row.workspace_slug, user };
+}
+
+// ------------------------------------------------------------------ workspaces someone joined as a guest
+
+/** Remembers that a person has agents in someone else's workspace, for their "Shared with you" list. */
+export async function recordGuestWorkspace(env: AccountsEnv, userId: string, workspaceId: string): Promise<void> {
+  await env.ACCOUNTS.prepare("INSERT OR IGNORE INTO account_relays (user_id, workspace_id, created_at) VALUES (?, ?, ?)").bind(userId, workspaceId, iso()).run();
+}
+
+export async function guestWorkspaces(env: AccountsEnv, userId: string): Promise<{ id: string; slug: string; name: string; do_name: string }[]> {
+  const r = await env.ACCOUNTS.prepare(
+    "SELECT w.id, w.slug, w.name, w.do_name FROM account_relays a JOIN workspaces w ON w.id = a.workspace_id WHERE a.user_id = ? AND w.id NOT IN (SELECT workspace_id FROM memberships WHERE user_id = ?) ORDER BY a.created_at DESC",
+  )
+    .bind(userId, userId)
+    .all<{ id: string; slug: string; name: string; do_name: string }>();
+  return r.results;
 }

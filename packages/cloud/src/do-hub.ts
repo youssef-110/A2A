@@ -99,6 +99,10 @@ export class DoHub implements Outbound {
     for (const ws of this.sockets(address)) this.send(ws, { type: "status", ...update });
   }
 
+  notice(address: string, notice: Record<string, unknown>): void {
+    for (const ws of this.sockets(address)) this.send(ws, { type: "notice", address, ...notice });
+  }
+
   isOnline(address: string): boolean {
     return this.sockets(address).length > 0;
   }

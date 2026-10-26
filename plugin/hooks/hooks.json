@@ -3,12 +3,12 @@
   "hooks": {
     "SessionStart": [
       {
-        "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning \"${CLAUDE_PLUGIN_ROOT}/bin/a2a.mjs\" hook", "timeout": 5 }]
+        "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning \"${CLAUDE_PLUGIN_ROOT}/bin/a2a.mjs\" hook --tool claude-code", "timeout": 5 }]
       }
     ],
     "UserPromptSubmit": [
       {
-        "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning \"${CLAUDE_PLUGIN_ROOT}/bin/a2a.mjs\" hook", "timeout": 5 }]
+        "hooks": [{ "type": "command", "command": "node --disable-warning=ExperimentalWarning \"${CLAUDE_PLUGIN_ROOT}/bin/a2a.mjs\" hook --tool claude-code", "timeout": 5 }]
       }
     ]
   }

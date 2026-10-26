@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { ADDRESS_RE, generateAgentKeyPair } from "@a2a/protocol";
-import { configPath, keyPath, loadConfig, saveConfig, writeKey, type AgentConfig, type ClientConfig, type RuntimeKind } from "./config.ts";
+import { configPath, keyPath, loadConfig, pinRelayKey, relayKeyOf, saveConfig, serverOf, writeKey, type AgentConfig, type ClientConfig, type RuntimeKind } from "./config.ts";
 import { inviteInfo, registerAgent, relayInfo, RelayError } from "./relay-api.ts";
 
 export interface JoinOptions {
@@ -65,24 +65,23 @@ export async function joinNetwork(home: string, link: string, opts: JoinOptions 
   let config: ClientConfig;
   if (existsSync(configPath(home))) {
     config = loadConfig(home);
-    if (config.server !== server) {
-      if (!opts.force) throw new Error(`This machine is already set up for ${config.server}. Pass force to switch to ${server}.`);
-      config = { server, name: config.name, relay_public_key: info.relay_public_key, agents: [] };
-    } else if (config.relay_public_key && config.relay_public_key !== info.relay_public_key) {
-      throw new Error(`The relay at ${server} presented a different key than the one pinned in ${configPath(home)}. Refusing to continue.`);
-    }
+    // A computer can be in several relays: joining another one adds it next to the ones it has.
+    if (opts.force && config.server !== server) config = { server, name: config.name, relay_public_key: info.relay_public_key, agents: [] };
+    const pinned = relayKeyOf(config, server);
+    if (pinned && pinned !== info.relay_public_key) throw new Error(`The relay at ${server} presented a different key than the one pinned in ${configPath(home)}. Refusing to continue.`);
   } else {
     config = { server, name: name, relay_public_key: info.relay_public_key, agents: [] };
   }
-  config.relay_public_key = info.relay_public_key;
+  pinRelayKey(config, server, info.relay_public_key, info.name);
 
-  let entry = config.agents.find((a) => a.address === address);
+  let entry = config.agents.find((a) => a.address === address && serverOf(config, a) === server);
   let pem: string;
   if (entry && existsSync(keyPath(home, entry))) {
     pem = readFileSync(keyPath(home, entry), "utf8");
   } else {
     pem = generateAgentKeyPair().privateKeyPem;
-    entry = { address, key: writeKey(home, name, pem), runtime: opts.runtime ?? "none" };
+    const keyName = server === config.server ? name : `${info.org}-${name}`;
+    entry = { address, key: writeKey(home, keyName, pem), ...(server !== config.server ? { server } : {}), runtime: opts.runtime ?? "none" };
     config.agents = config.agents.filter((a) => a.address !== address).concat(entry);
   }
   const updated: AgentConfig = {

@@ -87,6 +87,8 @@ export class RelayDO extends DurableObject<Env> {
       judgeOverride: env.A2A_JUDGE as JudgeMode | undefined,
       createJudges: cloudJudges(env),
       log: (m) => console.log(m),
+      // Hosted workspaces: joining a session takes a signed-in account, so owners see who is in it.
+      requireAccount: this.isWorkspace(),
     });
     this.relay.out = this.hub;
     this.api = createApi({ relay: this.relay, adminToken, name: () => this.name, reson8ApiKey: env.RESON8_API_KEY, trustForwardedBase: true });

@@ -12,6 +12,10 @@ export type SpawnOn = "request" | "notify" | "reply";
 export interface AgentConfig {
   address: string;
   key: string;
+  /** The relay this agent lives on, when it isn't the main one (someone else's workspace you were invited into). */
+  server?: string;
+  /** The AI app this agent speaks for: claude-code, antigravity, cursor, ... Each app gets its own agent. */
+  tool?: string;
   display_name?: string;
   description?: string;
   runtime: RuntimeKind;
@@ -35,6 +39,10 @@ export interface ClientConfig {
   server: string;
   name: string;
   relay_public_key?: string;
+  /** Other relays this computer is in, each with its pinned key (workspaces of people who invited you). */
+  networks?: { server: string; relay_public_key: string; name?: string }[];
+  /** The base of this person's agent names: "sam" for sam-claude, sam-antigravity, ... */
+  person?: string;
   default_agent?: string;
   agents: AgentConfig[];
 }
@@ -64,7 +72,48 @@ export function loadConfig(home: string): ClientConfig {
   if (!existsSync(path)) throw new Error(`No a2a config at ${path}. Run \`a2a init --server <relay url>\` first.`);
   const raw = parseYaml(readFileSync(path, "utf8")) as Partial<ClientConfig>;
   if (!raw?.server) throw new Error(`${path}: server is required`);
-  return { server: raw.server.replace(/\/$/, ""), name: raw.name ?? "a2a-client", relay_public_key: raw.relay_public_key, default_agent: raw.default_agent, agents: raw.agents ?? [] };
+  return {
+    server: raw.server.replace(/\/$/, ""),
+    name: raw.name ?? "a2a-client",
+    relay_public_key: raw.relay_public_key,
+    ...(raw.networks?.length ? { networks: raw.networks } : {}),
+    ...(raw.person ? { person: raw.person } : {}),
+    default_agent: raw.default_agent,
+    agents: raw.agents ?? [],
+  };
+}
+
+/** The relay an agent of this computer lives on. */
+export const serverOf = (config: ClientConfig, agent: AgentConfig): string => agent.server ?? config.server;
+
+/** Every relay this computer connects to, the main one first. */
+export const serversOf = (config: ClientConfig): string[] => [...new Set([config.server, ...(config.networks ?? []).map((n) => n.server), ...config.agents.map((a) => serverOf(config, a))])];
+
+/** The pinned key of a relay, if known. */
+export const relayKeyOf = (config: ClientConfig, server: string): string | undefined =>
+  server === config.server ? config.relay_public_key : config.networks?.find((n) => n.server === server)?.relay_public_key;
+
+export function pinRelayKey(config: ClientConfig, server: string, key: string, name?: string): void {
+  if (server === config.server) {
+    config.relay_public_key = key;
+    return;
+  }
+  const n = (config.networks ??= []).find((x) => x.server === server);
+  if (n) n.relay_public_key = key;
+  else config.networks.push({ server, relay_public_key: key, ...(name ? { name } : {}) });
+}
+
+/**
+ * The agents one AI app speaks as, one per relay. Without a tool: the default agent plus agents
+ * of the same name on other relays (what `a2a join` creates).
+ */
+export function agentsFor(config: ClientConfig, tool?: string): AgentConfig[] {
+  if (tool) return config.agents.filter((a) => a.tool === tool);
+  const main = config.agents.find((a) => a.address === config.default_agent) ?? config.agents[0];
+  if (!main) return [];
+  if (main.tool) return [main, ...config.agents.filter((a) => a !== main && a.tool === main.tool)];
+  const short = main.address.split("/").pop();
+  return [main, ...config.agents.filter((a) => a !== main && !a.tool && a.address.split("/").pop() === short)];
 }
 
 export function saveConfig(home: string, config: ClientConfig): void {

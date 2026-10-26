@@ -20,9 +20,25 @@ import {
   type Envelope,
   type MessageKind,
 } from "@a2a/protocol";
-import { durationMs, ipcInfoPath, loadAgentKey, loadConfig, pickAgent, saveConfig, socketPath, useTcpIpc, type AgentConfig, type ClientConfig } from "./config.ts";
+import {
+  agentsFor,
+  durationMs,
+  ipcInfoPath,
+  loadAgentKey,
+  loadConfig,
+  pickAgent,
+  pinRelayKey,
+  relayKeyOf,
+  saveConfig,
+  serverOf,
+  serversOf,
+  socketPath,
+  useTcpIpc,
+  type AgentConfig,
+  type ClientConfig,
+} from "./config.ts";
 import { openState, type State } from "./state.ts";
-import { relayInfo, signedGet, submitEnvelope } from "./relay-api.ts";
+import { relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
 import { buildPrompt, runAgent, type InboundMessage } from "./runtimes.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,8 +47,23 @@ export const CLI_PATH = resolve(here, "cli.ts");
 const iso = (): string => new Date().toISOString();
 const TERMINAL_FAILURES = new Set(["blocked", "rejected", "expired"]);
 
+/** One relay connection. A computer can be in several workspaces (its own, and sessions others invited it into). */
+interface Link {
+  server: string;
+  ws?: WebSocket;
+  connected: boolean;
+  accepted: string[];
+  rejected: { address: string; reason: string }[];
+  backoffMs: number;
+  timer?: NodeJS.Timeout;
+}
+
+type DirectoryEntry = { address: string; display_name: string | null; description: string | null; person?: string | null; online: boolean; scopes: { name: string; description: string }[] };
+
 export interface SendOptions {
   from?: string;
+  /** The AI app sending (claude-code, antigravity, ...): picks which of this computer's agents speaks. */
+  tool?: string;
   to: string;
   text: string;
   scope?: string;
@@ -101,13 +132,8 @@ export class Daemon {
   private state!: State;
   private readonly keys = new Map<string, KeyObject>();
   private readonly log: (msg: string) => void;
-  private ws?: WebSocket;
-  private connected = false;
-  private accepted: string[] = [];
-  private rejected: { address: string; reason: string }[] = [];
+  private readonly links = new Map<string, Link>();
   private stopping = false;
-  private backoffMs = 500;
-  private reconnectTimer?: NodeJS.Timeout;
   private outboxTimer?: NodeJS.Timeout;
   private ipc?: Server;
   private ipcToken = "";
@@ -119,7 +145,7 @@ export class Daemon {
   private readonly backlog = new Map<string, InboundMessage[]>();
   private readonly activeRuns = new Set<Promise<void>>();
   private flushing = false;
-  private readonly directoryCache = new Map<string, { at: number; agents: Awaited<ReturnType<Daemon["directory"]>> }>();
+  private readonly directoryCache = new Map<string, { at: number; agents: DirectoryEntry[] }>();
   private readonly onStopRequest?: () => void;
 
   constructor(opts: DaemonOptions) {
@@ -134,16 +160,10 @@ export class Daemon {
     mkdirSync(join(this.home, "run"), { recursive: true, mode: 0o700 });
     for (const a of this.config.agents) this.keys.set(a.address, loadAgentKey(this.home, a));
     this.state = openState(this.home);
-
-    if (!this.config.relay_public_key) {
-      const info = await relayInfo(this.config.server);
-      this.config.relay_public_key = info.relay_public_key;
-      saveConfig(this.home, this.config);
-      this.log(`pinned relay key for ${this.config.server}`);
-    }
+    await this.pinKeys();
 
     await this.startIpc();
-    this.connect();
+    for (const server of serversOf(this.config)) this.connect(server);
     this.outboxTimer = setInterval(() => void this.flushOutbox(), 2000);
     this.outboxTimer.unref();
 
@@ -156,11 +176,58 @@ export class Daemon {
     }
   }
 
+  /** Relays without a pinned key get theirs fetched once; after that a different key is refused. */
+  private async pinKeys(): Promise<void> {
+    let changed = false;
+    for (const server of serversOf(this.config)) {
+      if (relayKeyOf(this.config, server)) continue;
+      try {
+        pinRelayKey(this.config, server, (await relayInfo(server)).relay_public_key);
+        changed = true;
+        this.log(`pinned relay key for ${server}`);
+      } catch (err) {
+        this.log(`could not reach ${server} to pin its key: ${(err as Error).message}`);
+      }
+    }
+    if (changed) saveConfig(this.home, this.config);
+  }
+
+  /**
+   * Picks up config changes (a new app connected, a new session joined) without dropping in-flight
+   * waits: new keys load, new relays connect, and relays with new agents reconnect to say hello again.
+   */
+  async reload(): Promise<void> {
+    const before = new Map([...this.links.values()].map((l) => [l.server, this.agentsOn(l.server).map((a) => a.address).join(",")]));
+    this.config = loadConfig(this.home);
+    for (const a of this.config.agents) if (!this.keys.has(a.address)) this.keys.set(a.address, loadAgentKey(this.home, a));
+    await this.pinKeys();
+    this.directoryCache.clear();
+    for (const server of serversOf(this.config)) {
+      const link = this.links.get(server);
+      if (!link || !link.ws) this.connect(server);
+      else if (before.get(server) !== this.agentsOn(server).map((a) => a.address).join(",")) link.ws?.close(4000, "reload");
+    }
+    this.log(`reloaded config: ${this.config.agents.length} agent(s) on ${serversOf(this.config).length} relay(s)`);
+  }
+
+  private agentsOn(server: string): AgentConfig[] {
+    return this.config.agents.filter((a) => serverOf(this.config, a) === server);
+  }
+
+  /** The relay an agent of this computer lives on. */
+  private serverFor(address: string): string {
+    const a = this.agent(address);
+    if (!a) throw new ClientError(400, `${address} is not an agent on this computer`);
+    return serverOf(this.config, a);
+  }
+
   async stop(): Promise<void> {
     this.stopping = true;
-    clearTimeout(this.reconnectTimer);
     clearInterval(this.outboxTimer);
-    this.ws?.close();
+    for (const l of this.links.values()) {
+      clearTimeout(l.timer);
+      l.ws?.close();
+    }
     await new Promise<void>((r) => (this.ipc ? this.ipc.close(() => r()) : r()));
     try {
       unlinkSync(useTcpIpc ? ipcInfoPath(this.home) : socketPath(this.home));
@@ -175,44 +242,60 @@ export class Daemon {
     return this.config.agents.find((a) => a.address === address);
   }
 
-  // ------------------------------------------------------------ relay connection
+  // ------------------------------------------------------------ relay connections
 
-  private connect(): void {
+  private connect(server: string): void {
     if (this.stopping) return;
-    const url = `${this.config.server.replace(/^http/, "ws")}/v1/stream`;
-    const ws = new WebSocket(url, { handshakeTimeout: 10_000 });
-    this.ws = ws;
+    let link = this.links.get(server);
+    if (!link) this.links.set(server, (link = { server, connected: false, accepted: [], rejected: [], backoffMs: 500 }));
+    const l = link;
+    if (!this.agentsOn(server).length) return; // nothing to say hello with yet
+    const ws = new WebSocket(`${server.replace(/^http/, "ws")}/v1/stream`, { handshakeTimeout: 10_000 });
+    l.ws = ws;
     // App-level keepalive: a hibernating Cloudflare relay answers this without waking up, and proxies see traffic.
     const keepalive = setInterval(() => ws.readyState === ws.OPEN && ws.send('{"type":"ping"}'), 30_000);
     keepalive.unref();
     ws.on("message", (data) => {
       try {
-        void this.onFrame(ws, JSON.parse(data.toString()));
+        void this.onFrame(l, ws, JSON.parse(data.toString()));
       } catch (err) {
         this.log(`bad frame from relay: ${(err as Error).message}`);
       }
     });
     ws.on("close", (code, reason) => {
       clearInterval(keepalive);
-      const was = this.connected;
-      this.connected = false;
+      if (l.ws !== ws) return;
+      const was = l.connected;
+      l.connected = false;
       if (this.stopping) return;
-      if (was) this.log(`disconnected from relay (${code}${reason.length ? ` ${reason}` : ""}), reconnecting`);
-      this.reconnectTimer = setTimeout(() => this.connect(), this.backoffMs);
-      this.backoffMs = Math.min(this.backoffMs * 2, 15_000);
+      if (code === 4000) l.backoffMs = 100; // our own reload: reconnect right away
+      else if (was) this.log(`disconnected from ${server} (${code}${reason.length ? ` ${reason}` : ""}), reconnecting`);
+      l.timer = setTimeout(() => this.connect(server), l.backoffMs);
+      l.backoffMs = Math.min(l.backoffMs * 2, 15_000);
     });
     ws.on("error", (err) => {
-      if (this.backoffMs <= 1000) this.log(`relay connection error: ${err.message}`);
+      if (l.backoffMs <= 1000) this.log(`relay connection error (${server}): ${err.message}`);
     });
   }
 
+  /** True when at least one relay accepted at least one agent. */
+  private get connected(): boolean {
+    return [...this.links.values()].some((l) => l.connected);
+  }
+
+  private isAccepted(address: string): boolean {
+    return [...this.links.values()].some((l) => l.accepted.includes(address));
+  }
+
   /** Status updates are pushed only while connected, so after (re)connecting, ask for any we may have missed. */
-  private async reconcile(): Promise<void> {
+  private async reconcile(link: Link): Promise<void> {
     const open = this.state.prepare("SELECT id, from_addr FROM sent WHERE state IN ('screening', 'held', 'queued') AND created_at > ? LIMIT 200").all(new Date(Date.now() - 86_400_000).toISOString()) as { id: string; from_addr: string }[];
     for (const m of open) {
       if (this.stopping) return;
+      const agent = this.agent(m.from_addr);
+      if (!agent || serverOf(this.config, agent) !== link.server) continue;
       try {
-        const r = await signedGet(this.config.server, m.from_addr, this.keys.get(m.from_addr)!, `/v1/messages/${encodeURIComponent(m.id)}`);
+        const r = await signedGet(link.server, m.from_addr, this.keys.get(m.from_addr)!, `/v1/messages/${encodeURIComponent(m.id)}`);
         const row = this.state.prepare("SELECT state FROM sent WHERE id = ?").get(m.id) as { state: string };
         if (r.state !== row.state) this.onStatus({ id: m.id, state: String(r.state), reason_code: (r.reason_code as string | null) ?? null });
       } catch {
@@ -221,54 +304,80 @@ export class Daemon {
     }
   }
 
-  private async onFrame(ws: WebSocket, msg: Record<string, unknown>): Promise<void> {
+  private async onFrame(link: Link, ws: WebSocket, msg: Record<string, unknown>): Promise<void> {
     if (this.stopping) return;
     if (msg.type === "challenge") {
-      if (msg.relay_public_key !== this.config.relay_public_key) {
-        this.log("relay key does not match the pinned key in config.yaml; refusing to authenticate");
+      if (msg.relay_public_key !== relayKeyOf(this.config, link.server)) {
+        this.log(`${link.server}: relay key does not match the pinned key in config.yaml; refusing to authenticate`);
         ws.close(4010, "relay key mismatch");
         return;
       }
       const nonce = String(msg.nonce);
-      const agents = this.config.agents.map((a) => ({ address: a.address, sig: signString(helloSigningString(nonce, a.address), this.keys.get(a.address)!) }));
+      const agents = this.agentsOn(link.server).map((a) => ({ address: a.address, sig: signString(helloSigningString(nonce, a.address), this.keys.get(a.address)!) }));
       ws.send(JSON.stringify({ type: "hello", client: this.config.name, agents }));
     } else if (msg.type === "welcome") {
-      this.accepted = (msg.accepted as string[]) ?? [];
-      this.rejected = (msg.rejected as { address: string; reason: string }[]) ?? [];
-      this.connected = this.accepted.length > 0;
-      this.backoffMs = 500;
-      this.log(`connected to ${this.config.server} as ${this.accepted.join(", ") || "(no agents)"}`);
-      for (const r of this.rejected) this.log(`  ${r.address} not accepted: ${r.reason}${r.reason === "agent_pending" ? " (approve it in the relay console)" : ""}`);
+      link.accepted = (msg.accepted as string[]) ?? [];
+      link.rejected = (msg.rejected as { address: string; reason: string }[]) ?? [];
+      link.connected = link.accepted.length > 0;
+      link.backoffMs = 500;
+      this.log(`connected to ${link.server} as ${link.accepted.join(", ") || "(no agents)"}`);
+      for (const r of link.rejected) this.log(`  ${r.address} not accepted: ${r.reason}${r.reason === "agent_pending" ? " (approve it in the relay console)" : ""}`);
       void this.flushOutbox();
-      void this.reconcile();
+      void this.reconcile(link);
     } else if (msg.type === "deliver") {
-      await this.onDeliver(ws, msg.message as DeliveryPayload);
+      await this.onDeliver(link, ws, msg.message as DeliveryPayload);
     } else if (msg.type === "status") {
       this.onStatus(msg as { id: string; state: string; reason_code: string | null });
+    } else if (msg.type === "notice") {
+      this.onNotice(link, msg);
     }
   }
 
+  /** Something happened to a session this computer is in, e.g. its owner deleted it. */
+  private onNotice(link: Link, msg: Record<string, unknown>): void {
+    const address = typeof msg.address === "string" ? msg.address : "";
+    if (!this.agent(address) || serverOf(this.config, this.agent(address)!) !== link.server) return;
+    const session = (msg.session ?? {}) as { id?: string; name?: string | null };
+    const text =
+      msg.kind === "session_deleted"
+        ? `The session "${session.name ?? session.id}" was deleted by its owner. You can no longer reach the people in it.`
+        : msg.kind === "session_removed"
+          ? `You were removed from the session "${session.name ?? session.id}".`
+          : `Notice from the relay: ${String(msg.kind)}`;
+    this.state.prepare("INSERT INTO notices (address, kind, text, created_at) VALUES (?, ?, ?, ?)").run(address, String(msg.kind), text, iso());
+    this.directoryCache.clear();
+    this.log(`ℹ ${address}: ${text}`);
+  }
+
   private async senderKey(sender: string, asAgent: string): Promise<string | undefined> {
-    const cached = this.senderKeys.get(sender);
+    const server = this.serverFor(asAgent);
+    const cacheKey = `${server} ${sender}`;
+    const cached = this.senderKeys.get(cacheKey);
     if (cached) return cached;
     try {
-      const r = await signedGet(this.config.server, asAgent, this.keys.get(asAgent)!, `/v1/keys/${encodeURIComponent(sender)}`);
-      this.senderKeys.set(sender, String(r.public_key));
+      const r = await signedGet(server, asAgent, this.keys.get(asAgent)!, `/v1/keys/${encodeURIComponent(sender)}`);
+      this.senderKeys.set(cacheKey, String(r.public_key));
       return String(r.public_key);
     } catch {
       return undefined;
     }
   }
 
-  private async onDeliver(ws: WebSocket, d: DeliveryPayload): Promise<void> {
+  private async onDeliver(link: Link, ws: WebSocket, d: DeliveryPayload): Promise<void> {
     const { relay_sig, ...signed } = d;
-    if (!verifyString(canonicalize(signed), relay_sig, this.config.relay_public_key!)) {
+    if (!verifyString(canonicalize(signed), relay_sig, relayKeyOf(this.config, link.server)!)) {
       this.log(`dropped ${d.id}: relay signature invalid`);
       return;
     }
     const agent = this.agent(d.to);
-    if (!agent) return;
-
+    // A relay may only deliver to agents that live on it.
+    if (!agent || serverOf(this.config, agent) !== link.server) return;
+    // A relay serves one org, so a real sender is always in the recipient's org. Another workspace's relay
+    // must not be able to pose as someone from this one.
+    if (d.from.split("/")[2] !== d.to.split("/")[2]) {
+      this.log(`dropped ${d.id}: ${link.server} delivered a message claiming to be from ${d.from}`);
+      return;
+    }
     let senderVerified = false;
     if (d.envelope) {
       const key = await this.senderKey(d.from, d.to);
@@ -364,7 +473,7 @@ export class Daemon {
       const local = this.state.prepare("SELECT scope FROM sent WHERE thread_id = ? UNION SELECT scope FROM inbox WHERE thread_id = ? LIMIT 1").get(threadId, threadId) as { scope: string } | undefined;
       if (local) return local.scope;
       try {
-        const t = await signedGet(this.config.server, from, this.keys.get(from)!, `/v1/threads/${threadId}`);
+        const t = await signedGet(this.serverFor(from), from, this.keys.get(from)!, `/v1/threads/${threadId}`);
         return String(t.scope);
       } catch {
         /* new thread id chosen by the caller */
@@ -392,34 +501,79 @@ export class Daemon {
   }
 
   /**
-   * Lets people say "guest-david" instead of agent://acme/guest-david. Only the address's own name
-   * counts: display names are chosen by each agent, so matching them would let anyone pose as "David".
+   * Lets people say "guest-david" or "david" instead of agent://acme/guest-david. Only the address's
+   * own name counts: display names are chosen by each agent, so matching them would let anyone pose
+   * as "David". "david" also finds david-claude or david-antigravity (preferring the one online).
+   * Looks through every agent this app speaks as, so it reaches people in any of its workspaces.
    */
-  private async resolveRecipient(from: string, name: string): Promise<string> {
+  private async resolveRoute(candidates: string[], name: string): Promise<{ from: string; to: string }> {
     const want = name.trim().replace(/^@/, "").toLowerCase();
     const norm = (s: string): string => s.toLowerCase().replace(/[\s_.-]+/g, "");
     const short = (a: { address: string }): string => a.address.split("/").pop()!;
-    const find = (d: Awaited<ReturnType<Daemon["directory"]>>) => {
+    type Hit = DirectoryEntry & { via: string };
+    const find = (d: Hit[]): Hit[] => {
       const exact = d.filter((a) => short(a) === want);
-      return exact.length ? exact : d.filter((a) => norm(short(a)) === norm(want));
+      if (exact.length) return exact;
+      const loose = d.filter((a) => norm(short(a)) === norm(want));
+      if (loose.length) return loose;
+      const prefix = d.filter((a) => short(a).startsWith(`${want}-`));
+      const online = prefix.filter((a) => a.online);
+      return online.length ? online : prefix;
     };
-    let dir = await this.directory(from, true);
+    const gather = async (cached: boolean): Promise<Hit[]> =>
+      (await Promise.all(candidates.map(async (c) => (await this.directory(c, cached).catch(() => [])).map((a) => ({ ...a, via: c }))))).flat();
+    let dir = await gather(true);
     let matches = find(dir);
     // Someone may have joined since the cached copy: look once more before giving up.
-    if (!matches.length) matches = find((dir = await this.directory(from)));
-    if (matches.length === 1) return matches[0]!.address;
-    const known = dir.map((a) => `${a.address}${a.display_name ? ` (${a.display_name})` : ""}`).join(", ") || "none";
-    if (!matches.length) throw new ClientError(404, `No agent called "${name}". Agents you can reach: ${known}`);
-    throw new ClientError(400, `"${name}" matches several agents: ${matches.map((a) => a.address).join(", ")}. Use the full address.`);
+    if (!matches.length) matches = find((dir = await gather(false)));
+    const unique = [...new Map(matches.map((m) => [m.address, m])).values()];
+    if (unique.length === 1) return { from: unique[0]!.via, to: unique[0]!.address };
+    const known = [...new Set(dir.map((a) => `${a.address}${a.person ? ` (${a.person})` : a.display_name ? ` (${a.display_name})` : ""}`))].join(", ") || "none";
+    if (!unique.length) throw new ClientError(404, `No agent called "${name}". Agents you can reach: ${known}`);
+    throw new ClientError(400, `"${name}" matches several agents: ${unique.map((a) => a.address).join(", ")}. Use the full address.`);
   }
 
   /** The agents this agent can reach. Sends use a copy up to 30 s old, which saves a relay round trip per message. */
-  async directory(agent: string, cached = false): Promise<{ address: string; display_name: string | null; description: string | null; online: boolean; scopes: { name: string; description: string }[] }[]> {
+  async directory(agent: string, cached = false): Promise<DirectoryEntry[]> {
     const hit = this.directoryCache.get(agent);
     if (cached && hit && Date.now() - hit.at < 30_000) return hit.agents;
-    const r = await signedGet(this.config.server, agent, this.keys.get(agent)!, "/v1/directory");
+    const r = await signedGet(this.serverFor(agent), agent, this.keys.get(agent)!, "/v1/directory");
     this.directoryCache.set(agent, { at: Date.now(), agents: r.agents as never });
     return r.agents as never;
+  }
+
+  /** Who this app can reach across all of its workspaces, each with the agent it would send as. */
+  async reachable(tool?: string): Promise<(DirectoryEntry & { via: string })[]> {
+    const lists = await Promise.all(this.speakers(tool).map(async (a) => (await this.directory(a.address).catch(() => [])).map((d) => ({ ...d, via: a.address }))));
+    return lists.flat();
+  }
+
+  /** The agents an app speaks as: its own (one per relay), or the default agent and its namesakes. */
+  speakers(tool?: string): AgentConfig[] {
+    const own = agentsFor(this.config, tool);
+    if (own.length || !tool) return own;
+    return agentsFor(this.config);
+  }
+
+  /** The sessions this app's agents are in, with each session's shared brief and people. */
+  async sessions(tool?: string): Promise<Record<string, unknown>[]> {
+    const lists = await Promise.all(
+      this.speakers(tool).map(async (a) => {
+        const r = await signedGet(this.serverFor(a.address), a.address, this.keys.get(a.address)!, "/v1/sessions").catch(() => ({ sessions: [] }));
+        return ((r.sessions as Record<string, unknown>[]) ?? []).map((s) => ({ ...s, you: a.address, workspace: a.address.split("/")[2] }));
+      }),
+    );
+    return lists.flat();
+  }
+
+  async setBrief(tool: string | undefined, sessionId: string, text: string): Promise<void> {
+    for (const s of await this.sessions(tool)) {
+      if (s.id !== sessionId) continue;
+      const you = String(s.you);
+      await signedSend(this.serverFor(you), you, this.keys.get(you)!, "PUT", `/v1/sessions/${encodeURIComponent(sessionId)}/brief`, { text });
+      return;
+    }
+    throw new ClientError(404, `You're not in a session with id ${sessionId}. list_sessions shows yours.`);
   }
 
   private waitFor(id: string, timeoutMs: number): { promise: Promise<WaitResult & { timed_out?: boolean }>; cancel: () => void } {
@@ -464,9 +618,25 @@ export class Daemon {
    * whether it was delivered, held or blocked; with waitMs > 0 it also waits for the reply.
    */
   async send(o: SendOptions, waitMs = 0, verdictMs = 60_000): Promise<SendResult> {
-    const agent = pickAgent(this.config, o.from);
     if (!o.text?.trim()) throw new ClientError(400, "message text is empty");
-    if (!ADDRESS_RE.test(o.to)) o = { ...o, to: await this.resolveRecipient(agent.address, o.to) };
+    let agent: AgentConfig;
+    if (o.from) agent = pickAgent(this.config, o.from);
+    else {
+      const speakers = this.speakers(o.tool);
+      if (!speakers.length) throw new ClientError(400, "No agent is set up for this app yet. Run `a2a connect`.");
+      // Continue a thread as the agent that is already in it; reach a full address from its own workspace.
+      const inThread = o.thread_id
+        ? (this.state.prepare("SELECT from_addr AS a FROM sent WHERE thread_id = ? UNION SELECT to_addr AS a FROM inbox WHERE thread_id = ?").all(o.thread_id, o.thread_id) as { a: string }[]).map((r) => r.a)
+        : [];
+      const org = (address: string): string => address.split("/")[2] ?? "";
+      if (ADDRESS_RE.test(o.to)) agent = speakers.find((s) => inThread.includes(s.address)) ?? speakers.find((s) => org(s.address) === org(o.to)) ?? speakers[0]!;
+      else {
+        const pool = speakers.filter((s) => inThread.includes(s.address));
+        const route = await this.resolveRoute((pool.length ? pool : speakers).map((s) => s.address), o.to);
+        agent = this.agent(route.from)!;
+        o = { ...o, to: route.to };
+      }
+    }
 
     let threadId = o.thread_id;
     let inReplyTo = o.in_reply_to ?? null;
@@ -525,7 +695,8 @@ export class Daemon {
     const row = this.state.prepare("SELECT envelope, attempts FROM outbox WHERE id = ?").get(id) as { envelope: string; attempts: number } | undefined;
     if (!row) return;
     try {
-      const r = await submitEnvelope(this.config.server, JSON.parse(row.envelope));
+      const envelope = JSON.parse(row.envelope) as Envelope;
+      const r = await submitEnvelope(this.serverFor(envelope.from), envelope);
       if (r.status === 200 || r.status === 202) {
         this.state.prepare("DELETE FROM outbox WHERE id = ?").run(id);
         this.state.prepare("UPDATE sent SET state = ?, reason_code = ?, updated_at = ? WHERE id = ? AND state = 'pending'").run(String(r.body.state), (r.body.reason_code as string | null) ?? null, iso(), id);
@@ -643,28 +814,43 @@ export class Daemon {
     return r;
   }
 
-  async nextInbox(agent: string, waitMs: number): Promise<InboundMessage | null> {
-    const row = this.state.prepare("SELECT delivery FROM inbox WHERE to_addr = ? AND handled = 0 ORDER BY received_at LIMIT 1").get(agent) as { delivery: string } | undefined;
+  /** The next unread message for any of these agents (one app's agents across its workspaces). */
+  async nextInbox(agents: string[], waitMs: number): Promise<InboundMessage | null> {
+    const marks = agents.map(() => "?").join(",");
+    const row = agents.length
+      ? (this.state.prepare(`SELECT delivery FROM inbox WHERE to_addr IN (${marks}) AND handled = 0 ORDER BY received_at LIMIT 1`).get(...agents) as { delivery: string } | undefined)
+      : undefined;
     if (row) {
       const m = JSON.parse(row.delivery) as InboundMessage;
       this.markHandled(m.id);
       return m;
     }
-    if (waitMs <= 0) return null;
+    if (waitMs <= 0 || !agents.length) return null;
     return new Promise((resolve) => {
-      const q = this.inboxWaiters.get(agent) ?? [];
+      // One waiter listens on every address; whichever fires first removes it from all of them.
+      const remove = (): void => {
+        for (const a of agents) this.inboxWaiters.set(a, (this.inboxWaiters.get(a) ?? []).filter((w) => w !== waiter));
+      };
       const waiter = (m: InboundMessage): void => {
         clearTimeout(timer);
+        remove();
         resolve(m);
       };
-      q.push(waiter);
-      this.inboxWaiters.set(agent, q);
+      for (const a of agents) this.inboxWaiters.set(a, [...(this.inboxWaiters.get(a) ?? []), waiter]);
       const timer = setTimeout(() => {
-        const list = this.inboxWaiters.get(agent) ?? [];
-        this.inboxWaiters.set(agent, list.filter((w) => w !== waiter));
+        remove();
         resolve(null);
       }, waitMs);
     });
+  }
+
+  /** Notes from relays (a session was deleted, you were removed) not yet shown to these agents' app. */
+  takeNotices(agents: string[]): { address: string; kind: string; text: string; created_at: string }[] {
+    if (!agents.length) return [];
+    const marks = agents.map(() => "?").join(",");
+    const rows = this.state.prepare(`SELECT id, address, kind, text, created_at FROM notices WHERE seen = 0 AND address IN (${marks}) ORDER BY id`).all(...agents) as { id: number; address: string; kind: string; text: string; created_at: string }[];
+    for (const r of rows) this.state.prepare("UPDATE notices SET seen = 1 WHERE id = ?").run(r.id);
+    return rows.map(({ id: _id, ...r }) => r);
   }
 
   info(): Record<string, unknown> {
@@ -673,14 +859,20 @@ export class Daemon {
       name: this.config.name,
       server: this.config.server,
       connected: this.connected,
-      agents: this.config.agents.map((a) => ({
-        address: a.address,
-        runtime: a.runtime,
-        online: this.accepted.includes(a.address),
-        rejected: this.rejected.find((r) => r.address === a.address)?.reason ?? null,
-        running: this.running.get(a.address) ?? 0,
-        queued: this.backlog.get(a.address)?.length ?? 0,
-      })),
+      relays: [...this.links.values()].map((l) => ({ server: l.server, connected: l.connected })),
+      agents: this.config.agents.map((a) => {
+        const link = this.links.get(serverOf(this.config, a));
+        return {
+          address: a.address,
+          tool: a.tool ?? null,
+          server: serverOf(this.config, a),
+          runtime: a.runtime,
+          online: this.isAccepted(a.address),
+          rejected: link?.rejected.find((r) => r.address === a.address)?.reason ?? null,
+          running: this.running.get(a.address) ?? 0,
+          queued: this.backlog.get(a.address)?.length ?? 0,
+        };
+      }),
       outbox_pending: outbox,
     };
   }
@@ -750,7 +942,10 @@ export class Daemon {
         body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
       }
       const q = url.searchParams;
-      const agentParam = (v: unknown): string => pickAgent(this.config, typeof v === "string" && v ? v : undefined).address;
+      const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+      const agentParam = (v: unknown): string => pickAgent(this.config, str(v)).address;
+      /** Which agents a request speaks for: one named agent, or every agent of the calling app. */
+      const mine = (agent: unknown, tool: unknown): string[] => (str(agent) ? [agentParam(agent)] : this.speakers(str(tool)).map((a) => a.address));
       const waitMs = (v: unknown, dflt: number): number => Math.min(Math.max(Number(v ?? dflt) || 0, 0), 3600) * 1000;
 
       switch (`${req.method} ${url.pathname}`) {
@@ -760,29 +955,35 @@ export class Daemon {
           if (!this.onStopRequest) return reply(409, { error: "this client cannot be stopped remotely" });
           setTimeout(() => this.onStopRequest?.(), 50);
           return reply(200, { ok: true });
+        case "POST /reload":
+          await this.reload();
+          return reply(200, this.info());
         case "POST /send":
           return reply(200, await this.send(body as unknown as SendOptions, waitMs(body.wait_seconds, 0)));
         case "POST /reply": {
           if (typeof body.text !== "string") throw new ClientError(400, "text is required");
           if (typeof body.run_id === "string" && body.run_id) return reply(200, await this.replyFromRun(body.run_id, body.text, Boolean(body.expects_reply)));
-          const from = agentParam(body.from);
-          let inReplyTo = typeof body.in_reply_to === "string" ? body.in_reply_to : undefined;
-          if (!inReplyTo && typeof body.thread_id === "string") {
-            const last = this.state.prepare("SELECT id FROM inbox WHERE thread_id = ? AND to_addr = ? ORDER BY received_at DESC LIMIT 1").get(body.thread_id, from) as { id: string } | undefined;
+          const ours = mine(body.from, body.tool);
+          let inReplyTo = str(body.in_reply_to);
+          if (!inReplyTo && typeof body.thread_id === "string" && ours.length) {
+            const last = this.state
+              .prepare(`SELECT id FROM inbox WHERE thread_id = ? AND to_addr IN (${ours.map(() => "?").join(",")}) ORDER BY received_at DESC LIMIT 1`)
+              .get(body.thread_id, ...ours) as { id: string } | undefined;
             inReplyTo = last?.id;
           }
           if (!inReplyTo) throw new ClientError(400, "nothing to reply to: pass in_reply_to or a thread with a received message");
-          const parent = this.state.prepare("SELECT from_addr FROM inbox WHERE id = ?").get(inReplyTo) as { from_addr: string } | undefined;
+          const parent = this.state.prepare("SELECT from_addr, to_addr FROM inbox WHERE id = ?").get(inReplyTo) as { from_addr: string; to_addr: string } | undefined;
           if (!parent) throw new ClientError(404, `no received message ${inReplyTo}`);
-          return reply(200, await this.send({ from, to: parent.from_addr, text: body.text, in_reply_to: inReplyTo, kind: "reply", expects_reply: Boolean(body.expects_reply) }));
+          // Answer as the agent the message was sent to.
+          return reply(200, await this.send({ from: parent.to_addr, to: parent.from_addr, text: body.text, in_reply_to: inReplyTo, kind: "reply", expects_reply: Boolean(body.expects_reply) }));
         }
         case "GET /status": {
           const id = q.get("id") ?? "";
           const local = this.state.prepare("SELECT * FROM sent WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-          const from = (local?.from_addr as string | undefined) ?? agentParam(q.get("agent"));
+          const from = (local?.from_addr as string | undefined) ?? mine(q.get("agent"), q.get("tool"))[0];
           let remote: Record<string, unknown> | null = null;
           try {
-            remote = await signedGet(this.config.server, from, this.keys.get(from)!, `/v1/messages/${encodeURIComponent(id)}`);
+            if (from) remote = await signedGet(this.serverFor(from), from, this.keys.get(from)!, `/v1/messages/${encodeURIComponent(id)}`);
           } catch {
             /* offline or unknown */
           }
@@ -790,20 +991,33 @@ export class Daemon {
           return reply(200, { local: local ?? null, relay: remote });
         }
         case "GET /thread": {
-          const agent = agentParam(q.get("agent"));
-          return reply(200, await signedGet(this.config.server, agent, this.keys.get(agent)!, `/v1/threads/${encodeURIComponent(q.get("id") ?? "")}`));
+          const id = q.get("id") ?? "";
+          // Read it as whichever of our agents took part.
+          const local = this.state.prepare("SELECT from_addr AS a FROM sent WHERE thread_id = ? UNION SELECT to_addr AS a FROM inbox WHERE thread_id = ?").all(id, id) as { a: string }[];
+          const ours = mine(q.get("agent"), q.get("tool"));
+          const agent = ours.find((a) => local.some((r) => r.a === a)) ?? local.find((r) => this.agent(r.a))?.a ?? ours[0];
+          if (!agent) throw new ClientError(404, `unknown thread ${id}`);
+          return reply(200, await signedGet(this.serverFor(agent), agent, this.keys.get(agent)!, `/v1/threads/${encodeURIComponent(id)}`));
         }
         case "GET /directory":
-          return reply(200, { agents: await this.directory(agentParam(q.get("agent"))) });
+          if (q.get("agent")) return reply(200, { agents: await this.directory(agentParam(q.get("agent"))) });
+          return reply(200, { agents: await this.reachable(str(q.get("tool"))) });
+        case "GET /sessions":
+          return reply(200, { sessions: await this.sessions(str(q.get("tool"))) });
+        case "POST /sessions/brief":
+          if (typeof body.session_id !== "string" || typeof body.text !== "string") throw new ClientError(400, "session_id and text are required");
+          await this.setBrief(str(body.tool), body.session_id, body.text);
+          return reply(200, { ok: true });
         case "GET /inbox": {
-          const agent = q.get("agent") ? agentParam(q.get("agent")) : null;
-          const rows = this.state
-            .prepare(`SELECT id, thread_id, from_addr AS "from", to_addr AS "to", kind, text, redacted, handled, received_at FROM inbox ${agent ? "WHERE to_addr = ?" : ""} ORDER BY received_at DESC LIMIT 50`)
-            .all(...(agent ? [agent] : []));
+          const ours = q.get("agent") || q.get("tool") ? mine(q.get("agent"), q.get("tool")) : null;
+          const where = ours ? `WHERE to_addr IN (${ours.map(() => "?").join(",") || "''"})` : "";
+          const rows = this.state.prepare(`SELECT id, thread_id, from_addr AS "from", to_addr AS "to", kind, text, redacted, handled, received_at FROM inbox ${where} ORDER BY received_at DESC LIMIT 50`).all(...(ours ?? []));
           return reply(200, { messages: rows });
         }
         case "POST /inbox/next":
-          return reply(200, { message: await this.nextInbox(agentParam(body.agent), waitMs(body.wait_seconds, 0)) });
+          return reply(200, { message: await this.nextInbox(mine(body.agent, body.tool), waitMs(body.wait_seconds, 0)), notices: this.takeNotices(mine(body.agent, body.tool)) });
+        case "POST /notices":
+          return reply(200, { notices: this.takeNotices(mine(body.agent, body.tool)) });
         case "GET /runs":
           return reply(200, { runs: this.state.prepare("SELECT id, agent, thread_id, message_id, runtime, status, started_at, ended_at, replied, error, cost_usd FROM runs ORDER BY started_at DESC LIMIT 30").all() });
         default:

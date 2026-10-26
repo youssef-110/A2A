@@ -76,7 +76,23 @@ export interface Outbound {
   isOnline(address: string): boolean;
   disconnect(address: string): void;
   onlineAgents(): string[];
+  /** A one-off note to a connected agent's client, e.g. that a session it was in was deleted. */
+  notice?(address: string, notice: Record<string, unknown>): void;
 }
+
+/** The website account behind a request. Only the hosted Worker sets it, after checking the person's sign-in. */
+export interface Account {
+  id: string;
+  email?: string | null;
+  name?: string | null;
+  /** "owner" when the account owns this workspace: its agents become the owner's agents. */
+  role?: "owner" | "member";
+}
+
+export const MAX_SESSION_MEMBERS = 50;
+const DEFAULT_SESSION_MEMBERS = 10;
+const BRIEF_MAX = 8000;
+const clampMembers = (v: unknown): number => Math.min(Math.max(Math.floor(Number(v ?? DEFAULT_SESSION_MEMBERS)) || DEFAULT_SESSION_MEMBERS, 2), MAX_SESSION_MEMBERS);
 
 const nullOutbound: Outbound = {
   deliver: () => 0,
@@ -87,7 +103,7 @@ const nullOutbound: Outbound = {
 };
 
 export interface RelayEvent {
-  type: "message" | "agent" | "policy" | "audit" | "console";
+  type: "message" | "agent" | "policy" | "audit" | "console" | "session";
   data: unknown;
 }
 
@@ -104,6 +120,8 @@ export interface RelayOptions {
   createJudges?: (mode: JudgeMode) => JudgeSet | null;
   log?: (msg: string) => void;
   concurrency?: number;
+  /** Session invites only work for a signed-in account (the hosted relay). */
+  requireAccount?: boolean;
 }
 
 interface SubmitResult {
@@ -139,6 +157,7 @@ export class Relay extends EventEmitter {
   private readonly makeJudges: (mode: JudgeMode) => JudgeSet | null;
   private readonly log: (msg: string) => void;
   private readonly concurrency: number;
+  private readonly requireAccount: boolean;
   private readonly queue: string[] = [];
   private active = 0;
   private sweepTimer?: NodeJS.Timeout;
@@ -154,6 +173,7 @@ export class Relay extends EventEmitter {
     this.makeJudges = opts.createJudges ?? portableJudges;
     this.log = opts.log ?? (() => {});
     this.concurrency = opts.concurrency ?? 4;
+    this.requireAccount = opts.requireAccount ?? false;
     this.loadPolicy(opts.initialPolicy);
   }
 
@@ -296,7 +316,7 @@ export class Relay extends EventEmitter {
     const rows = this.db
       .prepare(`SELECT i.*, t.session_id, COALESCE(t.owner, 0) AS owner FROM invites i LEFT JOIN invite_targets t ON t.code = i.code ${sessionId ? "WHERE t.session_id = ?" : ""} ORDER BY i.created_at DESC LIMIT 100`)
       .all(...(sessionId ? [sessionId] : [])) as (InviteRow & { session_id: string | null; owner: number })[];
-    return rows.map((r) => ({ ...r, owner: !!r.owner, valid: this.inviteUsable(r) }));
+    return rows.map((r) => ({ ...r, owner: !!r.owner, valid: this.inviteUsable(r, r.session_id) }));
   }
 
   // ---------------------------------------------------------------- sessions
@@ -329,72 +349,252 @@ export class Relay extends EventEmitter {
     return this.shareSession(a, b);
   }
 
-  createSession(input: { name?: unknown }, actor: string): { id: string; name: string } {
+  createSession(input: { name?: unknown; max_members?: unknown; brief?: unknown }, actor: string): { id: string; name: string; max_members: number } {
     const name = typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 80) : "New session";
     const id = `ses_${randomBytes(9).toString("base64url")}`;
-    this.db.prepare("INSERT INTO sessions (id, name, created_by, created_at) VALUES (?, ?, ?, ?)").run(id, name, actor, iso());
-    this.audit(actor, "session.create", id, { name });
-    return { id, name };
+    const max = clampMembers(input.max_members);
+    const brief = typeof input.brief === "string" && input.brief.trim() ? input.brief.trim().slice(0, BRIEF_MAX) : null;
+    const now = iso();
+    tx(this.db, () => {
+      this.db.prepare("INSERT INTO sessions (id, name, created_by, created_at) VALUES (?, ?, ?, ?)").run(id, name, actor, now);
+      this.db.prepare("INSERT INTO session_settings (session_id, max_members, brief, brief_updated_by, brief_updated_at) VALUES (?, ?, ?, ?, ?)").run(id, max, brief, brief ? actor : null, brief ? now : null);
+    });
+    this.audit(actor, "session.create", id, { name, max_members: max });
+    return { id, name, max_members: max };
+  }
+
+  /** Changes a session's name, size or brief. */
+  updateSession(id: string, input: { name?: unknown; max_members?: unknown; brief?: unknown }, actor: string): boolean {
+    const s = this.getSession(id);
+    if (!s || s.archived) return false;
+    this.ensureSettings(id);
+    const changed: Record<string, unknown> = {};
+    if (typeof input.name === "string" && input.name.trim()) {
+      changed.name = input.name.trim().slice(0, 80);
+      this.db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(changed.name as string, id);
+    }
+    if (input.max_members !== undefined) {
+      changed.max_members = clampMembers(input.max_members);
+      this.db.prepare("UPDATE session_settings SET max_members = ? WHERE session_id = ?").run(changed.max_members as number, id);
+      // Session links let in as many people as the session has room for.
+      this.db.prepare("UPDATE invites SET max_uses = ? WHERE code IN (SELECT code FROM invite_targets WHERE session_id = ?) AND revoked = 0").run(changed.max_members as number, id);
+    }
+    if (typeof input.brief === "string") this.setBrief(id, input.brief, actor);
+    if (Object.keys(changed).length) {
+      this.audit(actor, "session.update", id, changed);
+      this.emitEvent("session", { id });
+    }
+    return true;
+  }
+
+  private ensureSettings(id: string): void {
+    this.db.prepare("INSERT OR IGNORE INTO session_settings (session_id, max_members) VALUES (?, ?)").run(id, DEFAULT_SESSION_MEMBERS);
+  }
+
+  private settings(id: string): { max_members: number; brief: string | null; brief_updated_by: string | null; brief_updated_at: string | null } {
+    return (
+      (this.db.prepare("SELECT max_members, brief, brief_updated_by, brief_updated_at FROM session_settings WHERE session_id = ?").get(id) as never) ?? {
+        max_members: DEFAULT_SESSION_MEMBERS,
+        brief: null,
+        brief_updated_by: null,
+        brief_updated_at: null,
+      }
+    );
+  }
+
+  /** The shared brief: what the session is about, who does what, decisions so far. Every member's agent reads it. */
+  setBrief(id: string, text: string, actor: string): boolean {
+    const s = this.getSession(id);
+    if (!s || s.archived) return false;
+    this.ensureSettings(id);
+    const brief = text.trim().slice(0, BRIEF_MAX) || null;
+    this.db.prepare("UPDATE session_settings SET brief = ?, brief_updated_by = ?, brief_updated_at = ? WHERE session_id = ?").run(brief, actor, iso(), id);
+    this.audit(actor, "session.brief", id, { chars: brief?.length ?? 0 });
+    this.emitEvent("session", { id });
+    return true;
+  }
+
+  accountOf(address: string): { account_id: string; email: string | null; name: string | null } | undefined {
+    return this.db.prepare("SELECT account_id, email, name FROM agent_accounts WHERE address = ?").get(address) as never;
+  }
+
+  /** People in a session: agents of the same account count once. */
+  private peopleIn(id: string): Set<string> {
+    const rows = this.db
+      .prepare("SELECT COALESCE(a.account_id, m.address) AS who FROM session_members m LEFT JOIN agent_accounts a ON a.address = m.address WHERE m.session_id = ?")
+      .all(id) as { who: string }[];
+    return new Set(rows.map((r) => r.who));
   }
 
   private sessionMembers(id: string): string[] {
-    const guests = (this.db.prepare("SELECT address FROM session_members WHERE session_id = ? ORDER BY joined_at").all(id) as { address: string }[]).map((r) => r.address);
+    const guests = this.guestsOf(id);
     const owners = (this.db.prepare("SELECT address FROM owner_agents ORDER BY added_at").all() as { address: string }[]).map((r) => r.address);
     return [...new Set([this.consoleAddress, ...owners, ...guests])];
   }
 
-  listSessions(): Record<string, unknown>[] {
-    const rows = this.db.prepare("SELECT * FROM sessions WHERE archived = 0 ORDER BY created_at DESC").all() as { id: string; name: string; created_at: string }[];
+  private guestsOf(id: string): string[] {
+    return (this.db.prepare("SELECT address FROM session_members WHERE session_id = ? ORDER BY joined_at").all(id) as { address: string }[]).map((r) => r.address);
+  }
+
+  private memberView(a: string, guests: string[]): Record<string, unknown> {
+    const acct = this.accountOf(a);
+    return {
+      address: a,
+      display_name: this.getAgent(a)?.display_name ?? null,
+      person: acct?.name ?? null,
+      email: acct?.email ?? null,
+      account_id: acct?.account_id ?? null,
+      online: this.isOnline(a),
+      role: guests.includes(a) ? "guest" : "owner",
+    };
+  }
+
+  /**
+   * Messages between this session's members that involve at least one guest. Someone in two of the
+   * owner's sessions shows up in both, so this is the owner's view; guests get viewerMessages instead.
+   */
+  private sessionMessages(id: string, limit: number): MessageRow[] {
+    const guests = this.guestsOf(id);
+    const members = this.sessionMembers(id);
+    const marks = members.map(() => "?").join(",");
+    const gm = guests.map(() => "?").join(",") || "''";
+    return this.db
+      .prepare(`SELECT * FROM messages WHERE from_addr IN (${marks}) AND to_addr IN (${marks}) AND (from_addr IN (${gm}) OR to_addr IN (${gm})) ORDER BY received_at DESC LIMIT ${Math.floor(limit)}`)
+      .all(...members, ...members, ...guests, ...guests) as unknown as MessageRow[];
+  }
+
+  accountInSession(account: string, id: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM session_members m JOIN agent_accounts a ON a.address = m.address WHERE m.session_id = ? AND a.account_id = ? LIMIT 1").get(id, account);
+  }
+
+  /** Every session, or (for a guest's "shared with me" view) only those the account is in. */
+  listSessions(filter?: { account?: string }): Record<string, unknown>[] {
+    let rows = this.db.prepare("SELECT * FROM sessions WHERE archived = 0 ORDER BY created_at DESC").all() as { id: string; name: string; created_at: string }[];
+    if (filter?.account) rows = rows.filter((s) => this.accountInSession(filter.account!, s.id));
     return rows.map((s) => {
-      const guests = (this.db.prepare("SELECT address FROM session_members WHERE session_id = ?").all(s.id) as { address: string }[]).map((r) => r.address);
-      const members = this.sessionMembers(s.id);
-      const marks = members.map(() => "?").join(",");
-      const last = this.db.prepare(`SELECT received_at, preview FROM messages WHERE from_addr IN (${marks}) AND to_addr IN (${marks}) AND (from_addr IN (${guests.map(() => "?").join(",") || "''"}) OR to_addr IN (${guests.map(() => "?").join(",") || "''"})) ORDER BY received_at DESC LIMIT 1`).get(...members, ...members, ...guests, ...guests) as { received_at: string; preview: string } | undefined;
+      const guests = this.guestsOf(s.id);
+      const last = (filter?.account ? this.viewerMessages(s.id, filter.account) : this.sessionMessages(s.id, 1))[0];
+      const st = this.settings(s.id);
       return {
         id: s.id,
         name: s.name,
         created_at: s.created_at,
-        guests: guests.map((a) => ({ address: a, display_name: this.getAgent(a)?.display_name ?? null, online: this.isOnline(a) })),
+        max_members: st.max_members,
+        people: this.peopleIn(s.id).size,
+        guests: guests.map((a) => this.memberView(a, guests)),
         last_message_at: last?.received_at ?? null,
         last_preview: last?.preview ?? null,
       };
     });
   }
 
-  sessionDetail(id: string): Record<string, unknown> | null {
+  /** viewer: a guest's account. Guests see only conversations their own agents took part in. */
+  sessionDetail(id: string, viewer?: string): Record<string, unknown> | null {
     const s = this.getSession(id);
     if (!s || s.archived) return null;
-    const guests = (this.db.prepare("SELECT address FROM session_members WHERE session_id = ?").all(id) as { address: string }[]).map((r) => r.address);
-    const members = this.sessionMembers(id);
-    const marks = members.map(() => "?").join(",");
-    const gm = guests.map(() => "?").join(",") || "''";
-    // Only conversations that involve this session's guests: other sessions stay out of view.
-    const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE from_addr IN (${marks}) AND to_addr IN (${marks}) AND (from_addr IN (${gm}) OR to_addr IN (${gm})) ORDER BY received_at DESC LIMIT 200`)
-      .all(...members, ...members, ...guests, ...guests) as unknown as MessageRow[];
+    const guests = this.guestsOf(id);
+    const st = this.settings(id);
     return {
       id: s.id,
       name: s.name,
       created_at: s.created_at,
-      members: members.map((a) => ({ address: a, display_name: this.getAgent(a)?.display_name ?? null, online: this.isOnline(a), role: guests.includes(a) ? "guest" : "owner" })),
+      max_members: st.max_members,
+      people: this.peopleIn(id).size,
+      brief: st.brief,
+      brief_updated_by: st.brief_updated_by,
+      brief_updated_at: st.brief_updated_at,
+      members: this.sessionMembers(id).map((a) => this.memberView(a, guests)),
       invites: this.listInvites(id),
-      messages: rows.reverse().map((r) => ({ ...this.summary(r), text: r.delivered_text })),
+      messages: (viewer ? this.viewerMessages(id, viewer) : this.sessionMessages(id, 300)).reverse().map((r) => ({ ...this.summary(r), text: r.delivered_text })),
     };
   }
 
-  archiveSession(id: string, actor: string): boolean {
-    const r = this.db.prepare("UPDATE sessions SET archived = 1 WHERE id = ? AND archived = 0").run(id);
-    if (Number(r.changes)) {
+  private viewerMessages(id: string, account: string): MessageRow[] {
+    const mine = (this.db.prepare("SELECT address FROM agent_accounts WHERE account_id = ?").all(account) as { address: string }[]).map((r) => r.address);
+    const members = new Set(this.sessionMembers(id));
+    if (!mine.length) return [];
+    const marks = mine.map(() => "?").join(",");
+    return (this.db.prepare(`SELECT * FROM messages WHERE from_addr IN (${marks}) OR to_addr IN (${marks}) ORDER BY received_at DESC LIMIT 300`).all(...mine, ...mine) as unknown as MessageRow[]).filter(
+      (r) => members.has(r.from_addr) && members.has(r.to_addr),
+    );
+  }
+
+  /**
+   * Deletes a session for everyone: its links stop working, its guests lose access to its people,
+   * and connected guests are told. Messages stay in the activity log and audit trail.
+   */
+  deleteSession(id: string, actor: string): boolean {
+    const s = this.getSession(id);
+    if (!s || s.archived) return false;
+    const guests = this.guestsOf(id);
+    tx(this.db, () => {
       this.db.prepare("UPDATE invites SET revoked = 1 WHERE code IN (SELECT code FROM invite_targets WHERE session_id = ?)").run(id);
-      this.audit(actor, "session.archive", id);
-    }
-    return Number(r.changes) > 0;
+      this.db.prepare("DELETE FROM session_members WHERE session_id = ?").run(id);
+      this.db.prepare("DELETE FROM session_settings WHERE session_id = ?").run(id);
+      this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+    });
+    this.audit(actor, "session.delete", id, { name: s.name, guests: guests.length });
+    for (const a of guests) this.out.notice?.(a, { kind: "session_deleted", session: { id, name: s.name } });
+    this.emitEvent("session", { id, deleted: true });
+    return true;
   }
 
   removeSessionMember(id: string, address: string, actor: string): boolean {
-    const r = this.db.prepare("DELETE FROM session_members WHERE session_id = ? AND address = ?").run(id, address);
-    if (Number(r.changes)) this.audit(actor, "session.remove_member", id, { address });
-    return Number(r.changes) > 0;
+    // Removing a person removes every agent of theirs from the session.
+    const acct = this.accountOf(address);
+    const addresses = acct
+      ? (this.db.prepare("SELECT m.address FROM session_members m JOIN agent_accounts a ON a.address = m.address WHERE m.session_id = ? AND a.account_id = ?").all(id, acct.account_id) as { address: string }[]).map((r) => r.address)
+      : [address];
+    let n = 0;
+    for (const a of addresses) n += Number(this.db.prepare("DELETE FROM session_members WHERE session_id = ? AND address = ?").run(id, a).changes);
+    if (n) {
+      this.audit(actor, "session.remove_member", id, { address, agents: n });
+      const name = this.getSession(id)?.name ?? null;
+      for (const a of addresses) this.out.notice?.(a, { kind: "session_removed", session: { id, name } });
+      this.emitEvent("session", { id });
+    }
+    return n > 0;
+  }
+
+  /** A person leaves (or is removed from) a session with all of their agents. */
+  removeAccountFromSession(id: string, accountId: string, actor: string): boolean {
+    const one = this.db.prepare("SELECT m.address FROM session_members m JOIN agent_accounts a ON a.address = m.address WHERE m.session_id = ? AND a.account_id = ? LIMIT 1").get(id, accountId) as { address: string } | undefined;
+    return !!one && this.removeSessionMember(id, one.address, actor);
+  }
+
+  // ---------------------------------------------------------------- agent-facing sessions
+
+  /** The sessions an agent is in, with the brief and the people in each. Owner agents see every session. */
+  sessionsFor(address: string): Record<string, unknown>[] {
+    const rows = (
+      this.isOwnerAgent(address)
+        ? this.db.prepare("SELECT * FROM sessions WHERE archived = 0 ORDER BY created_at DESC").all()
+        : this.db.prepare("SELECT s.* FROM sessions s JOIN session_members m ON m.session_id = s.id WHERE m.address = ? AND s.archived = 0 ORDER BY s.created_at DESC").all(address)
+    ) as { id: string; name: string }[];
+    return rows.map((s) => {
+      const guests = this.guestsOf(s.id);
+      const st = this.settings(s.id);
+      return {
+        id: s.id,
+        name: s.name,
+        brief: st.brief,
+        brief_updated_at: st.brief_updated_at,
+        max_members: st.max_members,
+        // Emails are for the owner's dashboard, not for every agent in the session.
+        members: this.sessionMembers(s.id)
+          .filter((a) => a !== this.consoleAddress && a !== address)
+          .map((a) => {
+            const { email: _e, account_id: _i, ...v } = this.memberView(a, guests);
+            return v;
+          }),
+      };
+    });
+  }
+
+  /** Members may rewrite the brief of a session they are in. */
+  agentSetBrief(address: string, id: string, text: string): boolean {
+    if (!this.sessionsFor(address).some((s) => s.id === id)) return false;
+    return this.setBrief(id, text, address);
   }
 
   revokeInvite(code: string, actor: string): boolean {
@@ -403,15 +603,26 @@ export class Relay extends EventEmitter {
     return Number(r.changes) > 0;
   }
 
-  private inviteUsable(r: InviteRow | undefined): boolean {
-    return !!r && !r.revoked && r.uses < r.max_uses && Date.parse(r.expires_at) > Date.now();
+  /** Session links are limited by the session's size rather than a use count, so a place frees up when someone leaves. */
+  private inviteUsable(r: InviteRow | undefined, sessionId?: string | null): boolean {
+    return !!r && !r.revoked && (!!sessionId || r.uses < r.max_uses) && Date.parse(r.expires_at) > Date.now();
   }
 
   /** Public view of an invite, for the join page. Says nothing about other invites or agents. */
   inviteInfo(code: string): Record<string, unknown> {
     const r = this.db.prepare("SELECT * FROM invites WHERE code = ?").get(code) as InviteRow | undefined;
-    const target = r ? (this.db.prepare("SELECT t.owner, s.name FROM invite_targets t LEFT JOIN sessions s ON s.id = t.session_id WHERE t.code = ?").get(code) as { owner: number; name: string | null } | undefined) : undefined;
-    return { valid: this.inviteUsable(r), org: this.policy.org, note: r?.note ?? null, expires_at: r?.expires_at ?? null, session: target?.name ?? null, owner: !!target?.owner };
+    const target = r ? (this.db.prepare("SELECT t.owner, t.session_id, s.name FROM invite_targets t LEFT JOIN sessions s ON s.id = t.session_id WHERE t.code = ?").get(code) as { owner: number; session_id: string | null; name: string | null } | undefined) : undefined;
+    const room = target?.session_id && target.name !== null ? { people: this.peopleIn(target.session_id).size, max_members: this.settings(target.session_id).max_members } : {};
+    return {
+      valid: this.inviteUsable(r, target?.session_id) && (!target?.session_id || target.name !== null),
+      org: this.policy.org,
+      note: r?.note ?? null,
+      expires_at: r?.expires_at ?? null,
+      session: target?.name ?? null,
+      owner: !!target?.owner,
+      sign_in_required: !!target?.session_id && this.requireAccount,
+      ...room,
+    };
   }
 
   setPolicy(yaml: string, actor: string, note?: string): { ok: boolean; version?: number; errors?: string[] } {
@@ -439,6 +650,7 @@ export class Relay extends EventEmitter {
   register(
     input: { address?: unknown; public_key?: unknown; display_name?: unknown; description?: unknown; host?: unknown; timestamp?: unknown; proof?: unknown; invite?: unknown },
     admin: boolean,
+    account?: Account,
   ): SubmitResult {
     const { address, public_key, timestamp, proof } = input;
     if (typeof address !== "string" || !ADDRESS_RE.test(address)) return { status: 400, body: { error: "invalid_address", detail: "address must look like agent://<org>/<name>" } };
@@ -450,11 +662,26 @@ export class Relay extends EventEmitter {
 
     // An invite or open registration activates the agent like the admin token would, but never replaces an existing key.
     let invite: InviteRow | undefined;
+    let target: { session_id: string | null; owner: number } | undefined;
     if (typeof input.invite === "string" && input.invite) {
       invite = this.db.prepare("SELECT * FROM invites WHERE code = ?").get(input.invite) as InviteRow | undefined;
-      if (!this.inviteUsable(invite)) return { status: 403, body: { error: "invalid_invite", detail: "this invite link is expired, used up or revoked" } };
+      target = invite ? (this.db.prepare("SELECT session_id, owner FROM invite_targets WHERE code = ?").get(invite.code) as typeof target) : undefined;
+      if (!this.inviteUsable(invite, target?.session_id)) return { status: 403, body: { error: "invalid_invite", detail: "this invite link is expired, used up or revoked" } };
     }
-    const activate = admin || !!invite || this.policy.registration === "open";
+    if (target?.session_id && this.requireAccount && !account) {
+      return { status: 401, body: { error: "sign_in_required", detail: "Sessions need a signed-in account. Run: npx -y <relay>/a2a.tgz connect <invite link>" } };
+    }
+    const bound = this.accountOf(address);
+    if (bound && account && bound.account_id !== account.id) return { status: 409, body: { error: "key_conflict", detail: "this agent name belongs to someone else; pick another name" } };
+    if (target?.session_id && !this.hasRoom(target.session_id, account?.id ?? address)) {
+      return { status: 403, body: { error: "session_full", detail: "this session is full; ask its owner to make room" } };
+    }
+
+    // A signed-in person needs no invite for what they already have: the workspace owner gets owner
+    // agents, and someone already in sessions here brings each new agent of theirs into the same sessions.
+    const ownerAccount = account?.role === "owner";
+    const accountSessions = account ? this.accountSessionIds(account.id) : [];
+    const activate = admin || !!invite || ownerAccount || accountSessions.length > 0 || this.policy.registration === "open";
 
     const str = (v: unknown, n: number): string | null => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
     const now = iso();
@@ -470,20 +697,53 @@ export class Relay extends EventEmitter {
       this.db
         .prepare("INSERT INTO agents (address, public_key, display_name, description, host, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
         .run(address, public_key, str(input.display_name, 80), str(input.description, 400), str(input.host, 120), activate ? "active" : "pending", now, now);
-      this.audit(admin ? "admin" : address, admin ? "agent.register" : invite ? "agent.join" : activate ? "agent.register_open" : "agent.request", address, invite ? { invite: invite.code.slice(0, 6) } : undefined);
+      this.audit(admin ? "admin" : address, admin ? "agent.register" : invite ? "agent.join" : activate ? "agent.register_open" : "agent.request", address, {
+        ...(invite ? { invite: invite.code.slice(0, 6) } : {}),
+        ...(account?.email ? { account: account.email } : {}),
+      });
+    }
+    const disabled = existing?.status === "disabled";
+    if (account && !disabled) {
+      this.db
+        .prepare("INSERT INTO agent_accounts (address, account_id, email, name) VALUES (?, ?, ?, ?) ON CONFLICT (address) DO UPDATE SET email = excluded.email, name = excluded.name")
+        .run(address, account.id, str(account.email, 200), str(account.name, 80));
+      if (ownerAccount) this.db.prepare("INSERT OR IGNORE INTO owner_agents (address, added_at) VALUES (?, ?)").run(address, now);
+      for (const sid of accountSessions) this.db.prepare("INSERT OR IGNORE INTO session_members (session_id, address, joined_at) VALUES (?, ?, ?)").run(sid, address, now);
     }
     if (invite) {
       // What the invite was for: one session, or the owner's own agents. Whatever it grants costs a use,
       // so an agent that is already registered can't replay a link to collect memberships for free.
-      const target = this.db.prepare("SELECT session_id, owner FROM invite_targets WHERE code = ?").get(invite.code) as { session_id: string | null; owner: number } | undefined;
-      const grants = !!target && existing?.status !== "disabled";
-      if (grants || !existing || existing.status === "pending") this.db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(invite.code);
+      // A person already in the session doesn't use up a place again with another agent.
+      const grants = !!target && !disabled;
+      const alreadyIn = !!target?.session_id && !!account && this.accountInSession(account.id, target.session_id);
+      if (!alreadyIn && (grants || !existing || existing.status === "pending")) this.db.prepare("UPDATE invites SET uses = uses + 1 WHERE code = ?").run(invite.code);
       if (grants && target!.owner) this.db.prepare("INSERT OR IGNORE INTO owner_agents (address, added_at) VALUES (?, ?)").run(address, now);
-      if (grants && target!.session_id) this.db.prepare("INSERT OR IGNORE INTO session_members (session_id, address, joined_at) VALUES (?, ?, ?)").run(target!.session_id, address, now);
+      if (grants && target!.session_id) {
+        // Every agent the person already has here joins with them.
+        const theirs = account ? (this.db.prepare("SELECT address FROM agent_accounts WHERE account_id = ?").all(account.id) as { address: string }[]).map((r) => r.address) : [address];
+        for (const a of new Set([address, ...theirs])) this.db.prepare("INSERT OR IGNORE INTO session_members (session_id, address, joined_at) VALUES (?, ?, ?)").run(target!.session_id, a, now);
+        this.emitEvent("session", { id: target!.session_id });
+      }
     }
     const agent = this.getAgent(address)!;
     this.emitEvent("agent", this.agentView(agent));
-    return { status: existing ? 200 : 201, body: { address, status: agent.status, relay_public_key: this.relayPublicKey } };
+    const sessions = agent.status === "active" ? this.sessionsFor(address).map((s) => ({ id: s.id, name: s.name })) : [];
+    return { status: existing ? 200 : 201, body: { address, status: agent.status, relay_public_key: this.relayPublicKey, sessions } };
+  }
+
+  /** Sessions any agent of this account is in. */
+  private accountSessionIds(accountId: string): string[] {
+    return (
+      this.db
+        .prepare("SELECT DISTINCT m.session_id FROM session_members m JOIN agent_accounts a ON a.address = m.address JOIN sessions s ON s.id = m.session_id WHERE a.account_id = ? AND s.archived = 0")
+        .all(accountId) as { session_id: string }[]
+    ).map((r) => r.session_id);
+  }
+
+  /** Whether a person (account id, or the address for agents without one) fits in a session. */
+  private hasRoom(sessionId: string, who: string): boolean {
+    const people = this.peopleIn(sessionId);
+    return people.has(who) || people.size < this.settings(sessionId).max_members;
   }
 
   setAgentStatus(address: string, status: "active" | "disabled", actor: string): boolean {
@@ -497,6 +757,7 @@ export class Relay extends EventEmitter {
 
   agentView(a: AgentRow): Record<string, unknown> {
     return {
+      account: this.accountOf(a.address) ?? null,
       address: a.address,
       display_name: a.display_name,
       description: a.description,
@@ -994,7 +1255,7 @@ export class Relay extends EventEmitter {
       .map((a) => {
         const links = this.policy.isolation === "sessions" ? (this.canTalk(address, a.address) ? [{ scopes: ["*"] }] : []) : linksBetween(this.policy, address, a.address);
         const scopes = [...new Set(links.flatMap((l) => (l.scopes.includes("*") ? Object.keys(this.policy.scopes) : l.scopes)))];
-        return { address: a.address, display_name: a.display_name, description: a.description, online: this.isOnline(a.address), scopes };
+        return { address: a.address, display_name: a.display_name, description: a.description, person: this.accountOf(a.address)?.name ?? null, online: this.isOnline(a.address), scopes };
       })
       .filter((a) => a.scopes.length > 0)
       .map((a) => ({ ...a, scopes: a.scopes.map((s) => ({ name: s, description: this.policy.scopes[s]?.description ?? "" })) }));
