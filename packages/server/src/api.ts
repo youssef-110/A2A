@@ -252,6 +252,11 @@ export function createApi(opts: ApiOptions): Api {
     if (!relay.setAgentStatus(decodeURIComponent(ctx.params[0]!), action === "disable" ? "disabled" : "active", "admin")) throw new HttpError(404, "not_found");
     return { ok: true };
   });
+  route("POST", "/v1/admin/accounts/:account/reset", async (ctx) => {
+    requireAdmin(ctx);
+    const { revoke_owner_invites } = await ctx.body();
+    return relay.resetAccount(decodeURIComponent(ctx.params[0]!), "admin", { revokeOwnerInvites: revoke_owner_invites === true });
+  });
   route("GET", "/v1/admin/policy", (ctx) => {
     requireAdmin(ctx);
     const versions = relay.db.prepare("SELECT version, created_by, created_at, note FROM policies ORDER BY version DESC LIMIT 50").all();

@@ -250,7 +250,7 @@ export async function googleStart(env: AccountsEnv, url: URL, next: string): Pro
   });
 }
 
-export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Promise<{ user: User; next: string } | { error: string }> {
+export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Promise<{ user: User; next: string; tookOver: boolean } | { error: string }> {
   const [state, verifier, nextB64] = (readCookie(req, "a2a_oauth") ?? "").split(".");
   if (!state || !verifier || url.searchParams.get("state") !== state) return { error: "The sign-in link expired. Try again." };
   const code = url.searchParams.get("code");
@@ -283,11 +283,14 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
     .bind(claims.sub, email)
     .first<User & { google_sub: string | null }>();
   let user: User;
+  let tookOver = false;
   if (existing) {
     user = { id: existing.id, email: existing.email, name: existing.name, avatar_url: existing.avatar_url };
     if (!existing.google_sub) {
       // A password account with this email, never verified. Google proves who owns the address, so the
-      // Google user takes it over: the old password and every session it opened stop working.
+      // Google user takes it over: the old password and every session it opened stop working. Whoever
+      // made it may still hold keys to agents it connected, so the caller also cuts those off (tookOver).
+      tookOver = true;
       await env.ACCOUNTS.batch([
         env.ACCOUNTS.prepare("UPDATE users SET password_hash = NULL WHERE id = ?").bind(user.id),
         env.ACCOUNTS.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(user.id),
@@ -311,7 +314,7 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
   } catch {
     /* default */
   }
-  return { user, next };
+  return { user, next, tookOver };
 }
 
 // ------------------------------------------------------------------ desktop app sign-in
