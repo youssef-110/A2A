@@ -14,8 +14,8 @@
     "eval": "node --disable-warning=ExperimentalWarning packages/guard/scripts/eval.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p packages/cloud/tsconfig.json --noEmit",
     "build:plugin": "node scripts/build-plugin.mjs",
-    "cloud:dev": "node scripts/build-plugin.mjs && cd packages/cloud && wrangler dev",
-    "cloud:deploy": "node scripts/build-plugin.mjs && cd packages/cloud && wrangler deploy"
+    "cloud:dev": "node scripts/build-plugin.mjs && cd packages/cloud && npx wrangler dev",
+    "cloud:deploy": "node scripts/build-plugin.mjs && cd packages/cloud && npx wrangler deploy"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
