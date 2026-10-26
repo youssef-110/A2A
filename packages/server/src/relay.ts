@@ -562,6 +562,22 @@ export class Relay extends EventEmitter {
     return !!one && this.removeSessionMember(id, one.address, actor);
   }
 
+  /**
+   * Cuts off everything an account set up here, for when the account changed hands (a Google sign-in taking
+   * over an unverified password account). Its agents are disabled, since whoever made them still holds their
+   * keys; the new owner can re-enable the ones they recognize. With revokeOwnerInvites, unused owner links go too.
+   */
+  resetAccount(accountId: string, actor: string, opts: { revokeOwnerInvites?: boolean } = {}): { disabled: string[]; revoked: number } {
+    const addresses = (this.db.prepare("SELECT address FROM agent_accounts WHERE account_id = ?").all(accountId) as { address: string }[]).map((r) => r.address);
+    const disabled = addresses.filter((a) => this.getAgent(a)?.status !== "disabled");
+    for (const a of disabled) this.setAgentStatus(a, "disabled", actor);
+    const revoked = opts.revokeOwnerInvites
+      ? Number(this.db.prepare("UPDATE invites SET revoked = 1 WHERE revoked = 0 AND code IN (SELECT code FROM invite_targets WHERE owner = 1)").run().changes)
+      : 0;
+    this.audit(actor, "account.reset", accountId, { disabled: disabled.length, revoked_owner_invites: revoked });
+    return { disabled, revoked };
+  }
+
   // ---------------------------------------------------------------- agent-facing sessions
 
   /** The sessions an agent is in, with the brief and the people in each. Owner agents see every session. */
@@ -656,7 +672,9 @@ export class Relay extends EventEmitter {
     if (typeof address !== "string" || !ADDRESS_RE.test(address)) return { status: 400, body: { error: "invalid_address", detail: "address must look like agent://<org>/<name>" } };
     if (orgOf(address) !== this.policy.org) return { status: 400, body: { error: "wrong_org", detail: `this relay serves agent://${this.policy.org}/*` } };
     if (typeof public_key !== "string" || typeof timestamp !== "string" || typeof proof !== "string") return { status: 400, body: { error: "invalid_request", detail: "public_key, timestamp and proof are required" } };
-    if (Math.abs(Date.now() - Date.parse(timestamp)) > FUTURE_SKEW_MS) return { status: 400, body: { error: "stale_timestamp" } };
+    // NaN compares false, so an unparseable timestamp has to be rejected on its own or the proof never expires.
+    const signedAt = Date.parse(timestamp);
+    if (Number.isNaN(signedAt) || Math.abs(Date.now() - signedAt) > FUTURE_SKEW_MS) return { status: 400, body: { error: "stale_timestamp" } };
     if (!verifyString(registerSigningString(address, public_key, timestamp), proof, public_key)) return { status: 401, body: { error: "bad_proof", detail: "proof must be signed with the key being registered" } };
     if (address === this.consoleAddress) return { status: 409, body: { error: "reserved_address", detail: "this address belongs to the relay" } };
 
@@ -835,7 +853,14 @@ export class Relay extends EventEmitter {
     const hop = parent ? parent.hop + 1 : thread ? thread.max_hop + 1 : 1;
 
     // A reply to a message that actually reached the replier is allowed without a reverse link.
-    const impliedReply = !!parent && parent.from_addr === env.to && parent.to_addr === env.from && (parent.state === "queued" || parent.state === "delivered");
+    // In sessions mode it also needs a shared session still (or the console asking), so people who were removed
+    // or whose session was deleted can't keep a conversation going by answering old messages.
+    const impliedReply =
+      !!parent &&
+      parent.from_addr === env.to &&
+      parent.to_addr === env.from &&
+      (parent.state === "queued" || parent.state === "delivered") &&
+      (p.isolation !== "sessions" || !!sessionLink || env.to === this.consoleAddress);
     const link: LinkRule | undefined = consoleLink ? { from: env.from, to: env.to, scopes: ["*"] } : p.isolation === "sessions" ? sessionLink : (linkFor(p, env.from, env.to, env.scope) ?? wildcardLink);
     if (!link && !impliedReply) {
       if (p.isolation === "sessions") return block("not_in_session", `${env.from} and ${env.to} don't share a session.`, hop);
@@ -1272,8 +1297,12 @@ export class Relay extends EventEmitter {
     const t = this.getThread(id);
     if (!t || !this.isParticipant(id, address)) return null;
     const rows = this.db.prepare("SELECT * FROM messages WHERE thread_id = ? ORDER BY received_at, id").all(id) as unknown as MessageRow[];
+    // In sessions mode, other people's messages show only while the reader still shares a session with both sides,
+    // so a thread doesn't keep feeding someone who was removed or whose session was deleted.
+    const reachable = (a: string): boolean => a === address || this.canTalk(address, a);
     const visible = rows
       .filter((r) => r.from_addr === address || ["queued", "delivered"].includes(r.state))
+      .filter((r) => this.policy.isolation !== "sessions" || r.from_addr === address || r.to_addr === address || (reachable(r.from_addr) && reachable(r.to_addr)))
       .map((r) => {
         const own = r.from_addr === address;
         const env = JSON.parse(r.envelope) as Envelope;

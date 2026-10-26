@@ -122,6 +122,25 @@ async function handleShared(env: Env, req: Request, url: URL, userId: string): P
   return json({ ...((await r.json()) as object), workspace: { slug: ws.slug, name: ws.name } });
 }
 
+/**
+ * A Google sign-in just took over an unverified password account. Whoever created it may have connected
+ * agents and kept their keys, so every relay the account touches disables its agents; in workspaces it
+ * belongs to, unused owner links are revoked too. The new owner re-enables the agents they recognize.
+ */
+async function resetTakenOverAccount(env: Env, url: URL, userId: string): Promise<void> {
+  const owned = await workspacesFor(env, userId);
+  const guest = await guestWorkspaces(env, userId);
+  const reset = (ws: { slug: string; name: string; do_name: string }, revokeOwnerInvites: boolean): Promise<Response> => {
+    const path = `/v1/admin/accounts/${encodeURIComponent(userId)}/reset`;
+    const req = new Request(new URL(path, url.origin), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ revoke_owner_invites: revokeOwnerInvites }) });
+    return toRelay(env, req, ws.do_name, path, workspaceHeaders(url, ws), true);
+  };
+  const results = await Promise.allSettled([...owned.map((ws) => reset(ws, true)), ...guest.map((ws) => reset(ws, false))]);
+  for (const r of results) {
+    if (r.status === "rejected" || !r.value.ok) console.error("account takeover: resetting a relay failed", userId, r.status === "rejected" ? r.reason : r.value.status);
+  }
+}
+
 async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
   const secure = url.protocol === "https:";
   const ip = req.headers.get("cf-connecting-ip") ?? "local";
@@ -175,6 +194,7 @@ async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
   if (url.pathname === GOOGLE_CALLBACK || url.pathname === "/auth/google/callback") {
     const r = await googleFinish(env, req, url);
     if ("error" in r) return Response.redirect(`${url.origin}/signin?error=${encodeURIComponent(r.error)}`, 302);
+    if (r.tookOver) await resetTakenOverAccount(env, url, r.user.id);
     const headers = new Headers({ location: `${url.origin}${r.next}` });
     headers.append("set-cookie", await createSession(env, r.user.id, secure));
     headers.append("set-cookie", "a2a_oauth=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
