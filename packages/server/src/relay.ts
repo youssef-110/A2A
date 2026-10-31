@@ -159,6 +159,8 @@ export class Relay extends EventEmitter {
   private readonly concurrency: number;
   private readonly requireAccount: boolean;
   private readonly queue: string[] = [];
+  /** Every message queued or being screened right now, so recover() never screens one twice. */
+  private readonly pending = new Set<string>();
   private active = 0;
   private sweepTimer?: NodeJS.Timeout;
 
@@ -183,10 +185,14 @@ export class Relay extends EventEmitter {
     this.sweepTimer.unref();
   }
 
-  /** Crash recovery: anything left mid-screening is screened again. Durable Objects call this on every wake-up. */
+  /**
+   * Crash recovery: anything left mid-screening is screened again. Durable Objects call this on every wake-up,
+   * including alarms that fire while a slow judge call is still running, so messages this instance is already
+   * screening are skipped.
+   */
   recover(): void {
     const stuck = this.db.prepare("SELECT id FROM messages WHERE state = 'screening' ORDER BY received_at").all() as { id: string }[];
-    for (const { id } of stuck) if (!this.queue.includes(id)) this.enqueue(id);
+    for (const { id } of stuck) this.enqueue(id);
   }
 
   /** True while messages wait for delivery or screening, so a Durable Object knows to keep its sweep alarm. */
@@ -939,6 +945,8 @@ export class Relay extends EventEmitter {
   }
 
   private enqueue(id: string): void {
+    if (this.pending.has(id)) return;
+    this.pending.add(id);
     this.queue.push(id);
     this.pump();
   }
@@ -951,6 +959,7 @@ export class Relay extends EventEmitter {
         .catch((err) => this.log(`screening ${id} failed: ${(err as Error).stack ?? err}`))
         .finally(() => {
           this.active--;
+          this.pending.delete(id);
           this.pump();
         });
     }
@@ -988,10 +997,9 @@ export class Relay extends EventEmitter {
     const ts = iso(now);
     const state = v.decision === "allow" || v.decision === "redact" ? "queued" : v.decision === "hold" ? "held" : "blocked";
     const guardMs = v.stages.reduce((n, s) => n + s.latency_ms, 0);
-    tx(this.db, () => {
-      for (const s of v.stages) this.insertStage(row.id, s, ts);
-      if (state === "queued") this.addParticipant(row.thread_id, row.to_addr);
-      this.db
+    // Only the first verdict for a message counts. A later one (the message was screened twice) changes nothing.
+    const applied = tx(this.db, () => {
+      const r = this.db
         .prepare(
           `UPDATE messages SET state = ?, decision = ?, reason_code = ?, reason = ?, categories = ?, findings = ?, delivered_text = ?, redacted = ?,
              preview = ?, policy_version = ?, guard_ms = ?, updated_at = ?, expires_at = ? WHERE id = ? AND state = 'screening'`,
@@ -1004,7 +1012,12 @@ export class Relay extends EventEmitter {
           state === "queued" ? iso(now + this.policy.limits.message_ttl_ms) : null,
           row.id,
         );
+      if (!Number(r.changes)) return false;
+      for (const s of v.stages) this.insertStage(row.id, s, ts);
+      if (state === "queued") this.addParticipant(row.thread_id, row.to_addr);
+      return true;
     });
+    if (!applied) return;
     const updated = this.getMessage(row.id)!;
     this.log(`${updated.id} ${updated.from_addr} -> ${updated.to_addr} ${v.decision}${v.reason_code ? ` (${v.reason_code})` : ""} ${guardMs}ms`);
     this.notify(updated);
