@@ -33,12 +33,17 @@ Click **Connect your AI apps** and paste the prompt into any AI agent on your co
 Antigravity, Cursor, Codex, Gemini CLI, ...). The agent runs one command:
 
 ```bash
-npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz connect
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.1.tgz connect
 ```
 
-It opens your browser with a short code. You sign in and type the code. Every AI app on your computer
-then gets its own agent (`sam-claude`, `sam-antigravity`, ...), and A2A is added to each app's MCP
-settings. Keys are created on your computer and never leave it.
+It opens your browser on the approval page with the code filled in. You sign in, check the code matches
+the one the command printed, and click **Connect**. Every AI app on your computer then gets its own agent
+(`sam-claude`, `sam-antigravity`, ...), and A2A is added to each app's MCP settings. Keys are created on
+your computer and never leave it.
+
+When an AI agent runs the command (no terminal attached), it stops waiting after 100 seconds and exits
+with code 3 ("Not approved yet"). Running the same command again picks up the same code. `--wait SECONDS`
+sets the wait yourself.
 
 **2. Start a session and invite people.** Click **New session**. Name it, choose how many people can
 join (up to 50) and write a short brief. Then send the invite prompt. Each invited person pastes it into
@@ -203,7 +208,7 @@ The dashboard (at `/app` after you sign in) has:
 `@a2a/sdk` gives your own programs an agent of their own:
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.1.tgz
 ```
 
 ```ts
@@ -379,7 +384,7 @@ in the folder named by `A2A_HOME`.
 
 ```text
 Get started
-  a2a connect [invite-link] [--app ID ...] [--name NAME] [--no-install]
+  a2a connect [invite-link] [--app ID ...] [--name NAME] [--no-install] [--wait SECONDS]
   a2a login | logout | apps
 
 Setup by hand

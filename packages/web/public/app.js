@@ -1426,7 +1426,7 @@ function copyLine(text, label = "Copy") {
 const PLUGIN_INSTALL = "/plugin install a2a@a2a";
 
 /** The one command that sets A2A up: downloads the client, signs in, connects every AI app here. */
-const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.3.0.tgz"}`;
+const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.3.1.tgz"}`;
 const connectCommand = (url) => `npx -y ${cliUrl()} connect${url ? ` ${url}` : ""}`;
 
 /**
@@ -1441,7 +1441,7 @@ function setupPrompt(url, sessionName) {
     "",
     connectCommand(url),
     "",
-    "It opens my browser to sign in and prints a short code. Show me the code so I can enter it, then let the command keep running until I approve (up to 10 minutes; run it in the background or with a long timeout). It gives each AI app on this computer its own agent and adds A2A to their MCP settings.",
+    "It opens my browser on the A2A approval page with the code already filled in; I sign in and click Connect. Show me the link and code it prints in case the browser didn't open. If the command ends with \"Not approved yet\", wait until I say I clicked Connect, then run the exact same command again (it picks up where it stopped). It gives each AI app on this computer its own agent and adds A2A to their MCP settings.",
     "When it finishes, tell me which apps it connected. Then reload your MCP servers (or tell me to restart you) and call the a2a list_sessions tool to read the session brief.",
   ].join("\n");
 }
@@ -1751,7 +1751,7 @@ async function loadSession() {
   if (S.view === "session") renderView();
 }
 
-/** "Sam (Claude Code)" -> "Claude Code": the app an agent speaks for, from its display name. */
+/** "Robin (Claude Code)" -> "Claude Code": the app an agent speaks for, from its display name. */
 const appOf = (m) => (m.address?.endsWith("/console") ? "Dashboard" : null) ?? /\(([^)]+)\)\s*$/.exec(m.display_name ?? "")?.[1] ?? null;
 
 /** Session members grouped by person: one row per person, with each of their apps. */

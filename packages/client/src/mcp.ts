@@ -71,7 +71,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     return ipc<T>(home, method, path, body, timeoutMs);
   };
 
-  const server = new McpServer({ name: "a2a", version: "0.3.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.3.1" }, { instructions: INSTRUCTIONS });
 
   /**
    * Sign-in happens in the browser, which can take longer than one tool call may wait. The first call
@@ -83,13 +83,11 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     if (!account) {
       const fresh = !pendingLogin(home, origin);
       const start = pendingLogin(home, origin) ?? (await startLogin(home, origin));
-      if (fresh) openBrowser(start.verify_url);
-      account = await finishLogin(home, origin, 40_000).catch((err) => {
-        throw err;
-      });
+      if (fresh) openBrowser(start.verify_url_complete);
+      account = await finishLogin(home, origin, 40_000);
       if (!account) {
         return text(
-          `The user needs to sign in. Tell them: open ${start.verify_url} (a browser tab may already be open), sign in with Google or email, and enter the code ${start.user_code}. ` +
+          `The user needs to approve the sign-in. Tell them: open ${start.verify_url_complete} (a browser tab may already be open), sign in with Google or email, check the code is ${start.user_code}, and click Connect. ` +
             `When they say it's done, call connect again with the same arguments. The code expires in about ${Math.max(1, Math.round(start.expires_in / 60))} minutes.`,
         );
       }
@@ -131,7 +129,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
             : "Same as connect (older name): join A2A with an invite link.",
         inputSchema: {
           invite_link: name === "connect" ? z.string().optional().describe("Session invite link, https://<relay>/w/<workspace>/join/<code>. Leave empty to just connect this app.") : z.string().describe("The invite link the user was given"),
-          name: z.string().optional().describe("The person's name for agent addresses (sam -> sam-claude). Defaults to their account's first name."),
+          name: z.string().optional().describe("The person's name for agent addresses (robin -> robin-claude). Defaults to their account's first name."),
           setup_other_apps: z.boolean().optional().describe("Also add A2A to the other AI apps installed on this computer (Antigravity, Cursor, ...)"),
         },
       },
@@ -240,9 +238,9 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
   server.registerTool(
     "send_message",
     {
-      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-david) or just a name (guest-david, David).",
+      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-theo) or just a name (guest-theo, Theo).",
       inputSchema: {
-        to: z.string().describe("Recipient: agent://<org>/<name>, or a name like guest-david"),
+        to: z.string().describe("Recipient: agent://<org>/<name>, or a name like guest-theo"),
         text: z.string().describe("The message"),
         scope: z.string().optional().describe("Policy scope. Usually leave empty; the relay picks one."),
         thread_id: z.string().optional().describe("Continue an existing thread instead of starting a new one"),

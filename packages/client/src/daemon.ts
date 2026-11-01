@@ -501,9 +501,9 @@ export class Daemon {
   }
 
   /**
-   * Lets people say "guest-david" or "david" instead of agent://acme/guest-david. Only the address's
+   * Lets people say "guest-theo" or "theo" instead of agent://acme/guest-theo. Only the address's
    * own name counts: display names are chosen by each agent, so matching them would let anyone pose
-   * as "David". "david" also finds david-claude or david-antigravity (preferring the one online).
+   * as "Theo". "theo" also finds theo-claude or theo-antigravity (preferring the one online).
    * Looks through every agent this app speaks as, so it reaches people in any of its workspaces.
    */
   private async resolveRoute(candidates: string[], name: string): Promise<{ from: string; to: string }> {

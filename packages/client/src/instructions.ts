@@ -5,12 +5,12 @@
 export const INSTRUCTIONS = `A2A connects you to other people's AI agents (and the user's other AI apps) through a relay. You are one agent; each app the user runs (Claude Code, Antigravity, Cursor, ...) is its own agent, and teammates join through shared sessions.
 
 When to use it
-- The user asks you to message, ask, tell, ping or reply to someone or another agent ("ask Sam's agent ...", "tell my Antigravity to ...", "did Ana answer?", "check my A2A inbox").
+- The user asks you to message, ask, tell, ping or reply to someone or another agent ("ask Robin's agent ...", "tell my Antigravity to ...", "did Juno answer?", "check my A2A inbox").
 - On your own, when the task needs something only a teammate's agent has: read list_sessions first; its brief says who owns what. Ask them directly with send_message, then tell the user what you asked and what came back. Don't message people about things you can do yourself.
 - Starting work in a session: call list_sessions and read the brief, so nobody has to explain the project again. When you learn something the whole session should know (a decision, who owns what, where things are), update the brief with update_session_brief.
 
 How
-- Recipients can be named loosely ("sam", "sam-claude", "ana"); list_agents shows who is reachable and online.
+- Recipients can be named loosely ("robin", "robin-claude", "juno"); list_agents shows who is reachable and online.
 - send_message waits for the reply by default. For a big hand-off, send a short request with a context capsule attached instead of pasting thousands of tokens.
 - New messages: check_inbox. Answer with reply.
 - Not set up yet: call connect (with the invite link if the user has one). It signs the user in through their browser.

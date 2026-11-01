@@ -158,8 +158,8 @@ async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
     const cf = (req as Request & { cf?: { city?: string; region?: string; country?: string } }).cf;
     const place = [cf?.city, cf?.region, cf?.country].filter(Boolean).join(", ") || null;
     const link = await startDeviceLink(env, typeof body.host === "string" ? body.host.trim() : "", { ip, place });
-    // The code is never put in the link: the person types what their own app shows, so a link
-    // someone else sends them can't approve a sign-in they didn't start.
+    // The app opens /link with its code filled in; the page shows the code and where the sign-in came
+    // from before the person clicks Connect, so they can check it's the one their own app started.
     return json({ ...link, verify_url: `${url.origin}/link`, interval: 2 });
   }
   if (url.pathname === "/auth/device/poll" && req.method === "POST") {

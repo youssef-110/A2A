@@ -18,6 +18,8 @@ export interface Account {
 export interface LoginStart {
   user_code: string;
   verify_url: string;
+  /** verify_url with the code filled in, so the person only signs in and clicks Connect. */
+  verify_url_complete: string;
   expires_in: number;
 }
 
@@ -77,17 +79,19 @@ export function openBrowser(url: string): void {
 export async function startLogin(home: string, origin: string): Promise<LoginStart> {
   const r = await publicApi(origin, "POST", "/auth/device/start", { host: `${hostname()} (a2a)` });
   if (r.status !== 200) throw new Error(String(r.body.error ?? `Sign-in failed to start (${r.status}).`));
-  const b = r.body as { device_code: string; user_code: string; verify_url: string; expires_in: number };
+  const b = r.body as { device_code: string; user_code: string; verify_url: string; verify_url_complete?: string; expires_in: number };
+  const complete = b.verify_url_complete ?? `${b.verify_url}?code=${encodeURIComponent(b.user_code)}`;
   mkdirSync(join(home, "run"), { recursive: true, mode: 0o700 });
-  writeFileSync(pendingPath(home), JSON.stringify({ origin, device_code: b.device_code, user_code: b.user_code, verify_url: b.verify_url, expires_at: Date.now() + b.expires_in * 1000 }), { mode: 0o600 });
-  return { user_code: b.user_code, verify_url: b.verify_url, expires_in: b.expires_in };
+  writeFileSync(pendingPath(home), JSON.stringify({ origin, device_code: b.device_code, user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_at: Date.now() + b.expires_in * 1000 }), { mode: 0o600 });
+  return { user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_in: b.expires_in };
 }
 
 export function pendingLogin(home: string, origin: string): LoginStart | null {
   try {
-    const p = JSON.parse(readFileSync(pendingPath(home), "utf8")) as { origin: string; user_code: string; verify_url: string; expires_at: number };
-    if (p.origin !== origin || p.expires_at < Date.now()) return null;
-    return { user_code: p.user_code, verify_url: p.verify_url, expires_in: Math.round((p.expires_at - Date.now()) / 1000) };
+    const p = JSON.parse(readFileSync(pendingPath(home), "utf8")) as { origin: string; user_code: string; verify_url: string; verify_url_complete?: string; expires_at: number };
+    // A code with under a minute left isn't worth resuming: the person couldn't finish in time.
+    if (p.origin !== origin || p.expires_at < Date.now() + 60_000) return null;
+    return { user_code: p.user_code, verify_url: p.verify_url, verify_url_complete: p.verify_url_complete ?? `${p.verify_url}?code=${p.user_code}`, expires_in: Math.round((p.expires_at - Date.now()) / 1000) };
   } catch {
     return null;
   }
@@ -98,8 +102,10 @@ export async function finishLogin(home: string, origin: string, waitMs: number):
   const p = JSON.parse(readFileSync(pendingPath(home), "utf8")) as { origin: string; device_code: string; expires_at: number };
   const until = Date.now() + waitMs;
   for (;;) {
-    const r = await publicApi(origin, "POST", "/auth/device/poll", { device_code: p.device_code });
-    const status = r.body.status as string | undefined;
+    // A network blip, rate limit or server error isn't an answer: keep polling instead of giving up on the code.
+    const r = await publicApi(origin, "POST", "/auth/device/poll", { device_code: p.device_code }).catch(() => ({ status: 503, body: {} as Record<string, unknown> }));
+    const transient = r.status === 429 || r.status >= 500;
+    const status = transient ? undefined : (r.body.status as string | undefined);
     if (status === "approved") {
       const b = r.body as { session_token: string; workspace: string; user: Account["user"] };
       const account: Account = { origin, token: b.session_token, user: { id: b.user.id, email: b.user.email, name: b.user.name }, workspace: b.workspace };
@@ -111,7 +117,7 @@ export async function finishLogin(home: string, origin: string, waitMs: number):
       rmSync(pendingPath(home), { force: true });
       throw new Error("The sign-in was denied in the browser.");
     }
-    if (status === "expired" || r.status >= 400) {
+    if (status === "expired" || (!transient && r.status >= 400)) {
       rmSync(pendingPath(home), { force: true });
       throw new Error("The sign-in code expired. Start again.");
     }
@@ -120,20 +126,38 @@ export async function finishLogin(home: string, origin: string, waitMs: number):
   }
 }
 
-/** Signs in from a terminal: prints the code, opens the browser and waits. */
-export async function login(home: string, origin: string, say: (line: string) => void): Promise<Account> {
+/** The person hasn't approved yet and the command stopped waiting; running it again resumes the same code. */
+export class LoginPendingError extends Error {}
+
+/**
+ * Signs in from a terminal: prints the link, opens the browser and waits up to maxWaitMs. An AI agent
+ * running this sees no output until the command ends, so it passes a short wait, shows the person the
+ * link, and runs the command again once they approved (the pending code is picked up where it stopped).
+ * An expired code is replaced once.
+ */
+export async function login(home: string, origin: string, say: (line: string) => void, maxWaitMs = Infinity): Promise<Account> {
   const existing = await validAccount(home, origin);
   if (existing) return existing;
-  const start = pendingLogin(home, origin) ?? (await startLogin(home, origin));
-  say(`\n  Sign in to A2A: open ${start.verify_url}\n  and enter the code  ${start.user_code}\n`);
-  openBrowser(start.verify_url);
-  for (;;) {
-    const a = await finishLogin(home, origin, 60_000);
-    if (a) {
-      say(`  Signed in as ${a.user.email}.`);
-      return a;
+  const until = Date.now() + maxWaitMs;
+  for (let attempt = 0; ; attempt++) {
+    const resumed = pendingLogin(home, origin);
+    const start = resumed ?? (await startLogin(home, origin));
+    say(`\n  Sign in to A2A: open ${start.verify_url_complete}\n  (or open ${start.verify_url} and enter the code  ${start.user_code} )\n  Sign in with Google or email, check the code matches, then click Connect.\n`);
+    if (!resumed) openBrowser(start.verify_url_complete);
+    try {
+      for (;;) {
+        const a = await finishLogin(home, origin, Math.max(0, Math.min(60_000, until - Date.now())));
+        if (a) {
+          say(`  Signed in as ${a.user.email}.`);
+          return a;
+        }
+        if (Date.now() >= until) throw new LoginPendingError(`Not approved yet. Open ${start.verify_url_complete} (code ${start.user_code}), click Connect, then run the same command again to finish.`);
+        say("  Still waiting for you to click Connect in the browser...");
+      }
+    } catch (err) {
+      if (err instanceof LoginPendingError || attempt > 0 || /denied/.test((err as Error).message)) throw err;
+      say("  That code expired. Here is a new one.");
     }
-    say("  Still waiting for you to approve the code in the browser...");
   }
 }
 
