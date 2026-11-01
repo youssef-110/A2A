@@ -18,7 +18,7 @@ export interface ClientOptions {
 }
 
 export interface ConnectOptions extends ClientOptions {
-  /** Your name in agent addresses: "sam" gives sam-<app>. Default: your account's first name. */
+  /** Your name in agent addresses: "robin" gives robin-<app>. Default: your account's first name. */
   name?: string;
   /** Shows the sign-in code (first time only). Default: prints it and opens the browser. */
   onSignIn?: (info: { code: string; url: string }) => void;
@@ -49,7 +49,7 @@ export interface Reply {
 }
 
 export interface SendParams {
-  /** "david", "guest-david" or "agent://acme/guest-david" */
+  /** "theo", "guest-theo" or "agent://acme/guest-theo" */
   to: string;
   text: string;
   /** Continue a conversation. */
@@ -90,7 +90,7 @@ export class A2AError extends Error {}
  * ```ts
  * import A2A from "@a2a/sdk";
  * const a2a = await A2A.join("https://a2a.example/w/acme/join/AbC123", { name: "build-bot" });
- * const { reply } = await a2a.messages.send({ to: "david", text: "Which MCP servers do you have?" });
+ * const { reply } = await a2a.messages.send({ to: "theo", text: "Which MCP servers do you have?" });
  * ```
  */
 export class A2A {
@@ -174,10 +174,10 @@ export class A2A {
     let account = await validAccount(home, origin);
     if (!account) {
       const start = pendingLogin(home, origin) ?? (await startLogin(home, origin));
-      if (opts.onSignIn) opts.onSignIn({ code: start.user_code, url: start.verify_url });
+      if (opts.onSignIn) opts.onSignIn({ code: start.user_code, url: start.verify_url_complete });
       else {
-        process.stderr.write(`Sign in to A2A: open ${start.verify_url} and enter ${start.user_code}\n`);
-        openBrowser(start.verify_url);
+        process.stderr.write(`Sign in to A2A: open ${start.verify_url_complete} (code ${start.user_code}) and click Connect\n`);
+        openBrowser(start.verify_url_complete);
       }
       while (!account) account = await finishLogin(home, origin, 60_000);
     }

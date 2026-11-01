@@ -17958,9 +17958,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js
+// node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/formats.js
 var require_formats = __commonJS({
-  "node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/dist/formats.js"(exports) {
+  "node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/formats.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
@@ -18161,9 +18161,9 @@ var require_formats = __commonJS({
   }
 });
 
-// node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js
+// node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/limit.js
 var require_limit = __commonJS({
-  "node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/dist/limit.js"(exports) {
+  "node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/limit.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatLimitDefinition = void 0;
@@ -18233,9 +18233,9 @@ var require_limit = __commonJS({
   }
 });
 
-// node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js
+// node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/index.js
 var require_dist2 = __commonJS({
-  "node_modules/.pnpm/ajv-formats@3.0.1/node_modules/ajv-formats/dist/index.js"(exports, module) {
+  "node_modules/.pnpm/ajv-formats@3.0.1_ajv@8.20.0/node_modules/ajv-formats/dist/index.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -19188,9 +19188,9 @@ var Daemon = class {
     });
   }
   /**
-   * Lets people say "guest-david" or "david" instead of agent://acme/guest-david. Only the address's
+   * Lets people say "guest-theo" or "theo" instead of agent://acme/guest-theo. Only the address's
    * own name counts: display names are chosen by each agent, so matching them would let anyone pose
-   * as "David". "david" also finds david-claude or david-antigravity (preferring the one online).
+   * as "Theo". "theo" also finds theo-claude or theo-antigravity (preferring the one online).
    * Looks through every agent this app speaks as, so it reaches people in any of its workspaces.
    */
   async resolveRoute(candidates, name) {
@@ -27558,7 +27558,7 @@ function object(shape, params) {
   return new ZodMiniObject(def);
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 function isZ4Schema(s) {
   const schema = s;
   return !!schema._zod;
@@ -28413,7 +28413,7 @@ function preprocess(fn, schema) {
 // node_modules/.pnpm/zod@3.25.76/node_modules/zod/v4/classic/external.js
 config(en_default2());
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
@@ -29944,7 +29944,7 @@ var UrlElicitationRequiredError = class extends McpError {
   }
 };
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
@@ -31233,7 +31233,7 @@ var zodToJsonSchema = (schema, options) => {
   return combined;
 };
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
 function mapMiniTarget(t) {
   if (!t)
     return "draft-7";
@@ -31275,7 +31275,7 @@ function parseWithCompat(schema, data) {
   return result.data;
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
 var DEFAULT_REQUEST_TIMEOUT_MSEC = 6e4;
 var Protocol = class {
   constructor(_options) {
@@ -32252,7 +32252,7 @@ function mergeCapabilities(base, additional) {
   return result;
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
 var import_ajv = __toESM(require_ajv(), 1);
 var import_ajv_formats = __toESM(require_dist2(), 1);
 function createDefaultAjvInstance() {
@@ -32320,7 +32320,7 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
 var ExperimentalServerTasks = class {
   constructor(_server) {
     this._server = _server;
@@ -32533,7 +32533,7 @@ var ExperimentalServerTasks = class {
   }
 };
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
 function assertToolsCallTaskCapability(requests, method, entityName) {
   if (!requests) {
     throw new Error(`${entityName} does not support task creation (required for ${method})`);
@@ -32568,7 +32568,7 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
   }
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
 var Server = class extends Protocol {
   /**
    * Initializes this server with the given name and version information.
@@ -32939,7 +32939,7 @@ var Server = class extends Protocol {
   }
 };
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/server/completable.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/completable.js
 var COMPLETABLE_SYMBOL = /* @__PURE__ */ Symbol.for("mcp.completable");
 function isCompletable(schema) {
   return !!schema && typeof schema === "object" && COMPLETABLE_SYMBOL in schema;
@@ -32953,7 +32953,7 @@ var McpZodTypeKind;
   McpZodTypeKind2["Completable"] = "McpCompletable";
 })(McpZodTypeKind || (McpZodTypeKind = {}));
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/toolNameValidation.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/toolNameValidation.js
 var TOOL_NAME_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 function validateToolName(name) {
   const warnings = [];
@@ -33011,7 +33011,7 @@ function validateAndWarnToolName(name) {
   return result.isValid;
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/mcp-server.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/mcp-server.js
 var ExperimentalMcpServerTasks = class {
   constructor(_mcpServer) {
     this._mcpServer = _mcpServer;
@@ -33026,7 +33026,7 @@ var ExperimentalMcpServerTasks = class {
   }
 };
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
 function toolInputElementCount(value, max) {
   let count = 0;
   const stack = [value];
@@ -33867,10 +33867,10 @@ var EMPTY_COMPLETION_RESULT = {
   }
 };
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 import process2 from "node:process";
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
 var ReadBuffer = class {
   constructor(options) {
@@ -33907,7 +33907,7 @@ function serializeMessage(message) {
   return JSON.stringify(message) + "\n";
 }
 
-// node_modules/.pnpm/@modelcontextprotocol+sdk@1_6abf51786032760c00655d26c806ea2c/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// node_modules/.pnpm/@modelcontextprotocol+sdk@1.32.2_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var StdioServerTransport = class {
   constructor(_stdin = process2.stdin, _stdout = process2.stdout, options) {
     this._stdin = _stdin;
@@ -34121,15 +34121,16 @@ async function startLogin(home2, origin) {
   const r = await publicApi(origin, "POST", "/auth/device/start", { host: `${hostname3()} (a2a)` });
   if (r.status !== 200) throw new Error(String(r.body.error ?? `Sign-in failed to start (${r.status}).`));
   const b = r.body;
+  const complete = b.verify_url_complete ?? `${b.verify_url}?code=${encodeURIComponent(b.user_code)}`;
   mkdirSync4(join6(home2, "run"), { recursive: true, mode: 448 });
-  writeFileSync3(pendingPath(home2), JSON.stringify({ origin, device_code: b.device_code, user_code: b.user_code, verify_url: b.verify_url, expires_at: Date.now() + b.expires_in * 1e3 }), { mode: 384 });
-  return { user_code: b.user_code, verify_url: b.verify_url, expires_in: b.expires_in };
+  writeFileSync3(pendingPath(home2), JSON.stringify({ origin, device_code: b.device_code, user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_at: Date.now() + b.expires_in * 1e3 }), { mode: 384 });
+  return { user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_in: b.expires_in };
 }
 function pendingLogin(home2, origin) {
   try {
     const p = JSON.parse(readFileSync6(pendingPath(home2), "utf8"));
-    if (p.origin !== origin || p.expires_at < Date.now()) return null;
-    return { user_code: p.user_code, verify_url: p.verify_url, expires_in: Math.round((p.expires_at - Date.now()) / 1e3) };
+    if (p.origin !== origin || p.expires_at < Date.now() + 6e4) return null;
+    return { user_code: p.user_code, verify_url: p.verify_url, verify_url_complete: p.verify_url_complete ?? `${p.verify_url}?code=${p.user_code}`, expires_in: Math.round((p.expires_at - Date.now()) / 1e3) };
   } catch {
     return null;
   }
@@ -34138,8 +34139,9 @@ async function finishLogin(home2, origin, waitMs) {
   const p = JSON.parse(readFileSync6(pendingPath(home2), "utf8"));
   const until = Date.now() + waitMs;
   for (; ; ) {
-    const r = await publicApi(origin, "POST", "/auth/device/poll", { device_code: p.device_code });
-    const status = r.body.status;
+    const r = await publicApi(origin, "POST", "/auth/device/poll", { device_code: p.device_code }).catch(() => ({ status: 503, body: {} }));
+    const transient = r.status === 429 || r.status >= 500;
+    const status = transient ? void 0 : r.body.status;
     if (status === "approved") {
       const b = r.body;
       const account = { origin, token: b.session_token, user: { id: b.user.id, email: b.user.email, name: b.user.name }, workspace: b.workspace };
@@ -34151,7 +34153,7 @@ async function finishLogin(home2, origin, waitMs) {
       rmSync3(pendingPath(home2), { force: true });
       throw new Error("The sign-in was denied in the browser.");
     }
-    if (status === "expired" || r.status >= 400) {
+    if (status === "expired" || !transient && r.status >= 400) {
       rmSync3(pendingPath(home2), { force: true });
       throw new Error("The sign-in code expired. Start again.");
     }
@@ -34159,22 +34161,35 @@ async function finishLogin(home2, origin, waitMs) {
     await new Promise((res) => setTimeout(res, 2e3));
   }
 }
-async function login(home2, origin, say) {
+var LoginPendingError = class extends Error {
+};
+async function login(home2, origin, say, maxWaitMs = Infinity) {
   const existing = await validAccount(home2, origin);
   if (existing) return existing;
-  const start = pendingLogin(home2, origin) ?? await startLogin(home2, origin);
-  say(`
-  Sign in to A2A: open ${start.verify_url}
-  and enter the code  ${start.user_code}
+  const until = Date.now() + maxWaitMs;
+  for (let attempt = 0; ; attempt++) {
+    const resumed = pendingLogin(home2, origin);
+    const start = resumed ?? await startLogin(home2, origin);
+    say(`
+  Sign in to A2A: open ${start.verify_url_complete}
+  (or open ${start.verify_url} and enter the code  ${start.user_code} )
+  Sign in with Google or email, check the code matches, then click Connect.
 `);
-  openBrowser(start.verify_url);
-  for (; ; ) {
-    const a = await finishLogin(home2, origin, 6e4);
-    if (a) {
-      say(`  Signed in as ${a.user.email}.`);
-      return a;
+    if (!resumed) openBrowser(start.verify_url_complete);
+    try {
+      for (; ; ) {
+        const a = await finishLogin(home2, origin, Math.max(0, Math.min(6e4, until - Date.now())));
+        if (a) {
+          say(`  Signed in as ${a.user.email}.`);
+          return a;
+        }
+        if (Date.now() >= until) throw new LoginPendingError(`Not approved yet. Open ${start.verify_url_complete} (code ${start.user_code}), click Connect, then run the same command again to finish.`);
+        say("  Still waiting for you to click Connect in the browser...");
+      }
+    } catch (err) {
+      if (err instanceof LoginPendingError || attempt > 0 || /denied/.test(err.message)) throw err;
+      say("  That code expired. Here is a new one.");
     }
-    say("  Still waiting for you to approve the code in the browser...");
   }
 }
 function personSlug(name, email2) {
@@ -34270,12 +34285,12 @@ import { dirname as dirname3, join as join7 } from "node:path";
 var INSTRUCTIONS = `A2A connects you to other people's AI agents (and the user's other AI apps) through a relay. You are one agent; each app the user runs (Claude Code, Antigravity, Cursor, ...) is its own agent, and teammates join through shared sessions.
 
 When to use it
-- The user asks you to message, ask, tell, ping or reply to someone or another agent ("ask Sam's agent ...", "tell my Antigravity to ...", "did Ana answer?", "check my A2A inbox").
+- The user asks you to message, ask, tell, ping or reply to someone or another agent ("ask Robin's agent ...", "tell my Antigravity to ...", "did Juno answer?", "check my A2A inbox").
 - On your own, when the task needs something only a teammate's agent has: read list_sessions first; its brief says who owns what. Ask them directly with send_message, then tell the user what you asked and what came back. Don't message people about things you can do yourself.
 - Starting work in a session: call list_sessions and read the brief, so nobody has to explain the project again. When you learn something the whole session should know (a decision, who owns what, where things are), update the brief with update_session_brief.
 
 How
-- Recipients can be named loosely ("sam", "sam-claude", "ana"); list_agents shows who is reachable and online.
+- Recipients can be named loosely ("robin", "robin-claude", "juno"); list_agents shows who is reachable and online.
 - send_message waits for the reply by default. For a big hand-off, send a short request with a context capsule attached instead of pasting thousands of tokens.
 - New messages: check_inbox. Answer with reply.
 - Not set up yet: call connect (with the invite link if the user has one). It signs the user in through their browser.
@@ -34612,20 +34627,18 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.3.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.3.1" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);
     if (!account) {
       const fresh = !pendingLogin(home2, origin);
       const start = pendingLogin(home2, origin) ?? await startLogin(home2, origin);
-      if (fresh) openBrowser(start.verify_url);
-      account = await finishLogin(home2, origin, 4e4).catch((err) => {
-        throw err;
-      });
+      if (fresh) openBrowser(start.verify_url_complete);
+      account = await finishLogin(home2, origin, 4e4);
       if (!account) {
         return text(
-          `The user needs to sign in. Tell them: open ${start.verify_url} (a browser tab may already be open), sign in with Google or email, and enter the code ${start.user_code}. When they say it's done, call connect again with the same arguments. The code expires in about ${Math.max(1, Math.round(start.expires_in / 60))} minutes.`
+          `The user needs to approve the sign-in. Tell them: open ${start.verify_url_complete} (a browser tab may already be open), sign in with Google or email, check the code is ${start.user_code}, and click Connect. When they say it's done, call connect again with the same arguments. The code expires in about ${Math.max(1, Math.round(start.expires_in / 60))} minutes.`
         );
       }
     }
@@ -34662,7 +34675,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
         description: name === "connect" ? "Set up A2A on this computer and join a session: signs the user in through their browser (first time only), gives this app its own agent, and joins the session of the invite link if one is given. Safe to call again." : "Same as connect (older name): join A2A with an invite link.",
         inputSchema: {
           invite_link: name === "connect" ? external_exports.string().optional().describe("Session invite link, https://<relay>/w/<workspace>/join/<code>. Leave empty to just connect this app.") : external_exports.string().describe("The invite link the user was given"),
-          name: external_exports.string().optional().describe("The person's name for agent addresses (sam -> sam-claude). Defaults to their account's first name."),
+          name: external_exports.string().optional().describe("The person's name for agent addresses (robin -> robin-claude). Defaults to their account's first name."),
           setup_other_apps: external_exports.boolean().optional().describe("Also add A2A to the other AI apps installed on this computer (Antigravity, Cursor, ...)")
         }
       },
@@ -34765,9 +34778,9 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
   server.registerTool(
     "send_message",
     {
-      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-david) or just a name (guest-david, David).",
+      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-theo) or just a name (guest-theo, Theo).",
       inputSchema: {
-        to: external_exports.string().describe("Recipient: agent://<org>/<name>, or a name like guest-david"),
+        to: external_exports.string().describe("Recipient: agent://<org>/<name>, or a name like guest-theo"),
         text: external_exports.string().describe("The message"),
         scope: external_exports.string().optional().describe("Policy scope. Usually leave empty; the relay picks one."),
         thread_id: external_exports.string().optional().describe("Continue an existing thread instead of starting a new one"),
@@ -35137,7 +35150,7 @@ Usage: a2a [--home DIR] <command> [options]
 Get started (one command)
   connect [invite-link]                   Sign in (opens your browser), give each AI app on this computer
                                           its own agent, join the session in the link, start in the background
-      [--app ID ...] [--name NAME] [--no-install]
+      [--app ID ...] [--name NAME] [--no-install] [--wait SECONDS]
                                           Apps: claude-code, antigravity, gemini-cli, codex, cursor,
                                           windsurf, vscode, claude-desktop, opencode (default: all installed)
   login | logout                          Sign this computer in or out of your A2A account
@@ -35267,6 +35280,10 @@ async function recordVoice(home2, opts) {
   if (tty) process.stderr.write("\r\x1B[2K");
   return text2;
 }
+function loginWaitMs(wait) {
+  if (wait !== void 0) return Math.max(0, Number(wait) || 0) * 1e3;
+  return process.stdout.isTTY ? Infinity : 1e5;
+}
 async function main(argv) {
   let home2;
   const rest = [...argv];
@@ -35318,7 +35335,7 @@ async function main(argv) {
       const { values, positionals } = parseArgs({
         args,
         allowPositionals: true,
-        options: { app: { type: "string", multiple: true }, name: { type: "string" }, "no-install": { type: "boolean" }, origin: { type: "string" } }
+        options: { app: { type: "string", multiple: true }, name: { type: "string" }, "no-install": { type: "boolean" }, origin: { type: "string" }, wait: { type: "string" } }
       });
       const link = positionals[0];
       const origin = link ? new URL(parseInviteLink(link).server).origin : values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN;
@@ -35326,7 +35343,7 @@ async function main(argv) {
       for (const a of wanted) if (a !== "all" && !toolById(a)) throw new Error(`Unknown app "${a}". Known: ${TOOLS.map((t) => t.id).join(", ")}`);
       const apps = !wanted.length || wanted.includes("all") ? detectTools().map((t) => t.id) : wanted;
       console.log(link ? `Connecting to ${origin} and joining the session in your link.` : `Connecting to ${origin}.`);
-      const account = await login(H, origin, (line) => console.log(line));
+      const account = await login(H, origin, (line) => console.log(line), loginWaitMs(values.wait));
       const r = await connectApps(H, account, { link, tools: apps, person: values.name, install: !values["no-install"] });
       const daemon = await daemonRunning(H) ? (await ipc(H, "POST", "/reload", {}), "reloaded") : await ensureDaemon(H);
       console.log(`
@@ -35340,8 +35357,8 @@ then ask them: "list my A2A sessions" or "ask <name> ...".`);
       return 0;
     }
     case "login": {
-      const { values } = parseArgs({ args, options: { origin: { type: "string" } } });
-      const a = await login(H, values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN, (line) => console.log(line));
+      const { values } = parseArgs({ args, options: { origin: { type: "string" }, wait: { type: "string" } } });
+      const a = await login(H, values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN, (line) => console.log(line), loginWaitMs(values.wait));
       console.log(`Signed in as ${a.user.email} (workspace ${a.workspace}).`);
       return 0;
     }
@@ -35708,6 +35725,12 @@ main(process.argv.slice(2)).then(
     if (code >= 0) process.exitCode = code;
   },
   (err) => {
+    if (err instanceof LoginPendingError) {
+      console.log(`
+  ${err.message}`);
+      process.exitCode = 3;
+      return;
+    }
     console.error(err instanceof NotRunningError || err instanceof VoiceError ? err.message : `a2a: ${err.message}`);
     process.exitCode = 1;
   }

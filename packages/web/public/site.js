@@ -30,7 +30,7 @@
     io((e) => nav.classList.toggle("scrolled", !e[0].isIntersecting))?.observe(sentinel);
   }
 
-  // The hero: your agent asks, the question crosses the session, David's agent answers, it comes back.
+  // The hero: your agent asks, the question crosses the session, Theo's agent answers, it comes back.
   const stage = document.getElementById("stage");
   if (stage) {
     const lines = [...stage.querySelectorAll(".line")];
