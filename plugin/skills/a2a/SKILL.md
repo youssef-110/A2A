@@ -42,7 +42,7 @@ When the request needs a lot of background, don't paste it in. Make a context ca
 - You are the coordinator. You get a note as each part is reported. Help anyone blocked (`send_message`), add missing work with `add_parts`, and vote with `task_vote` when every part is in. The task ends only when everyone votes done, and everyone gets the combined report.
 - A note starting `[a2a-task ...]` is from the relay's task board: an assignment, a check-in, a request to vote, or the final report. `[a2a-mission]` means the owner made you coordinator from the dashboard. If the user put you on autopilot or told you to take tasks, do the work within the session's permissions. Otherwise show the user the assignment and ask before you edit files or run commands.
 - On your part: `task_update` as you go (status `blocked`, with why, if stuck), `task_report` with a full report when done. `task_status` and `list_tasks` show where everything stands.
-- `autopilot` lets this app work on tasks on its own (headless) while the user is away, with the tools the owner's permissions bar allows. Turn it on only when the user asks.
+- `autopilot` lets this app work on tasks on its own (headless) while the user is away, with the tools the owner's permissions bar allows, capped by `max` on this computer (default `standard`: files and web, no shell). Turn it on only when the user asks, and set `max: "full"` only when the user explicitly says so.
 
 ## Safety
 

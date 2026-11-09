@@ -765,7 +765,7 @@ export class Daemon {
     let perms: TaskPermissions | undefined;
     if (taskId || mission) {
       if (taskId) perms = await this.taskPermissions(agent.address, taskId);
-      if (agent.autopilot && perms) agent = { ...agent, ...toolsFor(perms) };
+      if (agent.autopilot && perms) agent = { ...agent, ...toolsFor(perms, agent.autopilot_max ?? "standard") };
     }
     const sessionKey = taskId ? `task:${taskId}` : m.thread_id;
     const useSessions = agent.session !== "none" && (agent.runtime === "claude" || agent.runtime === "opencode");
@@ -793,7 +793,7 @@ export class Daemon {
     const result = await runAgent({
       agent,
       message: m,
-      prompt: taskId || mission ? buildTaskPrompt(m, randomBytes(6).toString("hex"), perms) : buildPrompt(m, randomBytes(6).toString("hex")),
+      prompt: taskId || mission ? buildTaskPrompt(m, randomBytes(6).toString("hex"), perms, agent.autopilot ? agent.allowed_tools : undefined) : buildPrompt(m, randomBytes(6).toString("hex")),
       sessionId: session?.session_id,
       env,
       mcpConfigPath,

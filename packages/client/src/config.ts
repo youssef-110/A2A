@@ -29,6 +29,11 @@ export interface AgentConfig {
   permission_mode?: string;
   /** Task runs get the tools the session's permissions allow (the owner's permissions bar), not only allowed_tools. */
   autopilot?: boolean;
+  /**
+   * The most this computer lets autopilot do, whatever a session's permissions say. Set by the person
+   * who owns the computer: "read_only", "standard" (files and web, no shell; the default) or "full".
+   */
+  autopilot_max?: "read_only" | "standard" | "full";
   /** Extra system prompt text for the spawned agent. */
   instructions?: string;
   session?: "per_thread" | "none";

@@ -137,7 +137,10 @@ keep working on their own until all of them agree the job is done. Then everyone
 **Hands-free agents: autopilot.** An agent only works while its app is running a turn. To let it work
 while you're away, say "turn on A2A autopilot" in Claude Code, Codex or OpenCode (in the folder it
 should work in). Task assignments, check-ins and votes then start a headless run that keeps one session
-per task, with the tools the session's permissions allow. Turn it off the same way.
+per task, with the tools the session's permissions allow, but never more than the limit set on that
+computer: "standard" by default (edit files and use the web, no shell). Running shell commands
+without prompts needs both the session at Full access and the person saying "turn on autopilot with
+full access" on their own computer. Turn it off the same way.
 
 | Tool | What it does |
 | --- | --- |
@@ -167,8 +170,9 @@ The permissions bar sits at the top of every session page. Pick one:
 Open the details (the arrow on the right) to flip each switch, add **flag words** (any message that
 mentions one is held for your review, for example `salary, password, production`), and set how soon
 the task board checks in on quiet parts. A session without its own settings follows the workspace's.
-Full access asks you to confirm first: it turns the guard off for that session and lets autopilot
-workers run commands on their owners' computers.
+Full access asks you to confirm first: it turns the guard off for that session. Autopilot workers
+still stay within the limit each person set on their own computer, so nobody's machine runs shell
+commands unless its owner allowed it.
 
 ## Letting your agent answer on its own
 

@@ -335,18 +335,28 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     "autopilot",
     {
       description: `Let ${label}'s agent work on A2A tasks on its own while the user is away: task assignments, check-ins and votes start a headless run in the current folder, with the tools the session's permissions allow (the owner sets them in the dashboard). Other messages are answered read-only. Turn it off to handle everything yourself.`,
-      inputSchema: { enabled: z.boolean() },
+      inputSchema: {
+        enabled: z.boolean(),
+        max: z
+          .enum(["read_only", "standard", "full"])
+          .optional()
+          .describe(
+            "The most autopilot may do on this computer, whatever a session allows: read_only, standard (edit files and use the web; the default) or full (also run shell commands without asking). Only set full when the user explicitly says so.",
+          ),
+      },
     },
     async (args) => {
       try {
         const runtime = tool ? AUTO_RUNTIME[tool] : undefined;
         if (args.enabled && !runtime) throw new Error(`${label} can't run headless, so it can't work on its own. Claude Code, Codex and OpenCode can.`);
+        const max = args.max ?? "standard";
         const config = loadConfig(home);
         const targets = tool ? config.agents.filter((a) => a.tool === tool) : [];
         if (!targets.length) throw new Error(notSetUp);
         for (const a of targets) {
           a.runtime = args.enabled ? runtime! : "none";
           a.autopilot = args.enabled;
+          a.autopilot_max = max;
           if (args.enabled) {
             a.workdir = process.cwd();
             a.allowed_tools = a.allowed_tools?.length ? a.allowed_tools : ["Read", "Grep", "Glob"];
@@ -356,7 +366,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
         await call("POST", "/reload", {});
         return text(
           args.enabled
-            ? `Autopilot is on for ${targets.map((a) => a.address).join(", ")} in ${process.cwd()}. Task work runs on its own with the session's permissions; tell the user they can watch it on the session page.`
+            ? `Autopilot is on for ${targets.map((a) => a.address).join(", ")} in ${process.cwd()}, up to "${max}" on this computer${max === "full" ? " (shell commands without prompts when a session allows Full access)" : max === "standard" ? " (files and web, no shell)" : " (read only)"}. Task work runs on its own within the session's permissions and this limit; tell the user they can watch it on the session page.`
             : "Autopilot is off. Messages and tasks wait for check_inbox.",
         );
       } catch (err) {

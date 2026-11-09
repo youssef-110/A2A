@@ -56,7 +56,7 @@ test("a coordinator splits work, workers report, everyone votes, and the task cl
     assert.match(note, /Your part \(part_id prt_[\w-]+\): Write the copy/);
     assert.match(note, /Hero and three sections/);
     assert.match(note, /wren-claude: Build the page/);
-    // Task notes skip the guard and are delivered as written.
+    // Task notes go through the guard like any message, and arrive as written.
     const row = relay.db.prepare("SELECT state, delivered_text FROM messages WHERE to_addr = ? AND from_addr = ?").get(A("juno-claude"), relay.consoleAddress) as { state: string; delivered_text: string };
     assert.equal(row.state, "queued");
     assert.equal(row.delivered_text, note);
@@ -102,6 +102,9 @@ test("parts can only go to agents the coordinator can reach", () => {
   try {
     assert.throws(() => relay.tasks.create(A("juno-claude"), { title: "x", parts: [{ assignee: "theo-claude", title: "y" }] }), (e: TaskError) => e.code === "unknown_agent");
     assert.throws(() => relay.tasks.create(A("juno-claude"), { title: "x", parts: [] }), (e: TaskError) => e.code === "parts_required");
+    // Names match addresses, never display names (anyone can pick a display name).
+    relay.db.prepare("UPDATE agents SET display_name = 'Wren' WHERE address = ?").run(A("juno-claude"));
+    assert.equal(relay.resolveAddress(A("robin-claude"), "wren"), A("wren-claude"));
     // A guest can't attach a task to a session it isn't in (and borrow that session's permissions).
     const other = relay.createSession({ name: "Other" }, "admin");
     relay.tasks.setPermissions(other.id, { mode: "full" }, "admin");
@@ -172,12 +175,18 @@ test("quiet parts get check-ins, and after three the coordinator is told", async
   }
 });
 
-test("autopilot workers get tools from the permissions", () => {
+test("autopilot tools: the session's permissions, capped by the ceiling set on this computer", () => {
   const base = { delegate: true };
-  assert.deepEqual(toolsFor({ ...base, mode: "read_only", worker_edit: false, worker_shell: false, worker_web: false }), { allowed_tools: ["Read", "Grep", "Glob", "TodoWrite"] });
-  const full = toolsFor({ ...base, mode: "full", worker_edit: true, worker_shell: true, worker_web: true });
+  const fullSession = { ...base, mode: "full", worker_edit: true, worker_shell: true, worker_web: true };
+  assert.deepEqual(toolsFor({ ...base, mode: "read_only", worker_edit: false, worker_shell: false, worker_web: false }, "full"), { allowed_tools: ["Read", "Grep", "Glob", "TodoWrite"] });
+  // A remote Full access alone never gives a shell or skips prompts on someone's computer.
+  const capped = toolsFor(fullSession);
+  assert.equal(capped.permission_mode, undefined);
+  assert.ok(!capped.allowed_tools.includes("Bash") && capped.allowed_tools.includes("Edit"));
+  assert.ok(!toolsFor(fullSession, "read_only").allowed_tools.includes("Edit"));
+  const full = toolsFor(fullSession, "full");
   assert.equal(full.permission_mode, "bypassPermissions");
-  assert.ok(full.allowed_tools.includes("Bash") && full.allowed_tools.includes("Edit") && full.allowed_tools.includes("WebFetch"));
+  assert.ok(full.allowed_tools.includes("Bash") && full.allowed_tools.includes("WebFetch"));
 });
 
 test("end to end: headless workers pick up their parts, report and vote on their own", async () => {

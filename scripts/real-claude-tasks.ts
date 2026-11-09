@@ -22,6 +22,7 @@ const worker = (name: "juno" | "wren") => ({
   address: A(`${name}-claude`),
   runtime: "claude" as const,
   autopilot: true,
+  autopilot_max: "full" as const,
   workdir: work[name],
   allowed_tools: ["Read", "Grep", "Glob"],
   max_concurrent: 2,

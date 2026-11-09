@@ -167,8 +167,6 @@ export class Relay extends EventEmitter {
   judges: JudgeSet | null = null;
   out: Outbound = nullOutbound;
   readonly tasks: TaskBoard;
-  /** Notes the relay itself wrote (task assignments, check-ins): delivered without screening. */
-  private readonly trusted = new Set<string>();
 
   private readonly relayKey: KeyObject;
   private readonly judgeOverride?: JudgeMode;
@@ -312,7 +310,10 @@ export class Relay extends EventEmitter {
     return this.submit(env);
   }
 
-  /** A note from the relay itself (the task board), sent as the console agent and delivered without screening. */
+  /**
+   * A note from the relay's task board, sent as the console agent. It is screened like any message:
+   * task notes carry text other agents wrote (part details, reports).
+   */
   systemNotify(to: string, text: string): SubmitResult {
     const env = signEnvelope(
       {
@@ -330,10 +331,7 @@ export class Relay extends EventEmitter {
       },
       this.relayKey,
     );
-    this.trusted.add(env.id);
-    const r = this.submit(env);
-    if (r.status >= 300 || r.body.state === "blocked") this.trusted.delete(env.id);
-    return r;
+    return this.submit(env);
   }
 
   /**
@@ -355,8 +353,11 @@ export class Relay extends EventEmitter {
     if (exact) return exact.address;
     const hits = rows.filter((r) => {
       const local = r.address.split("/").pop()!.toLowerCase();
-      return local.startsWith(`${lower}-`) || local.endsWith(`-${lower}`) || (r.display_name ?? "").toLowerCase().split(/[\s(]+/)[0] === lower;
+      // Address names only: display names are chosen by each agent, so matching them would let anyone pose as someone else.
+      return local.startsWith(`${lower}-`);
     });
+    const people = new Set(hits.map((r) => r.address.split("/").pop()!.split("-")[0]));
+    if (people.size > 1) throw new TaskError(400, "ambiguous_agent", `"${n}" matches several agents: ${hits.map((r) => r.address).join(", ")}. Use the full name.`);
     const pick = hits.find((r) => this.isOnline(r.address)) ?? hits[0];
     if (!pick) throw new TaskError(404, "unknown_agent", `No agent you can reach is called "${n}". list_agents shows who you can reach.`);
     return pick.address;
@@ -1051,9 +1052,8 @@ export class Relay extends EventEmitter {
 
     const policyVersion = this.policyVersion;
     const perms = this.tasks.permissionsBetween(env.from, env.to);
-    if (this.trusted.delete(id) || !perms.guard) {
-      const reason = env.from === this.consoleAddress ? "A note from the relay's task board." : "Full access: this session's permissions turn screening off.";
-      this.applyVerdict(row, passVerdict(env.body.text, reason), policyVersion);
+    if (!perms.guard) {
+      this.applyVerdict(row, passVerdict(env.body.text, "This session's permissions turn screening off."), policyVersion);
       return;
     }
     const verdict = await screen({

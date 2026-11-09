@@ -18730,6 +18730,7 @@ function buildPrompt(m, nonce) {
   else lines.push("No reply is expected. Use mcp__a2a__reply only if you need to tell the sender something.");
   lines.push(
     "Earlier messages in this thread are available through mcp__a2a__get_thread.",
+    "If this is about an A2A task you are on, read list_tasks and task_status first: your own earlier work on it is in your part's progress and report.",
     "",
     `<a2a-message id="${m.id}" nonce="${nonce}">`,
     m.text,
@@ -18737,10 +18738,20 @@ function buildPrompt(m, nonce) {
   );
   return lines.join("\n");
 }
+function childEnv(base, extra) {
+  const hosted = !!(base.CLAUDE_CODE_HOST_SESSION_ID || base.CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH);
+  const env = {};
+  for (const [k, v] of Object.entries(base)) {
+    if (k === "CLAUDECODE" || k === "CLAUDE_PID" || k === "CLAUDE_EFFORT" || /^(CLAUDE_CODE_|CLAUDE_AGENT_SDK_|CLAUDE_PREVIEW_)/.test(k)) continue;
+    if (hosted && k === "ANTHROPIC_BASE_URL") continue;
+    env[k] = v;
+  }
+  return { ...env, ...extra };
+}
 function run(cmd, args, opts) {
   return new Promise((resolve6) => {
     const [bin, argv] = /\.m?js$/i.test(cmd) ? [process.execPath, [cmd, ...args]] : [cmd, args];
-    const child = spawn(bin, argv, { cwd: opts.cwd, env: { ...process.env, ...opts.env }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(bin, argv, { cwd: opts.cwd, env: childEnv(process.env, opts.env), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -19213,8 +19224,7 @@ var Daemon = class {
       } catch {
       }
     }
-    const dir = await this.directory(from, true);
-    const target2 = dir.find((a) => a.address === to);
+    const target2 = (await this.directory(from, true)).find((a) => a.address === to) ?? (await this.directory(from)).find((a) => a.address === to);
     const names = target2?.scopes.map((s) => s.name) ?? [];
     return names.includes("general") ? "general" : names[0];
   }
@@ -19341,8 +19351,10 @@ var Daemon = class {
   async send(o, waitMs = 0, verdictMs = 6e4) {
     if (!o.text?.trim()) throw new ClientError(400, "message text is empty");
     let agent;
-    if (o.from) agent = pickAgent(this.config, o.from);
-    else {
+    if (o.from) {
+      agent = pickAgent(this.config, o.from);
+      if (!ADDRESS_RE.test(o.to)) o = { ...o, to: (await this.resolveRoute([agent.address], o.to)).to };
+    } else {
       const speakers = this.speakers(o.tool);
       if (!speakers.length) throw new ClientError(400, "No agent is set up for this app yet. Run `a2a connect`.");
       const inThread = o.thread_id ? this.state.prepare("SELECT from_addr AS a FROM sent WHERE thread_id = ? UNION SELECT to_addr AS a FROM inbox WHERE thread_id = ?").all(o.thread_id, o.thread_id).map((r2) => r2.a) : [];
@@ -19503,6 +19515,10 @@ var Daemon = class {
       this.state.prepare("INSERT INTO sessions (agent, thread_id, runtime, session_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (agent, thread_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at").run(agent.address, sessionKey, agent.runtime, result.sessionId, iso());
     }
     this.markHandled(m.id);
+    if (taskId && result.error) {
+      await this.taskCall([agent.address], taskId, "update", { status: "blocked", note: `Autopilot run failed on ${agent.address.split("/").pop()}: ${result.error.slice(0, 300)}` }).catch(() => {
+      });
+    }
     this.log(`${result.error ? "\u2715" : "\u2713"} ${runId} ${agent.runtime} finished in ${((Date.now() - t0) / 1e3).toFixed(1)}s${result.error ? `: ${result.error}` : ""}`);
     const { replied } = this.state.prepare("SELECT replied FROM runs WHERE id = ?").get(runId);
     if (m.expects_reply && !replied) {
@@ -34751,7 +34767,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.3.1" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.4.0" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);
