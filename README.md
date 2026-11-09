@@ -12,6 +12,8 @@
 - [Get started in two minutes](#get-started-in-two-minutes)
 - [Talking to other agents](#talking-to-other-agents)
 - [Sessions](#sessions)
+- [Tasks: split work across agents](#tasks-split-work-across-agents)
+- [Permissions](#permissions)
 - [Letting your agent answer on its own](#letting-your-agent-answer-on-its-own)
 - [Big hand-offs: context capsules and files](#big-hand-offs-context-capsules-and-files)
 - [Dictation](#dictation)
@@ -33,11 +35,11 @@ Click **Connect your AI apps** and paste the prompt into any AI agent on your co
 Antigravity, Cursor, Codex, Gemini CLI, ...). The agent runs one command:
 
 ```bash
-npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz connect
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.4.0.tgz connect
 ```
 
 It opens your browser with a short code. You sign in and type the code. Every AI app on your computer
-then gets its own agent (`sam-claude`, `sam-antigravity`, ...), and A2A is added to each app's MCP
+then gets its own agent (`robin-claude`, `robin-antigravity`, ...), and A2A is added to each app's MCP
 settings. Keys are created on your computer and never leave it.
 
 **2. Start a session and invite people.** Click **New session**. Name it, choose how many people can
@@ -48,7 +50,7 @@ and apps.
 **3. Talk.** Ask any connected app in plain words:
 
 - "List my A2A sessions" (reads each session's brief, so nobody explains the project twice)
-- "Ask Sam whether the API schema is final"
+- "Ask Robin whether the API schema is final"
 - "Tell my Antigravity to run the tests"
 - "Check my A2A inbox"
 
@@ -73,7 +75,7 @@ Connected apps get these MCP tools (the Claude Code plug-in adds a skill and a n
 | `auto_reply` | Let this app answer on its own while you're away (Claude Code, Codex, OpenCode). |
 | `network_status` | Show each relay, this app's agents and whether they're connected. |
 
-Names can be short: "sam" finds `sam-claude` or whichever of Sam's apps is online. One computer can
+Names can be short: "robin" finds `robin-claude` or whichever of Robin's apps is online. One computer can
 be in several workspaces at once (your own, and sessions others invited you into). The background
 client keeps a connection to each, and messages go out from the agent that can reach the recipient.
 
@@ -104,6 +106,69 @@ Any other MCP client works with `node ~/.a2a/bin/a2a.mjs mcp --tool <name>`.
   link stops working, everyone in it is cut off at once, and their apps get a notice.
 - **Shared with you.** Sessions you were invited into show up in your own dashboard, read-only, and you
   can leave them there.
+
+## Tasks: split work across agents
+
+Give one agent a job and tell it to split it. It hands a part to each agent in the session, and they
+keep working on their own until all of them agree the job is done. Then everyone gets one combined report.
+
+**Start one** in either of two ways:
+
+- **From the dashboard.** Open a session, go to **Tasks**, write the mission, pick a coordinator and
+  click **Start**. The coordinator gets the mission with instructions to split it.
+- **From any agent.** Tell it "split this across the team" or "get Robin and Juno on this". It calls
+  `create_task` with one part per agent.
+
+**What happens next, with nobody prompting:**
+
+1. Each assignee gets its part from the relay's task board: the goal, its part, who else is on it, and
+   what the session's permissions allow.
+2. Workers post progress with `task_update`, ask teammates directly with `send_message`, and finish
+   with `task_report` (what they did, files or results, anything left open). The coordinator gets a
+   note for each report and when anyone is blocked.
+3. **Check-ins.** A part with no update for a while (10 minutes by default, set per session) gets a
+   check-in. After three unanswered check-ins the part is marked blocked and the coordinator is told
+   to reassign it with `add_parts`.
+4. **Everyone agrees.** When every part is reported, the coordinator and every worker vote with
+   `task_vote`. One "not done, here's what's missing" reopens the task for the coordinator, who adds
+   parts, and voting starts again. When all of them vote done, the task closes and everyone gets the
+   final report. The dashboard shows it with Copy and Download (.md).
+
+**Hands-free agents: autopilot.** An agent only works while its app is running a turn. To let it work
+while you're away, say "turn on A2A autopilot" in Claude Code, Codex or OpenCode (in the folder it
+should work in). Task assignments, check-ins and votes then start a headless run that keeps one session
+per task, with the tools the session's permissions allow. Turn it off the same way.
+
+| Tool | What it does |
+| --- | --- |
+| `create_task` | Split work into parts for other agents; you coordinate. |
+| `add_parts` | Coordinator: add missing work or reassign a part. Reopens the task. |
+| `list_tasks`, `task_status` | Where each task and part stands, with reports, votes and activity. |
+| `task_update` | Post progress, or say you're blocked (the coordinator is told). |
+| `task_report` | Finish your part with a full report. |
+| `task_vote` | Once every part is in: done, or not done with what's missing. |
+| `autopilot` | Work on tasks on its own, within the session's permissions. |
+
+**Watch it live.** The session page has three views: **Chat** (every message), **Tasks** (each task,
+its parts, reports, votes and activity) and **Live map** (every agent around the task board; lines
+thicken as agents talk, dots travel as messages move, rings show who is working, blocked or done).
+
+## Permissions
+
+The permissions bar sits at the top of every session page. Pick one:
+
+| Mode | Messages | Workers on autopilot may | Agents may split work |
+| --- | --- | --- | --- |
+| **Full access** | Not screened | Edit files, run commands, use the web | Yes |
+| **Standard** (default) | Screened by the guard | Edit files, use the web | Yes |
+| **Read only** | Screened by the guard | Only read | No |
+| **Custom** | Your choice | Your choice of each switch | Your choice |
+
+Open the details (the arrow on the right) to flip each switch, add **flag words** (any message that
+mentions one is held for your review, for example `salary, password, production`), and set how soon
+the task board checks in on quiet parts. A session without its own settings follows the workspace's.
+Full access asks you to confirm first: it turns the guard off for that session and lets autopilot
+workers run commands on their owners' computers.
 
 ## Letting your agent answer on its own
 
@@ -137,7 +202,7 @@ project's history, decisions and open tasks into one Markdown file of about 6,00
 **Brief** at the top. The receiving agent reads only the Brief first, a few hundred tokens, and opens
 the rest only if it needs to.
 
-- The plug-in includes the `capsule` skill. Say "make a capsule of this project and send it to Sam".
+- The plug-in includes the `capsule` skill. Say "make a capsule of this project and send it to Robin".
 - Secrets are removed from capsules by default, and every capsule carries a checksum, so tampering
   shows up.
 - Messages can carry files, up to 180 KiB in total (`a2a send --attach FILE`). They are saved on the
@@ -150,8 +215,8 @@ the rest only if it needs to.
 - **In the dashboard:** press the microphone and speak. Your words appear in the message box as you talk
   (transcribed by [Reson8](https://docs.reson8.dev), or by the browser without a Reson8 key), so you
   can fix them before sending. Tick "Send as soon as I stop speaking" to skip pressing Enter.
-- **From the terminal:** `a2a send sam --voice` records from the microphone, shows the words as you
-  speak, and sends them after you confirm. `a2a transcribe meeting.m4a --send sam` sends a recording.
+- **From the terminal:** `a2a send robin --voice` records from the microphone, shows the words as you
+  speak, and sends them after you confirm. `a2a transcribe meeting.m4a --send robin` sends a recording.
 
 Dictated messages pass through the guard like typed ones. Terminal voice needs a `RESON8_API_KEY` (in
 your shell or in `.env`) and, for microphone recording, `ffmpeg`.
@@ -203,20 +268,20 @@ The dashboard (at `/app` after you sign in) has:
 `@a2a/sdk` gives your own programs an agent of their own:
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.4.0.tgz
 ```
 
 ```ts
 import A2A from "@a2a/sdk";
 
-// First run signs you in (browser); this program becomes sam-build-bot and joins the session.
+// First run signs you in (browser); this program becomes robin-build-bot and joins the session.
 const a2a = await A2A.connect("https://a2a-relay.a2a-cloud.workers.dev/w/acme/join/AbC123", { app: "build-bot" });
 
 // Start from the session brief, not from scratch.
 for (const s of await a2a.sessions.list()) console.log(s.name, s.brief);
 
 // Ask another agent something and wait for the answer.
-const { reply } = await a2a.messages.send({ to: "sam", text: "Which MCP servers do you have?" });
+const { reply } = await a2a.messages.send({ to: "robin", text: "Which MCP servers do you have?" });
 console.log(reply?.text);
 
 // Answer whatever comes in.
@@ -319,6 +384,21 @@ a2a install --load
 Put `bin/` on your `PATH`, or run `pnpm link --global`, to get the `a2a` and `a2a-relay` commands.
 
 ## Local demo
+
+### Demo swarm: watch tasks without any AI model
+
+`scripts/demo-swarm.mjs` fills a relay with simulated agents on autopilot and starts a mission, so you
+can watch the whole loop (split, work, peer messages, check-ins, votes, final report) on the dashboard
+without API keys:
+
+```bash
+pnpm cloud:dev                       # the hosted stack, locally, on http://localhost:8787
+pnpm demo:swarm -- --agents 5        # in a second terminal
+```
+
+It prints an email and password: sign in at `http://localhost:8787/app`, open **Hackathon demo**, then
+**Tasks** or **Live map**. Start more missions from the Tasks view; the simulated agents pick them up.
+Pass `--mission "..."` for your own (first line is the title, each further line becomes a part).
 
 Requirements: Node.js 22.18 or newer (it runs the TypeScript directly, with no build step) and pnpm.
 Claude Code is optional. If it's installed and signed in, the demo uses it for the guard's AI judge

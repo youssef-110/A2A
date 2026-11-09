@@ -33,6 +33,7 @@ import {
   type Verdict,
 } from "@a2a/guard/core";
 import { tx, type AgentRow, type Db, type InviteRow, type MessageRow, type ThreadRow } from "./db.ts";
+import { TaskBoard, TaskError } from "./tasks.ts";
 
 export const RELAY_VERSION = "0.1.0";
 const FUTURE_SKEW_MS = 5 * 60_000;
@@ -103,7 +104,7 @@ const nullOutbound: Outbound = {
 };
 
 export interface RelayEvent {
-  type: "message" | "agent" | "policy" | "audit" | "console" | "session";
+  type: "message" | "agent" | "policy" | "audit" | "console" | "session" | "task" | "permissions";
   data: unknown;
 }
 
@@ -143,6 +144,21 @@ export function safePreview(text: string, max = 180): string {
   return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
 }
 
+/** What screening returns when it is skipped: the text goes through as written. */
+function passVerdict(text: string, reason: string): Verdict {
+  return {
+    decision: "allow",
+    reason_code: null,
+    reason,
+    categories: [],
+    stages: [{ stage: "permissions", decision: "allow", categories: [], reason, latency_ms: 0 }],
+    findings: [],
+    normalized_text: text,
+    delivered_text: text,
+    redactions: [],
+  };
+}
+
 export class Relay extends EventEmitter {
   readonly db: Db;
   readonly relayPublicKey: string;
@@ -150,6 +166,9 @@ export class Relay extends EventEmitter {
   policyVersion = 0;
   judges: JudgeSet | null = null;
   out: Outbound = nullOutbound;
+  readonly tasks: TaskBoard;
+  /** Notes the relay itself wrote (task assignments, check-ins): delivered without screening. */
+  private readonly trusted = new Set<string>();
 
   private readonly relayKey: KeyObject;
   private readonly judgeOverride?: JudgeMode;
@@ -175,6 +194,7 @@ export class Relay extends EventEmitter {
     this.concurrency = opts.concurrency ?? 4;
     this.requireAccount = opts.requireAccount ?? false;
     this.loadPolicy(opts.initialPolicy);
+    this.tasks = new TaskBoard(this);
   }
 
   start(): void {
@@ -191,7 +211,7 @@ export class Relay extends EventEmitter {
 
   /** True while messages wait for delivery or screening, so a Durable Object knows to keep its sweep alarm. */
   hasPendingWork(): boolean {
-    return this.active > 0 || this.queue.length > 0 || !!this.db.prepare("SELECT 1 FROM messages WHERE state IN ('queued', 'screening') LIMIT 1").get();
+    return this.active > 0 || this.queue.length > 0 || this.tasks.hasActive() || !!this.db.prepare("SELECT 1 FROM messages WHERE state IN ('queued', 'screening') LIMIT 1").get();
   }
 
   stop(): void {
@@ -205,6 +225,11 @@ export class Relay extends EventEmitter {
 
   private emitEvent(type: RelayEvent["type"], data: unknown): void {
     this.emit("event", { type, data } satisfies RelayEvent);
+  }
+
+  /** For the task board: live updates to the dashboard. */
+  publish(type: "task" | "permissions", data: unknown): void {
+    this.emitEvent(type, data);
   }
 
   audit(actor: string, action: string, target: string | null, detail?: unknown): void {
@@ -287,6 +312,56 @@ export class Relay extends EventEmitter {
     return this.submit(env);
   }
 
+  /** A note from the relay itself (the task board), sent as the console agent and delivered without screening. */
+  systemNotify(to: string, text: string): SubmitResult {
+    const env = signEnvelope(
+      {
+        v: 1,
+        id: newMessageId(),
+        thread_id: newThreadId(),
+        in_reply_to: null,
+        from: this.consoleAddress,
+        to,
+        scope: this.defaultScope(this.consoleAddress, to),
+        kind: "notify",
+        body: { text },
+        expects_reply: false,
+        created_at: iso(),
+      },
+      this.relayKey,
+    );
+    this.trusted.add(env.id);
+    const r = this.submit(env);
+    if (r.status >= 300 || r.body.state === "blocked") this.trusted.delete(env.id);
+    return r;
+  }
+
+  /**
+   * A recipient as people write it: a full address, a name on this relay ("juno-claude"), or a person
+   * ("juno"), which picks one of their agents the sender can reach, online ones first.
+   */
+  resolveAddress(from: string, name: string): string {
+    const n = name.trim().replace(/^@/, "");
+    if (!n) throw new TaskError(400, "assignee_required", "Each part needs an assignee.");
+    if (ADDRESS_RE.test(n)) {
+      if (!this.getAgent(n)) throw new TaskError(404, "unknown_agent", `No agent called ${n}.`);
+      return n;
+    }
+    const lower = n.toLowerCase();
+    const rows = (this.db.prepare("SELECT address, display_name FROM agents WHERE status = 'active'").all() as { address: string; display_name: string | null }[]).filter(
+      (r) => r.address !== this.consoleAddress && (r.address === from || this.mayReach(from, r.address)),
+    );
+    const exact = rows.find((r) => r.address === `agent://${this.policy.org}/${lower}`);
+    if (exact) return exact.address;
+    const hits = rows.filter((r) => {
+      const local = r.address.split("/").pop()!.toLowerCase();
+      return local.startsWith(`${lower}-`) || local.endsWith(`-${lower}`) || (r.display_name ?? "").toLowerCase().split(/[\s(]+/)[0] === lower;
+    });
+    const pick = hits.find((r) => this.isOnline(r.address)) ?? hits[0];
+    if (!pick) throw new TaskError(404, "unknown_agent", `No agent you can reach is called "${n}". list_agents shows who you can reach.`);
+    return pick.address;
+  }
+
   /** A scope two agents can use: "general" when it exists, otherwise the first scope their link allows. */
   defaultScope(from: string, to: string): string {
     const allowed = linksBetween(this.policy, from, to).flatMap((l) => (l.scopes.includes("*") ? Object.keys(this.policy.scopes) : l.scopes));
@@ -347,6 +422,12 @@ export class Relay extends EventEmitter {
     if (ownerA) return this.inAnySession(b);
     if (ownerB) return this.inAnySession(a);
     return this.shareSession(a, b);
+  }
+
+  /** Whether two agents may work together: they share a session (sessions mode) or a policy link joins them. */
+  mayReach(a: string, b: string): boolean {
+    if (this.policy.isolation === "sessions") return this.canTalk(a, b);
+    return a === this.consoleAddress || linksBetween(this.policy, a, b).length > 0 || linksBetween(this.policy, b, a).length > 0;
   }
 
   createSession(input: { name?: unknown; max_members?: unknown; brief?: unknown }, actor: string): { id: string; name: string; max_members: number } {
@@ -969,6 +1050,12 @@ export class Relay extends EventEmitter {
       .map((m) => ({ from: m.from_addr, text: m.delivered_text }));
 
     const policyVersion = this.policyVersion;
+    const perms = this.tasks.permissionsBetween(env.from, env.to);
+    if (this.trusted.delete(id) || !perms.guard) {
+      const reason = env.from === this.consoleAddress ? "A note from the relay's task board." : "Full access: this session's permissions turn screening off.";
+      this.applyVerdict(row, passVerdict(env.body.text, reason), policyVersion);
+      return;
+    }
     const verdict = await screen({
       from: env.from,
       to: env.to,
@@ -980,6 +1067,14 @@ export class Relay extends EventEmitter {
       policy: this.policy,
       judges: this.judges,
     });
+    const flagged = verdict.decision === "allow" || verdict.decision === "redact" ? perms.flag_terms.find((t) => env.body.text.toLowerCase().includes(t)) : undefined;
+    if (flagged) {
+      verdict.decision = "hold";
+      verdict.reason_code = "flagged_term";
+      verdict.reason = `The message mentions "${flagged}", which this session's permissions flag for review.`;
+      verdict.categories = [...verdict.categories, "flagged_term"];
+      verdict.stages.push({ stage: "permissions", decision: "hold", categories: ["flagged_term"], reason: verdict.reason, latency_ms: 0 });
+    }
     this.applyVerdict(row, verdict, policyVersion);
   }
 
@@ -1073,6 +1168,7 @@ export class Relay extends EventEmitter {
   }
 
   sweep(now = Date.now()): void {
+    this.tasks.sweep(now);
     const expired = this.db.prepare("SELECT id FROM messages WHERE state = 'queued' AND expires_at < ?").all(iso(now)) as { id: string }[];
     for (const { id } of expired) {
       this.db.prepare("UPDATE messages SET state = 'expired', updated_at = ? WHERE id = ? AND state = 'queued'").run(iso(now), id);

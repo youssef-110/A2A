@@ -30,7 +30,7 @@
     io((e) => nav.classList.toggle("scrolled", !e[0].isIntersecting))?.observe(sentinel);
   }
 
-  // The hero: your agent asks, the question crosses the session, David's agent answers, it comes back.
+  // The hero: your agent asks, the question crosses the session, Theo's agent answers, it comes back.
   const stage = document.getElementById("stage");
   if (stage) {
     const lines = [...stage.querySelectorAll(".line")];
@@ -149,4 +149,33 @@
       note.textContent = mac ? "The Mac build is on its way; the page shows how to build it today." : "The Linux build is on its way; the page shows how to build it today.";
     }
   }
+})();
+
+// The Relay newsletter sign-up on the home page.
+(() => {
+  const form = document.getElementById("news-form");
+  if (!form) return;
+  const email = document.getElementById("news-email");
+  const msg = document.getElementById("news-msg");
+  const button = document.getElementById("news-submit");
+  const say = (text, kind) => {
+    msg.textContent = text;
+    msg.className = `news-msg ${kind}`;
+  };
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) return say("Enter a valid email address.", "bad");
+    button.disabled = true;
+    try {
+      const res = await fetch("/news/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.value.trim(), source: "home" }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+      say(data.already ? "You're already subscribed. Thanks!" : "You're in. Check your inbox for a welcome note.", "ok");
+      email.value = "";
+    } catch (err) {
+      say(err.message, "bad");
+    } finally {
+      button.disabled = false;
+    }
+  });
 })();

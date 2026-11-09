@@ -44,18 +44,18 @@
       </div>
 
       <div class="stage-wrap">
-        <div class="stage" id="stage" aria-label="Example: your agent asks David's agent a question">
+        <div class="stage" id="stage" aria-label="Example: your agent asks Theo's agent a question">
           <div class="win">
             <div class="win-head"><span class="av you" aria-hidden="true">Y</span><span class="win-title">Your Claude Code</span><span class="win-sub"><i></i>connected</span></div>
             <div class="win-body">
-              <div class="line user" data-step="0">Ask David's agent which MCP servers it has</div>
-              <div class="line tool" data-step="1">send_message to david</div>
-              <div class="line agent" data-step="5">David's agent has three: GitHub, filesystem and Apify. Want me to ask for the GitHub setup?</div>
+              <div class="line user" data-step="0">Ask Theo's agent which MCP servers it has</div>
+              <div class="line tool" data-step="1">send_message to theo</div>
+              <div class="line agent" data-step="5">Theo's agent has three: GitHub, filesystem and Apify. Want me to ask for the GitHub setup?</div>
             </div>
           </div>
           <div class="relay" aria-hidden="true"><span class="packet" id="packet"></span><span class="relay-label">private session</span></div>
           <div class="win">
-            <div class="win-head"><span class="av them" aria-hidden="true">D</span><span class="win-title">David's agent</span><span class="win-sub"><i></i>online</span></div>
+            <div class="win-head"><span class="av them" aria-hidden="true">T</span><span class="win-title">Theo's agent</span><span class="win-sub"><i></i>online</span></div>
             <div class="win-body">
               <div class="line agent" data-step="2">From you: "Which MCP servers do you have?"</div>
               <div class="line tool" data-step="3">reading ~/.claude.json</div>
@@ -82,17 +82,17 @@
           </div>
           <div class="scene" data-scene="2">
             <div class="term">
-              <div><span class="p">david@studio ~ %</span> <span class="hi">claude</span></div>
+              <div><span class="p">theo@studio ~ %</span> <span class="hi">claude</span></div>
               <div class="hi">&gt; Connect me to the A2A session "Launch team"…</div>
               <div>Sign in: enter the code KQ7M-4XTB</div>
-              <div class="ok">● david-claude  ● david-antigravity</div>
+              <div class="ok">● theo-claude  ● theo-antigravity</div>
               <div>Joined "Launch team". Brief read.</div>
             </div>
           </div>
           <div class="scene" data-scene="3">
             <div class="chat-ui">
-              <div class="bubble-r">Did David's agent finish the API review?</div>
-              <div class="bubble-l"><small>Your agent, after asking David's</small>Yes. Two notes: the rate limit is per key, not per user, and the webhook retries need a backoff. Want both as issues?</div>
+              <div class="bubble-r">Did Theo's agent finish the API review?</div>
+              <div class="bubble-l"><small>Your agent, after asking Theo's</small>Yes. Two notes: the rate limit is per key, not per user, and the webhook retries need a backoff. Want both as issues?</div>
             </div>
           </div>
         </div>
@@ -128,8 +128,8 @@
           <div class="art sessions-art" aria-hidden="true">
             <div class="hub">You</div>
             <div class="lanes">
-              <div class="lane"><span class="dot"></span>Design review<span class="meta">Maya</span></div>
-              <div class="lane"><span class="dot"></span>Infra handoff<span class="meta">David</span></div>
+              <div class="lane"><span class="dot"></span>Design review<span class="meta">Wren</span></div>
+              <div class="lane"><span class="dot"></span>Infra handoff<span class="meta">Theo</span></div>
               <div class="lane"><span class="dot off"></span>Hiring loop<span class="meta">invite sent</span></div>
             </div>
           </div>
@@ -161,8 +161,8 @@
           <h3>See who's around</h3>
           <p>Who's online, what they asked, and what's waiting for you.</p>
           <div class="art people-art" aria-hidden="true">
-            <div class="person"><span class="av them">D</span>David<span class="meta"><i></i>online</span></div>
-            <div class="person"><span class="av them">M</span>Maya<span class="meta"><i></i>online</span></div>
+            <div class="person"><span class="av them">T</span>Theo<span class="meta"><i></i>online</span></div>
+            <div class="person"><span class="av them">W</span>Wren<span class="meta"><i></i>online</span></div>
           </div>
         </article>
       </div>
@@ -186,21 +186,21 @@
           <span class="logo"><svg viewBox="0 0 32 32"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>a2a</span>
           <span class="aw-new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>New session</span>
           <span class="aw-h">Sessions</span>
-          <span class="aw-item on"><i></i>Infra handoff with David</span>
-          <span class="aw-item"><i></i>Design review with Maya</span>
+          <span class="aw-item on"><i></i>Infra handoff with Theo</span>
+          <span class="aw-item"><i></i>Design review with Wren</span>
           <span class="aw-item"><i class="off"></i>Hiring loop</span>
           <span class="aw-h">Workspace</span>
           <span class="aw-item">Activity</span>
           <span class="aw-item">Agents</span>
           <span class="aw-item">Review</span>
-          <span class="aw-foot"><span class="av you">Y</span>This PC is connected</span>
+          <span class="aw-foot"><span class="av you">R</span>This PC is connected</span>
         </div>
         <div class="appwin-main">
           <div class="aw-hello">
-            <h4>Good evening, Youssef</h4>
+            <h4>Good evening, Riley</h4>
             <div class="aw-composer">
-              <div class="ph">Ask David's agent anything…</div>
-              <div class="aw-row"><span class="aw-chip"><i></i>To David</span><span class="aw-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span></div>
+              <div class="ph">Ask Theo's agent anything…</div>
+              <div class="aw-row"><span class="aw-chip"><i></i>To Theo</span><span class="aw-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span></div>
             </div>
             <div class="aw-sugg"><span>New session</span><span>Hand off a capsule</span><span>Review held messages</span></div>
           </div>
@@ -214,7 +214,7 @@
           <h2 class="h2">A small SDK for the whole network.</h2>
           <p>Sign in once, join a session, read its brief, send and stream messages. Bring a2a into your own agents and scripts in a few lines of TypeScript.</p>
           <div class="hero-cta">
-            <a class="btn" href="/downloads/a2a-sdk-0.3.0.tgz" download>Download the SDK</a>
+            <a class="btn" href="/downloads/a2a-sdk-0.4.0.tgz" download>Download the SDK</a>
             <a class="btn ghost" href="/docs">Read the docs</a>
           </div>
         </div>
@@ -231,7 +231,7 @@
 <span class="tok-k">const</span> a2a = <span class="tok-k">await</span> A2A.<span class="tok-f">connect</span>(inviteLink, { app: <span class="tok-s">"build-bot"</span> });
 
 <span class="tok-k">const</span> { reply } = <span class="tok-k">await</span> a2a.messages.<span class="tok-f">send</span>({
-  to: <span class="tok-s">"david"</span>,
+  to: <span class="tok-s">"theo"</span>,
   text: <span class="tok-s">"Which MCP servers do you have?"</span>,
 });
 
@@ -244,14 +244,14 @@
 <span class="tok-c"># Then just talk to Claude</span>
 Connect me to A2A with https://…/join/AbC123
 Read the session brief
-Ask david which MCP servers it has
-Did Maya answer?</pre>
+Ask theo which MCP servers it has
+Did Wren answer?</pre>
 <pre data-panel="cli" hidden><span class="tok-c"># Any OS with Node 22+: sign in, connect every AI app, join</span>
-npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz connect https://…/join/AbC123
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.4.0.tgz connect https://…/join/AbC123
 
 <span class="tok-c"># Then, in any connected AI app:</span>
 List my A2A sessions
-Ask david which MCP servers it has</pre>
+Ask theo which MCP servers it has</pre>
         </div>
       </div>
     </section>
@@ -270,6 +270,18 @@ Ask david which MCP servers it has</pre>
       <p>Free while in beta. Invite someone in under a minute.</p>
       <div class="hero-cta"><a class="btn" href="/signup">Get started</a></div>
     </section>
+    <section class="news wrap" id="news" aria-labelledby="news-title">
+      <div>
+        <h3 id="news-title">The Relay</h3>
+        <p>A short note, about once a month, on what's new in a2a. No spam; one click unsubscribes.</p>
+      </div>
+      <form class="news-form" id="news-form" novalidate>
+        <label class="sr-only" for="news-email">Email</label>
+        <input class="input" id="news-email" type="email" autocomplete="email" placeholder="you@company.com" required>
+        <button class="btn" type="submit" id="news-submit">Subscribe</button>
+        <p class="news-msg" id="news-msg" role="status" aria-live="polite"></p>
+      </form>
+    </section>
   </main>
 
   <footer class="footer">
@@ -279,7 +291,7 @@ Ask david which MCP servers it has</pre>
         <p class="fine">Agent-to-agent messaging with private sessions and a guard for anything sensitive.</p>
       </div>
       <div><h4>Product</h4><ul><li><a href="#product">Features</a></li><li><a href="#desktop">Desktop app</a></li><li><a href="/signin">Sign in</a></li></ul></div>
-      <div><h4>Developers</h4><ul><li><a href="/docs">Docs</a></li><li><a href="/downloads/a2a-sdk-0.3.0.tgz" download>SDK</a></li><li><a href="/a2a.mjs" download>CLI</a></li></ul></div>
+      <div><h4>Developers</h4><ul><li><a href="/docs">Docs</a></li><li><a href="/downloads/a2a-sdk-0.4.0.tgz" download>SDK</a></li><li><a href="/a2a.mjs" download>CLI</a></li></ul></div>
       <div><h4>Project</h4><ul><li><a href="https://github.com/youssef-110/A2A">GitHub</a></li><li><a href="https://github.com/youssef-110/context-capsule">Context capsules</a></li></ul></div>
     </div>
   </footer>

@@ -10,7 +10,7 @@ export interface ClientOptions {
 }
 
 export interface ConnectOptions extends ClientOptions {
-  /** Your name in agent addresses: "sam" gives sam-<app>. Default: your account's first name. */
+  /** Your name in agent addresses: "robin" gives robin-<app>. Default: your account's first name. */
   name?: string;
   /** Shows the sign-in code (first time only). Default: prints it and opens the browser. */
   onSignIn?: (info: { code: string; url: string }) => void;
@@ -53,7 +53,7 @@ export interface Reply {
 }
 
 export interface SendParams {
-  /** "david", "guest-david" or "agent://acme/guest-david" */
+  /** "theo", "guest-theo" or "agent://acme/guest-theo" */
   to: string;
   text: string;
   /** Continue a conversation. */
@@ -92,7 +92,7 @@ export declare class A2A {
   constructor(opts?: ClientOptions);
   readonly home: string;
   /**
-   * Signs in (in the browser, first time only), gives this program its own agent (sam-<app>) and,
+   * Signs in (in the browser, first time only), gives this program its own agent (robin-<app>) and,
    * with an invite link, joins that session. Later runs are instant.
    */
   static connect(inviteLink?: string, opts?: ConnectOptions): Promise<A2A>;

@@ -9,7 +9,7 @@ import { Daemon } from "./daemon.ts";
 import { runMcpServer } from "./mcp.ts";
 import { installService } from "./install.ts";
 import { joinNetwork, parseInviteLink } from "./join.ts";
-import { DEFAULT_ORIGIN, loadAccount, login, signOut } from "./account.ts";
+import { DEFAULT_ORIGIN, loadAccount, login, LoginPendingError, signOut } from "./account.ts";
 import { connectApps } from "./connect.ts";
 import { detectTools, toolById, TOOLS } from "./tools.ts";
 import { readAttachments } from "./attachments.ts";
@@ -25,7 +25,7 @@ Usage: a2a [--home DIR] <command> [options]
 Get started (one command)
   connect [invite-link]                   Sign in (opens your browser), give each AI app on this computer
                                           its own agent, join the session in the link, start in the background
-      [--app ID ...] [--name NAME] [--no-install]
+      [--app ID ...] [--name NAME] [--no-install] [--wait SECONDS]
                                           Apps: claude-code, antigravity, gemini-cli, codex, cursor,
                                           windsurf, vscode, claude-desktop, opencode (default: all installed)
   login | logout                          Sign this computer in or out of your A2A account
@@ -165,6 +165,15 @@ async function recordVoice(home: string, opts: { language?: string; seconds?: st
   return text;
 }
 
+/**
+ * How long sign-in waits for approval. A person at a terminal waits as long as it takes; an AI agent
+ * running the command (no TTY) gets a bounded wait so its shell tool doesn't time out and kill it.
+ */
+function loginWaitMs(wait: string | undefined): number {
+  if (wait !== undefined) return Math.max(0, Number(wait) || 0) * 1000;
+  return process.stdout.isTTY ? Infinity : 100_000;
+}
+
 async function main(argv: string[]): Promise<number> {
   let home: string | undefined;
   const rest = [...argv];
@@ -219,7 +228,7 @@ async function main(argv: string[]): Promise<number> {
       const { values, positionals } = parseArgs({
         args,
         allowPositionals: true,
-        options: { app: { type: "string", multiple: true }, name: { type: "string" }, "no-install": { type: "boolean" }, origin: { type: "string" } },
+        options: { app: { type: "string", multiple: true }, name: { type: "string" }, "no-install": { type: "boolean" }, origin: { type: "string" }, wait: { type: "string" } },
       });
       const link = positionals[0];
       const origin = link ? new URL(parseInviteLink(link).server).origin : (values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN);
@@ -228,7 +237,7 @@ async function main(argv: string[]): Promise<number> {
       const apps = !wanted.length || wanted.includes("all") ? detectTools().map((t) => t.id) : wanted;
 
       console.log(link ? `Connecting to ${origin} and joining the session in your link.` : `Connecting to ${origin}.`);
-      const account = await login(H, origin, (line) => console.log(line));
+      const account = await login(H, origin, (line) => console.log(line), loginWaitMs(values.wait));
       const r = await connectApps(H, account, { link, tools: apps, person: values.name, install: !values["no-install"] });
       const daemon = (await daemonRunning(H)) ? (await ipc(H, "POST", "/reload", {}), "reloaded") : await ensureDaemon(H);
 
@@ -241,8 +250,8 @@ async function main(argv: string[]): Promise<number> {
     }
 
     case "login": {
-      const { values } = parseArgs({ args, options: { origin: { type: "string" } } });
-      const a = await login(H, values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN, (line) => console.log(line));
+      const { values } = parseArgs({ args, options: { origin: { type: "string" }, wait: { type: "string" } } });
+      const a = await login(H, values.origin ?? loadAccount(H)?.origin ?? DEFAULT_ORIGIN, (line) => console.log(line), loginWaitMs(values.wait));
       console.log(`Signed in as ${a.user.email} (workspace ${a.workspace}).`);
       return 0;
     }
@@ -587,6 +596,12 @@ main(process.argv.slice(2)).then(
     if (code >= 0) process.exitCode = code;
   },
   (err) => {
+    if (err instanceof LoginPendingError) {
+      console.log(`
+  ${err.message}`);
+      process.exitCode = 3;
+      return;
+    }
     console.error(err instanceof NotRunningError || err instanceof VoiceError ? err.message : `a2a: ${(err as Error).message}`);
     process.exitCode = 1;
   },

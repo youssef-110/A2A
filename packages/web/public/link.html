@@ -39,6 +39,7 @@
         <h1>Connect this computer?</h1>
         <div style="display:grid;gap:14px;margin-top:22px">
           <div class="origin">
+            <span>Code: <b id="shown-code"></b> (it should match what your app or terminal shows)</span>
             <span>Computer name, as it reports itself: <b id="host"></b></span>
             <span>Requested from: <b id="place"></b></span>
           </div>
@@ -83,6 +84,7 @@
         ]).catch(() => [null, null]);
         $("next").disabled = false;
         if (!link || link.status !== "pending") return ($("enter-error").textContent = "That code didn't match, or it expired. Codes last ten minutes.");
+        $("shown-code").textContent = code;
         $("host").textContent = link.host;
         $("place").textContent = [link.origin_place, link.origin_ip].filter(Boolean).join(", ") || "unknown";
         // A request from a different network than this browser is the shape of a phishing attempt.
@@ -95,6 +97,15 @@
         $("ws-field").hidden = workspaces.length < 2;
         show("ask");
       });
+
+      // Opened from the app with ?code=: fill it in and go straight to the confirm step (still one click to connect).
+      const given = new URLSearchParams(location.search).get("code");
+      if (given) {
+        input.value = given;
+        input.dispatchEvent(new Event("input"));
+        history.replaceState(null, "", location.pathname);
+        $("enter-form").requestSubmit();
+      }
 
       const decide = async (deny) => {
         $("error").textContent = "";

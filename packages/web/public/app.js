@@ -1365,6 +1365,7 @@ function connectEvents() {
     }
     if (S.view === "talk" || S.view === "session") renderCallLog();
     if (S.selected === m.thread_id && (S.view === "traffic" || S.view === "review")) loadDetail();
+    if (S.view === "session" && S.sessionTab === "map" && (m.state === "screening" || m.state === "blocked" || m.state === "held")) pulse(m);
     if (S.view === "session" && S.sessionData && !S.sessionData.error) {
       clearTimeout(S.sessionReload);
       S.sessionReload = setTimeout(loadSession, 400);
@@ -1392,6 +1393,13 @@ function connectEvents() {
     soon();
   });
   events.addEventListener("policy", () => refresh());
+  events.addEventListener("task", () => {
+    if (S.view === "session") soonExtras();
+  });
+  events.addEventListener("permissions", (e) => {
+    const ev = JSON.parse(e.data);
+    if (S.view === "session" && (ev.scope === S.session || ev.scope === "workspace")) soonExtras();
+  });
   events.addEventListener("session", (e) => {
     const ev = JSON.parse(e.data);
     loadSessions().then(soon);
@@ -1426,7 +1434,7 @@ function copyLine(text, label = "Copy") {
 const PLUGIN_INSTALL = "/plugin install a2a@a2a";
 
 /** The one command that sets A2A up: downloads the client, signs in, connects every AI app here. */
-const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.3.0.tgz"}`;
+const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.4.0.tgz"}`;
 const connectCommand = (url) => `npx -y ${cliUrl()} connect${url ? ` ${url}` : ""}`;
 
 /**
@@ -1441,9 +1449,32 @@ function setupPrompt(url, sessionName) {
     "",
     connectCommand(url),
     "",
-    "It opens my browser to sign in and prints a short code. Show me the code so I can enter it, then let the command keep running until I approve (up to 10 minutes; run it in the background or with a long timeout). It gives each AI app on this computer its own agent and adds A2A to their MCP settings.",
+    "It opens my browser on the A2A approval page with the code already filled in; I sign in and click Connect. Show me the link and code it prints in case the browser didn't open. If the command ends with \"Not approved yet\", wait until I say I clicked Connect, then run the exact same command again (it picks up where it stopped). It gives each AI app on this computer its own agent and adds A2A to their MCP settings.",
     "When it finishes, tell me which apps it connected. Then reload your MCP servers (or tell me to restart you) and call the a2a list_sessions tool to read the session brief.",
   ].join("\n");
+}
+
+/** Sends the invite link by email (from a2a, naming you), for people who'd rather not get it in a chat. */
+function emailInvite(url) {
+  const to = h("input", { class: "input", type: "email", placeholder: "Their email", autocomplete: "off", "aria-label": "Email address to invite" });
+  const send = h("button", { class: "btn secondary", type: "submit" }, "Email invite");
+  const form = h("form", { class: "copy-line" }, to, send);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const address = to.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) return toast("Enter a valid email address.");
+    send.disabled = true;
+    try {
+      await api("POST", "/api/invite-email", { url, to: address });
+      toast(`Invite sent to ${address}`);
+      to.value = "";
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      send.disabled = false;
+    }
+  });
+  return form;
 }
 
 /** The invite, as one block to copy, with the plain link and the Claude Code plug-in as alternatives. */
@@ -1459,6 +1490,7 @@ function inviteSteps(url, sessionName) {
       h("button", { class: "btn", type: "button", onclick: () => copy(setupPrompt(url, sessionName), "Prompt copied. Send it, or paste it into your agent.") }, "Copy prompt"),
       url ? h("button", { class: "btn secondary", type: "button", onclick: () => copy(url, "Link copied") }, "Copy link only") : null,
     ),
+    url ? emailInvite(url) : null,
     h(
       "details",
       { class: "more" },
@@ -1735,6 +1767,12 @@ function connectAgentDialog() {
 async function openSession(id) {
   S.session = id;
   S.sessionData = null;
+  S.sessionTasks = null;
+  S.sessionPerms = null;
+  S.openTask = null;
+  S.taskDetail = null;
+  S.permOpen = false;
+  S.sessionTab = "chat";
   go("session");
   await loadSession();
 }
@@ -1748,10 +1786,11 @@ async function loadSession() {
     if (e.status !== 404) toast(e.message);
     S.sessionData = { error: true };
   }
-  if (S.view === "session") renderView();
+  if (S.sessionPerms === null || S.sessionPerms === undefined) loadSessionExtras();
+  refreshSessionBody();
 }
 
-/** "Sam (Claude Code)" -> "Claude Code": the app an agent speaks for, from its display name. */
+/** "Robin (Claude Code)" -> "Claude Code": the app an agent speaks for, from its display name. */
 const appOf = (m) => (m.address?.endsWith("/console") ? "Dashboard" : null) ?? /\(([^)]+)\)\s*$/.exec(m.display_name ?? "")?.[1] ?? null;
 
 /** Session members grouped by person: one row per person, with each of their apps. */
@@ -1776,21 +1815,22 @@ function timeline(messages, me, names) {
     const day = new Date(m.received_at).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
     const sep = day !== lastDay ? h("div", { class: "tl-day" }, h("span", {}, day)) : null;
     lastDay = day;
-    const mine = m.from === me;
+    const board = m.from === me && /^\[a2a-(task|mission)/.test(m.text ?? m.preview ?? "");
+    const mine = m.from === me && !board;
     const ok = m.state === "delivered" || m.state === "queued";
     return [
       sep,
       h(
         "article",
         { class: `tl-msg ${mine ? "mine" : ""}` },
-        avatar(m.from),
+        board ? h("span", { class: "mono-av board-av", "aria-hidden": "true", html: ICONS.board }) : avatar(m.from),
         h(
           "div",
           { class: "tl-body" },
           h(
             "div",
             { class: "tl-head" },
-            h("b", {}, mine ? "You" : label(m.from)),
+            h("b", {}, board ? "Task board" : mine ? "You" : label(m.from)),
             h("span", { class: "tl-to" }, "to ", m.to === me ? "you" : label(m.to)),
             h("time", { datetime: m.received_at, title: new Date(m.received_at).toLocaleString() }, new Date(m.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })),
             ok ? null : pill(m.state),
@@ -1929,8 +1969,16 @@ function viewSession() {
     : null;
 
   let main;
-  if (!guests.length) {
+  const tab = S.sessionTab ?? "chat";
+  if (tab !== "chat") {
+    main = h("section", { class: "chat-col session-col", "aria-label": `${d.name}: ${tab}` }, permissionsBar(), sessionTabs(), tab === "tasks" ? tasksPane(d) : mapPane());
+  } else if (!guests.length) {
     main = h(
+      "section",
+      { class: "chat-col session-col" },
+      permissionsBar(),
+      sessionTabs(),
+      h(
       "div",
       { class: "chat-scroll" },
       h(
@@ -1944,6 +1992,7 @@ function viewSession() {
           liveInvite ? inviteSteps(liveInvite.url, d.name) : h("button", { class: "btn", onclick: invite, style: "justify-self:center" }, "Create an invite"),
         ),
       ),
+      ),
     );
   } else {
     setTimeout(() => {
@@ -1952,7 +2001,9 @@ function viewSession() {
     });
     main = h(
       "section",
-      { class: "chat-col", "aria-label": `Conversation in ${d.name}` },
+      { class: "chat-col session-col", "aria-label": `Conversation in ${d.name}` },
+      permissionsBar(),
+      sessionTabs(),
       h("div", { class: "chat-scroll", id: "tl-scroll" }, h("div", { class: "log tl", "aria-live": "polite" }, timeline(d.messages, me))),
       h(
         "div",
@@ -1979,6 +2030,435 @@ function viewSession() {
     ],
     body: h("div", { class: "chat" }, main, details),
   };
+}
+
+// ------------------------------------------------------------------ session: permissions, tasks, live map
+
+const PERMISSION_MODES = [
+  ["full", "Full access", "No restrictions. Messages aren't screened; workers may edit files, run commands and use the web."],
+  ["standard", "Standard", "Messages are screened. Workers may edit files and use the web, but not run commands."],
+  ["read_only", "Read only", "Messages are screened. Workers only read, and agents can't hand out work."],
+  ["custom", "Custom", "Pick each switch yourself, and flag words to hold for review."],
+];
+const PERMISSION_SWITCHES = [
+  ["guard", "Screen messages", "The guard checks every message for prompt injection, secrets and risky requests."],
+  ["worker_edit", "Edit files", "Workers on autopilot may create and change files in their folder."],
+  ["worker_shell", "Run commands", "Workers on autopilot may run shell commands."],
+  ["worker_web", "Use the web", "Workers on autopilot may search and fetch pages."],
+  ["delegate", "Split work", "Agents may hand parts of a task to other agents."],
+];
+
+async function loadSessionExtras() {
+  const id = S.session;
+  if (!id) return;
+  try {
+    const [t, p] = await Promise.all([api("GET", `/v1/admin/tasks?session=${encodeURIComponent(id)}`), api("GET", `/v1/admin/permissions/${encodeURIComponent(id)}`)]);
+    if (S.session !== id) return;
+    S.sessionTasks = t.tasks;
+    S.sessionPerms = p;
+    if (S.openTask) S.taskDetail = await api("GET", `/v1/admin/tasks/${encodeURIComponent(S.openTask)}`).catch(() => null);
+  } catch {
+    S.sessionTasks ??= [];
+  }
+  refreshSessionBody();
+}
+
+/** Redraws the session without losing the map's animations or a half-written mission. */
+function refreshSessionBody() {
+  if (S.view !== "session") return;
+  const inPlace = (S.sessionTab === "map" && document.getElementById("agent-map")) || (S.sessionTab === "tasks" && document.getElementById("task-list"));
+  if (!inPlace) return renderView();
+  if (S.sessionTab === "map") (drawMap(), document.getElementById("map-feed")?.replaceWith(mapFeed()));
+  else document.getElementById("task-list").replaceWith(taskList());
+  document.getElementById("perm-bar")?.replaceWith(permissionsBar());
+  document.querySelector(".session-col > .chat-tabs")?.replaceWith(sessionTabs());
+}
+
+let extrasTimer;
+function soonExtras() {
+  clearTimeout(extrasTimer);
+  extrasTimer = setTimeout(loadSessionExtras, 300);
+}
+
+async function savePermissions(patch, msg) {
+  try {
+    S.sessionPerms = await api("PUT", `/v1/admin/permissions/${encodeURIComponent(S.session)}`, patch);
+    toast(msg ?? S.sessionPerms.summary);
+    refreshSessionBody();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function confirmFullAccess() {
+  const dlg = openDialog(
+    "Give everyone full access?",
+    h("p", {}, "Messages in this session go through without the guard, and agents on autopilot may edit files, run commands and use the web on their owners' computers. Use it with people and agents you trust."),
+    h(
+      "div",
+      { class: "dialog-actions" },
+      h("button", { class: "btn secondary", type: "button", onclick: () => dlg.close() }, "Cancel"),
+      h("button", { class: "btn", type: "button", onclick: () => (dlg.close(), savePermissions({ mode: "full" }, "Full access is on for this session")) }, "Turn on full access"),
+    ),
+  );
+}
+
+function permissionsBar() {
+  const p = S.sessionPerms;
+  if (!p) return h("div", { id: "perm-bar", class: "perm-bar", hidden: true });
+  const cur = p.permissions;
+  const pick = (mode) => {
+    if (mode === cur.mode && mode !== "custom") return;
+    if (mode === "full") return confirmFullAccess();
+    if (mode === "custom") return (S.permOpen = true), savePermissions({ mode: "custom" }, "Custom permissions: pick the switches below");
+    savePermissions({ mode });
+  };
+  const terms = h("input", { class: "input", value: cur.flag_terms.join(", "), placeholder: "salary, password, production", "aria-label": "Words to hold for review" });
+  const minutes = h("input", { class: "input perm-min", type: "number", min: 1, max: 240, value: cur.checkin_minutes, "aria-label": "Check-in minutes" });
+  const panel = S.permOpen
+    ? h(
+        "div",
+        { class: "perm-panel" },
+        h(
+          "div",
+          { class: "perm-switches" },
+          PERMISSION_SWITCHES.map(([key, label, help]) =>
+            h(
+              "label",
+              { class: "perm-switch", title: help },
+              h("input", { type: "checkbox", checked: cur[key], onchange: (e) => savePermissions({ mode: "custom", [key]: e.target.checked }) }),
+              h("span", { class: "switch", "aria-hidden": "true" }),
+              h("span", {}, label),
+            ),
+          ),
+        ),
+        h(
+          "div",
+          { class: "perm-row" },
+          h("label", { class: "perm-field" }, h("span", { class: "muted small" }, "Flag words: hold messages that mention them"), terms),
+          h("label", { class: "perm-field perm-narrow" }, h("span", { class: "muted small" }, "Check in after (min)"), minutes),
+          h("button", { class: "btn secondary small", onclick: () => savePermissions({ flag_terms: terms.value, checkin_minutes: Number(minutes.value) }, "Saved") }, "Save"),
+        ),
+        p.inherited ? null : h("button", { class: "link-btn small", onclick: () => savePermissions({ inherit: true }, "This session follows the workspace's permissions again") }, "Use the workspace's permissions"),
+      )
+    : null;
+  return h(
+    "div",
+    { id: "perm-bar", class: `perm-bar mode-${cur.mode}` },
+    h(
+      "div",
+      { class: "perm-top" },
+      h("span", { class: "perm-label" }, "Permissions"),
+      h(
+        "div",
+        { class: "seg perm-seg", role: "radiogroup", "aria-label": "Permissions" },
+        PERMISSION_MODES.map(([mode, label, help]) => h("button", { role: "radio", "aria-checked": String(cur.mode === mode), "aria-selected": String(cur.mode === mode), title: help, onclick: () => pick(mode) }, label)),
+      ),
+      h("span", { class: "perm-sum muted small" }, p.summary, p.inherited ? " Follows the workspace." : ""),
+      h("button", { class: "icon-btn perm-more", "aria-expanded": String(!!S.permOpen), "aria-label": "Permission details", title: "Details", html: ICONS.chev, onclick: () => ((S.permOpen = !S.permOpen), refreshSessionBody()) }),
+    ),
+    panel,
+  );
+}
+
+// ---------------------------------------------------------------- tasks
+
+const TASK_LABEL = { active: "Working", review: "Voting", done: "Done", cancelled: "Stopped" };
+const PART_LABEL = { assigned: "Assigned", working: "Working", blocked: "Blocked", done: "Done" };
+
+function progressBar(done, total) {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return h("div", { class: "t-bar", role: "progressbar", "aria-valuenow": pct, "aria-valuemin": 0, "aria-valuemax": 100 }, h("i", { style: `width:${pct}%` }));
+}
+
+function downloadReport(t) {
+  const blob = new Blob([t.final_report ?? ""], { type: "text/markdown" });
+  const a = h("a", { href: URL.createObjectURL(blob), download: `${t.title.replace(/[^\w-]+/g, "-").toLowerCase() || "task"}-report.md` });
+  document.body.append(a);
+  a.click();
+  setTimeout(() => (URL.revokeObjectURL(a.href), a.remove()), 1000);
+}
+
+function missionCard(d) {
+  const agents = d.members.filter((m) => !m.address.endsWith("/console")).sort((a, b) => Number(b.online) - Number(a.online) || nameOf(a.address).localeCompare(nameOf(b.address)));
+  if (!agents.length) return null;
+  const sel = h(
+    "select",
+    { class: "select", "aria-label": "Coordinator" },
+    agents.map((m) => h("option", { value: m.address, selected: m.address === S.missionTo }, `${m.person || nameOf(m.address)} · ${appOf(m) ?? short(m.address)}${m.online ? "" : " (offline)"}`)),
+  );
+  const box = h("textarea", { class: "textarea mission-input", rows: 3, placeholder: "Describe the job. The coordinator splits it into parts, hands them to the other agents, and keeps everyone going until all of them agree it's done.", oninput: (e) => (S.missionDraft = e.target.value) }, S.missionDraft ?? "");
+  const start = async () => {
+    const mission = box.value.trim();
+    if (!mission) return box.focus();
+    try {
+      const r = await api("POST", "/v1/admin/tasks/kickoff", { to: sel.value, mission, session_id: d.id });
+      S.missionDraft = "";
+      S.missionTo = sel.value;
+      toast(`Sent to ${nameOf(r.to)}. It will split the work and hand it out.`);
+      refreshSessionBody();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  return h(
+    "section",
+    { class: "mission" },
+    h("div", { class: "mission-head" }, h("h2", {}, "Start a mission"), h("span", { class: "muted small" }, "One agent coordinates. The rest work on their own.")),
+    box,
+    h("div", { class: "row mission-row" }, h("label", { class: "mission-pick" }, h("span", { class: "muted small" }, "Coordinator"), sel), h("button", { class: "btn", onclick: start }, "Start")),
+  );
+}
+
+function taskCard(t) {
+  const open = S.openTask === t.id;
+  const detail = open && S.taskDetail?.id === t.id ? S.taskDetail : null;
+  const toggle = async () => {
+    S.openTask = open ? null : t.id;
+    S.taskDetail = null;
+    refreshSessionBody();
+    if (!open) {
+      S.taskDetail = await api("GET", `/v1/admin/tasks/${encodeURIComponent(t.id)}`).catch(() => null);
+      refreshSessionBody();
+    }
+  };
+  const stop = async () => {
+    if (!confirm(`Stop "${t.title}"? Every agent on it is told to stop.`)) return;
+    try {
+      await api("POST", `/v1/admin/tasks/${encodeURIComponent(t.id)}/cancel`);
+      toast("Task stopped");
+      loadSessionExtras();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  const voted = new Map(t.votes.map((v) => [v.address, v]));
+  return h(
+    "article",
+    { class: `task t-${t.status}` },
+    h(
+      "button",
+      { class: "task-head", "aria-expanded": String(open), onclick: toggle },
+      h("div", { class: "task-title" }, h("b", {}, t.title), h("span", { class: "muted small" }, `Coordinated by ${nameOf(t.coordinator)} · ${ago(t.updated_at)}`)),
+      h("span", { class: `pill tp-${t.status}` }, TASK_LABEL[t.status] ?? t.status),
+    ),
+    h("div", { class: "task-progress" }, progressBar(t.progress.done, t.progress.total), h("span", { class: "muted small mono" }, `${t.progress.done}/${t.progress.total}`)),
+    h(
+      "ul",
+      { class: "parts" },
+      t.parts.map((p) =>
+        h(
+          "li",
+          { class: `part ps-${p.status}` },
+          avatar(p.assignee),
+          h("div", { class: "part-text" }, h("div", { class: "part-line" }, h("b", {}, nameOf(p.assignee)), h("span", {}, p.title)), p.progress && p.status !== "done" ? h("span", { class: "muted small" }, p.progress) : null),
+          t.status === "review" ? h("span", { class: `vote ${voted.get(p.assignee)?.vote ?? "none"}` }, voted.get(p.assignee) ? (voted.get(p.assignee).vote === "done" ? "Agreed" : "Not done") : "Voting…") : h("span", { class: `pchip ${p.status}` }, PART_LABEL[p.status] ?? p.status),
+          open && p.report ? h("details", { class: "report", open: true }, h("summary", {}, "Report"), h("div", { class: "report-text" }, p.report)) : null,
+        ),
+      ),
+    ),
+    open
+      ? h(
+          "div",
+          { class: "task-more" },
+          t.goal ? h("p", { class: "task-goal" }, t.goal) : null,
+          t.final_report
+            ? h(
+                "section",
+                { class: "final" },
+                h("div", { class: "sec-h" }, h("h3", {}, "Final report"), h("div", { class: "row" }, h("button", { class: "btn secondary small", onclick: () => copy(t.final_report, "Report copied") }, "Copy"), h("button", { class: "btn secondary small", html: ICONS.download, title: "Download .md", "aria-label": "Download report", onclick: () => downloadReport(t) }))),
+                h("div", { class: "report-text" }, t.final_report),
+              )
+            : null,
+          detail?.events?.length
+            ? h(
+                "section",
+                {},
+                h("h3", {}, "Activity"),
+                h(
+                  "ol",
+                  { class: "t-events" },
+                  detail.events.slice(0, 40).map((e) => h("li", { class: `ev-${e.kind}` }, h("time", { title: new Date(e.at).toLocaleString() }, new Date(e.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })), h("b", {}, e.actor === "relay" ? "Task board" : e.actor === "admin" ? "You" : nameOf(e.actor)), h("span", {}, e.text))),
+                ),
+              )
+            : null,
+          t.status === "active" || t.status === "review" ? h("button", { class: "btn ghost-danger small", onclick: stop }, "Stop task") : null,
+        )
+      : null,
+  );
+}
+
+function taskList() {
+  const tasks = S.sessionTasks ?? [];
+  return h(
+    "div",
+    { id: "task-list", class: "task-list" },
+    tasks.length
+      ? tasks.map(taskCard)
+      : h("div", { class: "tasks-empty" }, h("h3", {}, "No tasks yet"), h("p", { class: "muted" }, "Start a mission above, or ask any agent in this session to split a job across the others. Tasks show up here as they move.")),
+  );
+}
+
+function tasksPane(d) {
+  return h(
+    "div",
+    { class: "chat-scroll" },
+    h("div", { class: "tasks" }, missionCard(d), taskList()),
+  );
+}
+
+// ---------------------------------------------------------------- live map
+
+const SVG = "http://www.w3.org/2000/svg";
+function s(tag, attrs, ...kids) {
+  const el = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs ?? {})) if (v !== undefined && v !== null) el.setAttribute(k, v);
+  for (const kid of kids.flat()) if (kid) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+
+/** Where each agent sits: the task board in the middle, agents on a ring around it. */
+function mapLayout() {
+  const d = S.sessionData;
+  const me = S.overview?.relay?.console_address;
+  const agents = d.members.filter((m) => m.address !== me);
+  const W = 720;
+  const H = 460;
+  const r = Math.min(W, H) / 2 - 70;
+  const pos = new Map([[me, { x: W / 2, y: H / 2 }]]);
+  agents.forEach((m, i) => {
+    const a = (i / Math.max(agents.length, 1)) * Math.PI * 2 - Math.PI / 2;
+    pos.set(m.address, { x: W / 2 + Math.cos(a) * r * 1.25, y: H / 2 + Math.sin(a) * r });
+  });
+  return { W, H, me, agents, pos };
+}
+
+function partStatusOf(address) {
+  const live = (S.sessionTasks ?? []).filter((t) => t.status === "active" || t.status === "review");
+  const parts = live.flatMap((t) => t.parts.filter((p) => p.assignee === address));
+  if (parts.some((p) => p.status === "blocked")) return "blocked";
+  if (parts.some((p) => p.status === "working" || p.status === "assigned")) return "working";
+  if (live.some((t) => t.coordinator === address)) return "coordinating";
+  if (parts.length) return "done";
+  return null;
+}
+
+function drawMap() {
+  const svg = document.getElementById("agent-map");
+  if (!svg || !S.sessionData) return;
+  const { W, H, me, agents, pos } = mapLayout();
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const counts = new Map();
+  for (const m of S.sessionData.messages ?? []) {
+    if (!pos.has(m.from) || !pos.has(m.to)) continue;
+    const key = [m.from, m.to].sort().join("|");
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const edges = s("g", { id: "map-edges" });
+  for (const [key, n] of counts) {
+    const [a, b] = key.split("|");
+    const p = pos.get(a);
+    const q = pos.get(b);
+    edges.append(s("line", { x1: p.x, y1: p.y, x2: q.x, y2: q.y, class: `edge ${a === me || b === me ? "board" : ""}`, "stroke-width": Math.min(1 + Math.log2(n + 1), 5) }));
+  }
+  const nodes = s("g", { id: "map-nodes" });
+  const center = pos.get(me);
+  nodes.append(s("g", { class: "node hub", transform: `translate(${center.x} ${center.y})` }, s("circle", { r: 30 }), s("text", { y: 4, class: "hub-t" }, "Task board"), s("text", { y: 50, class: "sub" }, "relay")));
+  for (const m of agents) {
+    const p = pos.get(m.address);
+    const st = partStatusOf(m.address);
+    nodes.append(
+      s(
+        "g",
+        { class: `node ${m.online ? "on" : "off"} ${st ? `st-${st}` : ""}`, transform: `translate(${p.x} ${p.y})` },
+        s("title", {}, `${m.address}${m.online ? " · online" : " · offline"}${st ? ` · ${st}` : ""}`),
+        s("circle", { r: 26, class: "ring" }),
+        s("circle", { r: 21, class: "face" }),
+        s("text", { y: 5, class: "ini" }, initials(m.address)),
+        s("circle", { r: 5, cx: 18, cy: -18, class: "dot" }),
+        s("text", { y: 46, class: "name" }, m.person || nameOf(m.address)),
+        s("text", { y: 61, class: "sub" }, `${appOf(m) ?? short(m.address)}${st ? ` · ${st}` : ""}`),
+      ),
+    );
+  }
+  svg.querySelector("#map-edges")?.replaceWith(edges);
+  svg.querySelector("#map-nodes")?.replaceWith(nodes);
+  if (!svg.querySelector("#map-edges")) svg.prepend(edges);
+  if (!svg.querySelector("#map-nodes")) svg.append(nodes);
+  if (!svg.querySelector("#map-pulses")) svg.append(s("g", { id: "map-pulses" }));
+}
+
+/** A dot that travels from sender to recipient when a message moves. */
+function pulse(m) {
+  const svg = document.getElementById("agent-map");
+  if (!svg || !S.sessionData || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const { pos } = mapLayout();
+  const p = pos.get(m.from);
+  const q = pos.get(m.to);
+  if (!p || !q) return;
+  const layer = svg.querySelector("#map-pulses");
+  const cls = m.state === "blocked" || m.state === "held" ? `bad ${m.state}` : m.from.endsWith("/console") ? "board" : "";
+  const dot = s("circle", { r: 6, class: `pulse ${cls}`, cx: p.x, cy: p.y });
+  const trail = s("line", { x1: p.x, y1: p.y, x2: p.x, y2: p.y, class: `trail ${cls}` });
+  layer.append(trail, dot);
+  const t0 = performance.now();
+  const dur = 900;
+  const step = (now) => {
+    const k = Math.min((now - t0) / dur, 1);
+    const e = 1 - (1 - k) ** 3;
+    const x = p.x + (q.x - p.x) * e;
+    const y = p.y + (q.y - p.y) * e;
+    dot.setAttribute("cx", x);
+    dot.setAttribute("cy", y);
+    trail.setAttribute("x2", x);
+    trail.setAttribute("y2", y);
+    if (k < 1) requestAnimationFrame(step);
+    else {
+      dot.classList.add("land");
+      trail.classList.add("fade");
+      setTimeout(() => (dot.remove(), trail.remove()), 700);
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+function mapFeed() {
+  const recent = [...(S.sessionData.messages ?? [])].slice(-6).reverse();
+  return h(
+    "ol",
+    { id: "map-feed", class: "map-feed" },
+    recent.map((m) => h("li", {}, h("b", {}, m.from.endsWith("/console") ? "Task board" : nameOf(m.from)), h("span", { class: "muted" }, " to "), h("b", {}, m.to.endsWith("/console") ? "you" : nameOf(m.to)), h("span", { class: "map-prev" }, redactedText(m.preview ?? m.text ?? "")))),
+  );
+}
+
+function mapPane() {
+  setTimeout(drawMap);
+  return h(
+    "div",
+    { class: "chat-scroll" },
+    h(
+      "div",
+      { class: "map-wrap" },
+      h("div", { class: "map-card" }, s("svg", { id: "agent-map", class: "agent-map", role: "img", "aria-label": "Live map of the agents in this session and the messages between them" })),
+      h(
+        "div",
+        { class: "map-legend muted small" },
+        h("span", {}, h("i", { class: "lg on" }), "Online"),
+        h("span", {}, h("i", { class: "lg working" }), "Working"),
+        h("span", {}, h("i", { class: "lg blocked" }), "Blocked"),
+        h("span", {}, h("i", { class: "lg done" }), "Part done"),
+        h("span", {}, "Lines thicken as two agents talk more. Dots move as messages travel."),
+      ),
+      mapFeed(),
+    ),
+  );
+}
+
+function sessionTabs() {
+  const live = (S.sessionTasks ?? []).filter((t) => t.status === "active" || t.status === "review").length;
+  const tab = (id, label) =>
+    h("button", { role: "tab", "aria-selected": String((S.sessionTab ?? "chat") === id), onclick: () => ((S.sessionTab = id), renderView()) }, label);
+  return h("div", { class: "chat-tabs" }, h("div", { class: "seg", role: "tablist", "aria-label": "Session views" }, tab("chat", "Chat"), tab("tasks", live ? `Tasks · ${live}` : "Tasks"), tab("map", "Live map")));
 }
 
 // ------------------------------------------------------------------ shared with you

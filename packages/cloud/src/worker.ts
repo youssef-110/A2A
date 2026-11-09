@@ -6,6 +6,7 @@ import {
   decideDeviceLink,
   deviceLinkByCode,
   endSession,
+  finishPasswordReset,
   GOOGLE_CALLBACK,
   googleEnabled,
   googleFinish,
@@ -14,13 +15,18 @@ import {
   pollDeviceLink,
   recordFailure,
   recordGuestWorkspace,
+  resetTokenValid,
   signIn,
   signUp,
   startDeviceLink,
+  startPasswordReset,
+  subscribe,
   tooManyFailures,
+  unsubscribe,
   workspaceBySlug,
   workspacesFor,
 } from "./accounts.ts";
+import { NEWSLETTER_NAME, sendEmail } from "./email.ts";
 
 export { RelayDO } from "./relay-do.ts";
 
@@ -39,7 +45,11 @@ const PAGES: Record<string, string> = {
   "/docs": "/docs.html",
   "/signin": "/signin.html",
   "/signup": "/signin.html",
+  "/forgot": "/reset.html",
+  "/reset": "/reset.html",
 };
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const json = (body: unknown, status = 200, headers: HeadersInit = {}): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers } });
@@ -122,16 +132,91 @@ async function handleShared(env: Env, req: Request, url: URL, userId: string): P
   return json({ ...((await r.json()) as object), workspace: { slug: ws.slug, name: ws.name } });
 }
 
-async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
+/** The welcome email after sign-up, plus the newsletter if they ticked the box. Never fails sign-up. */
+async function welcome(env: Env, origin: string, email: string, name: string | null, newsletter: boolean): Promise<void> {
+  const sub = newsletter ? await subscribe(env, email, "signup") : null;
+  const unsub = sub && "unsub_token" in sub ? `${origin}/news/unsubscribe?t=${sub.unsub_token}` : undefined;
+  await sendEmail(env, origin, email, "Welcome to a2a", {
+    preview: "Connect your AI apps and start your first session.",
+    heading: `Welcome, ${name ?? "there"}`,
+    paragraphs: [
+      "Your workspace is ready. Connect your AI apps (Claude Code, Antigravity, Cursor, Codex and more) and each one gets its own agent that can talk to your teammates' agents.",
+      "Open your dashboard, click Connect your AI apps, and paste the prompt into any of them.",
+      ...(unsub ? [`You're also on ${NEWSLETTER_NAME}, our short newsletter about what's new.`] : []),
+    ],
+    button: { label: "Open your dashboard", url: `${origin}/app` },
+    footer: "You got this because you created an a2a account.",
+    unsubscribeUrl: unsub,
+  });
+}
+
+/** A small page in the site's style, for the unsubscribe steps. */
+function page(title: string, body: string, form?: { action: string; label: string }): Response {
+  const action = form ? `<form method="post" action="${form.action}"><button class="btn" type="submit">${form.label}</button></form>` : `<a class="btn" href="/">Back to a2a</a>`;
+  return new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/site.css"></head>` +
+      `<body><main class="auth"><div class="auth-card"><a class="logo" href="/" aria-label="a2a home"><img src="/email-logo.png" width="28" height="28" alt="" style="border-radius:7px"><span>a2a</span></a>` +
+      `<div><h1>${title}</h1><p class="sub" style="margin-top:10px">${body}</p></div>${action}</div></main></body></html>`,
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+  );
+}
+
+/** The newsletter: subscribe from the site, unsubscribe from the link in any email. */
+async function handleNews(env: Env, req: Request, url: URL, ctx: ExecutionContext): Promise<Response> {
+  const ip = req.headers.get("cf-connecting-ip") ?? "local";
+  if (url.pathname === "/news/subscribe" && req.method === "POST") {
+    if (await tooManyFailures(env, [`news:${ip}`], 10)) return json({ error: "Too many sign-ups from here. Try again later." }, 429);
+    const body = await readJson(req);
+    const r = await subscribe(env, String(body.email ?? ""), typeof body.source === "string" ? body.source : "site");
+    if ("error" in r) return json({ error: r.error }, 400);
+    await recordFailure(env, [`news:${ip}`]);
+    if (r.isNew) {
+      ctx.waitUntil(
+        sendEmail(env, url.origin, r.email, `You're on ${NEWSLETTER_NAME}`, {
+          preview: "Short notes on what's new in a2a, about once a month.",
+          heading: `Welcome to ${NEWSLETTER_NAME}`,
+          paragraphs: [
+            `Thanks for subscribing. ${NEWSLETTER_NAME} is a short note, about once a month, on what's new in a2a: apps your agents can join from, session features, and tips for getting agents to work together.`,
+            "No spam. One click unsubscribes.",
+          ],
+          button: { label: "See what a2a does", url: `${url.origin}/docs` },
+          footer: `You got this because ${r.email} was entered on the a2a website.`,
+          unsubscribeUrl: `${url.origin}/news/unsubscribe?t=${r.unsub_token}`,
+        }),
+      );
+    }
+    return json({ ok: true, already: !r.isNew });
+  }
+  if (url.pathname === "/news/unsubscribe") {
+    const token = url.searchParams.get("t") ?? "";
+    // GET only asks (mail scanners open links); POST, from that button or an email app's one-click
+    // List-Unsubscribe, does it.
+    if (req.method !== "POST") {
+      return page(`Unsubscribe from ${NEWSLETTER_NAME}?`, "You'll stop getting the newsletter. Account emails, like password resets, still arrive.", {
+        action: `/news/unsubscribe?t=${encodeURIComponent(token)}`,
+        label: "Unsubscribe",
+      });
+    }
+    const email = await unsubscribe(env, token);
+    return email
+      ? page("You're unsubscribed", `You won't get ${NEWSLETTER_NAME} anymore. Changed your mind? Subscribe again on the home page.`)
+      : page("Link not found", "This unsubscribe link isn't valid.");
+  }
+  return json({ error: "not_found" }, 404);
+}
+
+async function handleAuth(env: Env, req: Request, url: URL, ctx: ExecutionContext): Promise<Response> {
   const secure = url.protocol === "https:";
   const ip = req.headers.get("cf-connecting-ip") ?? "local";
   if (url.pathname === "/auth/signup" && req.method === "POST") {
     if (await tooManyFailures(env, [`ip:${ip}`])) return json({ error: "Too many attempts. Wait a few minutes and try again." }, 429);
-    const r = await signUp(env, await readJson(req));
+    const body = await readJson(req);
+    const r = await signUp(env, body);
     if ("error" in r) {
       await recordFailure(env, [`ip:${ip}`]);
       return json({ error: r.error }, 400);
     }
+    ctx.waitUntil(welcome(env, url.origin, r.email, r.name, body.newsletter === true));
     return json({ ok: true }, 201, { "set-cookie": await createSession(env, r.id, secure) });
   }
   if (url.pathname === "/auth/signin" && req.method === "POST") {
@@ -150,17 +235,64 @@ async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
   }
   if (url.pathname === "/auth/google-status") return json({ enabled: googleEnabled(env) });
 
+  // Forgot password: the reply is the same whether or not the email has an account, and the email
+  // goes out after replying, so neither the answer nor its timing tells who has one.
+  if (url.pathname === "/auth/forgot" && req.method === "POST") {
+    const email = String((await readJson(req)).email ?? "").trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return json({ error: "Enter a valid email address." }, 400);
+    const keys = [`reset-ip:${ip}`, `reset-email:${email}`];
+    if (await tooManyFailures(env, keys, 5)) return json({ error: "Too many reset emails. Wait a few minutes and try again." }, 429);
+    await recordFailure(env, keys);
+    ctx.waitUntil(
+      startPasswordReset(env, email).then(
+        (r) =>
+          r &&
+          sendEmail(env, url.origin, r.user.email, "Reset your a2a password", {
+            preview: "Choose a new password. The link works for 30 minutes.",
+            heading: "Reset your password",
+            paragraphs: [`Hi ${r.user.name ?? "there"},`, "Someone (hopefully you) asked to reset the password for your a2a account. The button below works once, for 30 minutes."],
+            button: { label: "Choose a new password", url: `${url.origin}/reset?token=${r.token}` },
+            footer: "Didn't ask for this? Ignore this email; your password stays the same.",
+          }),
+      ),
+    );
+    return json({ ok: true });
+  }
+  if (url.pathname === "/auth/reset/check" && req.method === "GET") {
+    return json({ valid: await resetTokenValid(env, url.searchParams.get("token") ?? "") });
+  }
+  if (url.pathname === "/auth/reset" && req.method === "POST") {
+    if (await tooManyFailures(env, [`ip:${ip}`])) return json({ error: "Too many attempts. Wait a few minutes and try again." }, 429);
+    const body = await readJson(req);
+    const r = await finishPasswordReset(env, String(body.token ?? ""), typeof body.password === "string" ? body.password : "");
+    if ("error" in r) {
+      await recordFailure(env, [`ip:${ip}`]);
+      return json({ error: r.error }, 400);
+    }
+    ctx.waitUntil(
+      sendEmail(env, url.origin, r.email, "Your a2a password was changed", {
+        preview: "Your password was just changed.",
+        heading: "Your password was changed",
+        paragraphs: [`Hi ${r.name ?? "there"},`, "The password for your a2a account was just changed, and every other device was signed out. Your agents keep working."],
+        button: { label: "Open a2a", url: `${url.origin}/app` },
+        footer: "If this wasn't you, reset your password again right away.",
+      }),
+    );
+    return json({ ok: true }, 200, { "set-cookie": await createSession(env, r.id, secure) });
+  }
+
   // Desktop app sign-in, like a TV code: the app gets a code, the person approves it at /link.
   if (url.pathname === "/auth/device/start" && req.method === "POST") {
-    if (await tooManyFailures(env, [`device:${ip}`])) return json({ error: "Too many sign-in codes. Wait a few minutes and try again." }, 429);
+    // Every start counts (not only failures), and agents retry, so this allows more than sign-in does.
+    if (await tooManyFailures(env, [`device:${ip}`], 40)) return json({ error: "Too many sign-in codes. Wait a few minutes and try again." }, 429);
     await recordFailure(env, [`device:${ip}`]);
     const body = await readJson(req);
     const cf = (req as Request & { cf?: { city?: string; region?: string; country?: string } }).cf;
     const place = [cf?.city, cf?.region, cf?.country].filter(Boolean).join(", ") || null;
     const link = await startDeviceLink(env, typeof body.host === "string" ? body.host.trim() : "", { ip, place });
-    // The code is never put in the link: the person types what their own app shows, so a link
-    // someone else sends them can't approve a sign-in they didn't start.
-    return json({ ...link, verify_url: `${url.origin}/link`, interval: 2 });
+    // verify_url_complete (RFC 8628) fills the code in, so the person only clicks Connect. /link still
+    // shows which computer and network asked, and warns when that network isn't the browser's.
+    return json({ ...link, verify_url: `${url.origin}/link`, verify_url_complete: `${url.origin}/link?code=${link.user_code}`, interval: 2 });
   }
   if (url.pathname === "/auth/device/poll" && req.method === "POST") {
     const body = await readJson(req);
@@ -183,7 +315,7 @@ async function handleAuth(env: Env, req: Request, url: URL): Promise<Response> {
   return json({ error: "not_found" }, 404);
 }
 
-async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
+async function handleApi(env: Env, req: Request, url: URL, ctx: ExecutionContext): Promise<Response> {
   const user = await currentUser(env, req);
   if (!user) return json({ error: "signed_out" }, 401);
   const workspaces = await workspacesFor(env, user.id);
@@ -229,6 +361,38 @@ async function handleApi(env: Env, req: Request, url: URL): Promise<Response> {
     if (!res.ok || !invite.url) return json({ error: "Couldn't create an invite for this computer. Try again." }, 502);
     if (!(await decideDeviceLink(env, code, user.id, { workspace: ws.slug, invite_url: invite.url }))) return json({ error: "That code expired. Start again from the app." }, 409);
     return json({ ok: true, status: "approved", workspace: ws.slug });
+  }
+  if (url.pathname === "/api/invite-email" && req.method === "POST") {
+    const body = await readJson(req);
+    const to = String(body.to ?? "").trim().toLowerCase();
+    if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
+    // Only invites to the sender's own workspaces, checked with the relay, so this can't mail arbitrary links.
+    let path = "";
+    try {
+      path = new URL(String(body.url ?? "")).pathname;
+    } catch {
+      /* not a URL */
+    }
+    const m = /^\/w\/([a-z0-9-]+)\/join\/([A-Za-z0-9_-]{1,64})$/.exec(path);
+    const ws = m && workspaces.find((w) => w.slug === m[1]);
+    if (!m || !ws) return json({ error: "That isn't an invite to one of your workspaces." }, 400);
+    if (await tooManyFailures(env, [`invite-mail:${user.id}`], 30)) return json({ error: "That's a lot of invites at once. Wait a few minutes and try again." }, 429);
+    const check = await toRelay(env, new Request(new URL(`/v1/invites/${m[2]}`, url.origin)), ws.do_name, `/v1/invites/${m[2]}`, workspaceHeaders(url, ws));
+    const info = (await check.json().catch(() => ({}))) as { valid?: boolean; session?: string | null };
+    if (!info.valid) return json({ error: "This invite expired. Create a new one first." }, 400);
+    await recordFailure(env, [`invite-mail:${user.id}`]);
+    const who = user.name ?? user.email;
+    const sent = await sendEmail(env, url.origin, to, info.session ? `${who} invited you to "${info.session}" on a2a` : `${who} invited you to a2a`, {
+      preview: "Your AI agents can work together in one shared session.",
+      heading: info.session ? `Join "${info.session}"` : "You're invited to a2a",
+      paragraphs: [
+        `${who} (${user.email}) invited you to a shared a2a session. Your AI apps (Claude Code, Antigravity, Cursor, Codex and more) each get their own agent and can message everyone else's agents in the session.`,
+        "Open the invite, copy the prompt into your AI agent, and click Connect when your browser asks. It takes about a minute.",
+      ],
+      button: { label: "Open the invite", url: `${url.origin}/w/${ws.slug}/join/${m[2]}` },
+      footer: `You got this because ${user.email} entered your address on a2a. If you don't know them, ignore this email.`,
+    });
+    return sent ? json({ ok: true }) : json({ error: "The email couldn't be sent. Copy the link and send it yourself." }, 502);
   }
   if (url.pathname === "/api/workspaces" && req.method === "POST") {
     const body = await readJson(req);
@@ -287,12 +451,13 @@ async function download(env: Env, req: Request, url: URL, os: string): Promise<R
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const p = url.pathname;
 
-    if (p.startsWith("/auth/")) return handleAuth(env, req, url);
-    if (p.startsWith("/api/")) return handleApi(env, req, url);
+    if (p.startsWith("/auth/")) return handleAuth(env, req, url, ctx);
+    if (p.startsWith("/api/")) return handleApi(env, req, url, ctx);
+    if (p.startsWith("/news/")) return handleNews(env, req, url, ctx);
 
     // Workspace relays: agents only. Admin and voice go through /api with a signed-in member.
     const w = /^\/w\/([a-z0-9-]+)(\/.*)$/.exec(p);

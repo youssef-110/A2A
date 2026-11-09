@@ -43,8 +43,8 @@ before(async () => {
           seen.wsBytes += (data as Buffer).length;
           if (!sentInterim) {
             sentInterim = true;
-            ws.send(JSON.stringify({ type: "transcript", text: "hi sam", is_final: false }));
-            ws.send(JSON.stringify({ type: "transcript", text: "Hi Sam,", is_final: true }));
+            ws.send(JSON.stringify({ type: "transcript", text: "hi robin", is_final: false }));
+            ws.send(JSON.stringify({ type: "transcript", text: "Hi Robin,", is_final: true }));
             ws.send(JSON.stringify({ type: "transcript", text: "could you", is_final: false }));
           }
           return;
@@ -114,14 +114,14 @@ test("live audio is streamed as raw PCM, previewed as it is recognised, and flus
   audio.write(Buffer.alloc(6400));
   await new Promise((r) => setTimeout(r, 150));
   stop();
-  assert.equal(await result, "Hi Sam, could you send the logo?");
+  assert.equal(await result, "Hi Robin, could you send the logo?");
   assert.ok(seen.flushed);
   assert.equal(seen.wsBytes, 6400);
   assert.equal(seen.wsAuth, "ApiKey test-key");
   assert.match(seen.wsUrl!, /encoding=pcm_s16le/);
   assert.match(seen.wsUrl!, /sample_rate=16000/);
   assert.match(seen.wsUrl!, /include_interim=true/);
-  assert.ok(updates.includes("Hi Sam, could you"), `interim text shown live: ${updates.join(" | ")}`);
+  assert.ok(updates.includes("Hi Robin, could you"), `interim text shown live: ${updates.join(" | ")}`);
 });
 
 test("the microphone is captured as 16 kHz mono PCM on each platform", () => {

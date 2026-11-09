@@ -25,9 +25,11 @@
       </a>
       <div class="divider">or with email</div>
       <form id="form" novalidate>
-        <label class="field" id="name-field" hidden><span>Your name</span><input class="input" id="name" name="name" autocomplete="name" placeholder="Sam Chen" maxlength="60"></label>
+        <label class="field" id="name-field" hidden><span>Your name</span><input class="input" id="name" name="name" autocomplete="name" placeholder="Robin Vale" maxlength="60"></label>
         <label class="field"><span>Email</span><input class="input" id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required></label>
         <label class="field"><span>Password</span><input class="input" id="password" name="password" type="password" autocomplete="current-password" placeholder="At least 10 characters" required minlength="10"></label>
+        <a class="forgot" id="forgot" href="/forgot">Forgot password?</a>
+        <label class="check" id="news-field" hidden><input type="checkbox" id="newsletter" checked> <span>Send me The Relay, a short monthly note on what's new</span></label>
         <p class="error" id="error" role="alert"></p>
         <button class="btn" type="submit" id="submit">Sign in</button>
       </form>
@@ -49,6 +51,8 @@
         $("title").textContent = "Create your account";
         $("sub").textContent = "Free while in beta. Your first workspace is ready as soon as you sign up.";
         $("name-field").hidden = false;
+        $("news-field").hidden = false;
+        $("forgot").hidden = true;
         $("password").autocomplete = "new-password";
         $("submit").textContent = "Create account";
         $("switch").innerHTML = 'Already have an account? <a href="/signin">Sign in</a>';
@@ -56,6 +60,7 @@
       const q = new URLSearchParams({ next }).toString();
       $("switch").querySelector("a").href += `?${q}`;
       $("google").href = `/auth/google?${q}`;
+      $("forgot").addEventListener("click", () => ($("forgot").href = `/forgot${$("email").value ? `?email=${encodeURIComponent($("email").value)}` : ""}`));
 
       const err = params.get("error");
       if (err === "google_unavailable") {
@@ -74,7 +79,7 @@
       $("form").addEventListener("submit", async (e) => {
         e.preventDefault();
         error.textContent = "";
-        const body = { email: $("email").value, password: $("password").value, ...(signup ? { name: $("name").value } : {}) };
+        const body = { email: $("email").value, password: $("password").value, ...(signup ? { name: $("name").value, newsletter: $("newsletter").checked } : {}) };
         if (!body.email || !body.password) return (error.textContent = "Enter your email and password.");
         $("submit").disabled = true;
         try {

@@ -171,7 +171,7 @@ test("the MCP server exposes the a2a tools and talks to the running client", asy
     await rpc(1, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
     const tools = await rpc(2, "tools/list", {});
-    assert.deepEqual(tools.result.tools.map((t: { name: string }) => t.name).sort(), ["auto_reply", "check_inbox", "connect", "get_thread", "join_network", "list_agents", "list_sessions", "message_status", "network_status", "reply", "send_message", "update_session_brief"]);
+    assert.deepEqual(tools.result.tools.map((t: { name: string }) => t.name).sort(), ["add_parts", "auto_reply", "autopilot", "check_inbox", "connect", "create_task", "get_thread", "join_network", "list_agents", "list_sessions", "list_tasks", "message_status", "network_status", "reply", "send_message", "task_report", "task_status", "task_update", "task_vote", "update_session_brief"]);
     const dir = await rpc(3, "tools/call", { name: "list_agents", arguments: {} });
     assert.match(dir.result.content[0].text, /support-triage/);
     const sent = await rpc(4, "tools/call", { name: "send_message", arguments: { to: SUPPORT, text: "Is ticket T-1051 still open for the customer?", timeout_seconds: 10 } });

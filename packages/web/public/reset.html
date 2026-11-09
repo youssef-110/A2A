@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reset your a2a password</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <main class="auth">
+    <div class="auth-card">
+      <a class="logo" href="/" aria-label="a2a home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
+        <span>a2a</span>
+      </a>
+
+      <section id="forgot" hidden>
+        <div>
+          <h1>Forgot your password?</h1>
+          <p class="sub" style="margin-top:8px">Enter your email and we'll send you a link to choose a new one.</p>
+        </div>
+        <form id="forgot-form" style="display:grid;gap:16px;margin-top:22px" novalidate>
+          <label class="field"><span>Email</span><input class="input" id="email" type="email" autocomplete="email" placeholder="you@company.com" required></label>
+          <p class="error" id="forgot-error" role="alert"></p>
+          <button class="btn" type="submit" id="forgot-submit">Send reset link</button>
+        </form>
+      </section>
+
+      <section id="sent" hidden>
+        <div>
+          <h1>Check your email</h1>
+          <p class="sub" style="margin-top:8px" id="sent-sub">If an account uses that address, a reset link is on its way. It works for 30 minutes. Check spam if it doesn't show up in a minute.</p>
+        </div>
+      </section>
+
+      <section id="reset" hidden>
+        <div>
+          <h1>Choose a new password</h1>
+          <p class="sub" style="margin-top:8px">You'll be signed out on your other devices. Your agents keep working.</p>
+        </div>
+        <form id="reset-form" style="display:grid;gap:16px;margin-top:22px" novalidate>
+          <label class="field"><span>New password</span><input class="input" id="password" type="password" autocomplete="new-password" placeholder="At least 10 characters" required minlength="10"></label>
+          <label class="field"><span>Repeat it</span><input class="input" id="password2" type="password" autocomplete="new-password" required minlength="10"></label>
+          <p class="error" id="reset-error" role="alert"></p>
+          <button class="btn" type="submit" id="reset-submit">Save and sign in</button>
+        </form>
+      </section>
+
+      <section id="bad" hidden>
+        <div>
+          <h1>This link expired</h1>
+          <p class="sub" style="margin-top:8px">Reset links work once, for 30 minutes. Ask for a new one.</p>
+        </div>
+        <a class="btn" href="/forgot">Send a new link</a>
+      </section>
+
+      <p class="switch"><a href="/signin">Back to sign in</a></p>
+    </div>
+  </main>
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const show = (id) => ["forgot", "sent", "reset", "bad"].forEach((s) => ($(s).hidden = s !== id));
+      const post = async (path, body) => {
+        const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+        return data;
+      };
+
+      const token = new URLSearchParams(location.search).get("token");
+      if (location.pathname === "/reset" && token) {
+        // Keep the token out of the address bar (and out of anything that reads history).
+        history.replaceState(null, "", "/reset");
+        fetch(`/auth/reset/check?token=${encodeURIComponent(token)}`)
+          .then((r) => r.json())
+          .then((r) => (r.valid ? (show("reset"), $("password").focus()) : show("bad")))
+          .catch(() => show("bad"));
+      } else {
+        show("forgot");
+        const known = new URLSearchParams(location.search).get("email");
+        if (known) $("email").value = known;
+        $("email").focus();
+      }
+
+      $("forgot-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        $("forgot-error").textContent = "";
+        const email = $("email").value.trim();
+        if (!email) return ($("forgot-error").textContent = "Enter your email.");
+        $("forgot-submit").disabled = true;
+        try {
+          await post("/auth/forgot", { email });
+          $("sent-sub").textContent = `If an account uses ${email}, a reset link is on its way. It works for 30 minutes. Check spam if it doesn't show up in a minute.`;
+          show("sent");
+        } catch (ex) {
+          $("forgot-error").textContent = ex.message;
+          $("forgot-submit").disabled = false;
+        }
+      });
+
+      $("reset-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        $("reset-error").textContent = "";
+        const password = $("password").value;
+        if (password.length < 10) return ($("reset-error").textContent = "Use at least 10 characters.");
+        if (password !== $("password2").value) return ($("reset-error").textContent = "The two passwords don't match.");
+        $("reset-submit").disabled = true;
+        try {
+          await post("/auth/reset", { token, password });
+          location.href = "/app";
+        } catch (ex) {
+          $("reset-error").textContent = ex.message;
+          $("reset-submit").disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

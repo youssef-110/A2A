@@ -11,6 +11,16 @@
         ],
         "createdAt": "2026-10-25T14:40:34.463Z",
         "reason": "Claude: the only pulses mark genuinely live states (a message mid-screening, the mic while listening), each with a text label"
+      },
+      {
+        "rule": "overused-font",
+        "value": "geist",
+        "createdAt": "2026-10-25T19:30:31.506Z"
+      },
+      {
+        "rule": "overused-font",
+        "value": "geist mono",
+        "createdAt": "2026-10-25T19:30:31.692Z"
       }
     ]
   }

@@ -19,7 +19,7 @@
     "subject": "Payment failed after card expiry",
     "history": [
       { "at": "2026-10-02T11:30:00Z", "by": "system", "text": "Renewal payment failed: card expired." },
-      { "at": "2026-10-03T08:05:00Z", "by": "agent:sam", "text": "Emailed the billing contact asking for an updated card. No refund owed." }
+      { "at": "2026-10-03T08:05:00Z", "by": "agent:robin", "text": "Emailed the billing contact asking for an updated card. No refund owed." }
     ]
   }
 ]

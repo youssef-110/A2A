@@ -38,8 +38,8 @@ import {
   type ClientConfig,
 } from "./config.ts";
 import { openState, type State } from "./state.ts";
-import { relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
-import { buildPrompt, runAgent, type InboundMessage } from "./runtimes.ts";
+import { RelayError, relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
+import { buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const CLI_PATH = resolve(here, "cli.ts");
@@ -479,8 +479,8 @@ export class Daemon {
         /* new thread id chosen by the caller */
       }
     }
-    const dir = await this.directory(from, true);
-    const target = dir.find((a) => a.address === to);
+    // Someone may have joined since the cached copy: look once more before giving up.
+    const target = (await this.directory(from, true)).find((a) => a.address === to) ?? (await this.directory(from)).find((a) => a.address === to);
     // Several scopes: prefer "general", else the first. The relay still decides.
     const names = target?.scopes.map((s) => s.name) ?? [];
     return names.includes("general") ? "general" : names[0];
@@ -501,9 +501,9 @@ export class Daemon {
   }
 
   /**
-   * Lets people say "guest-david" or "david" instead of agent://acme/guest-david. Only the address's
+   * Lets people say "guest-theo" or "theo" instead of agent://acme/guest-theo. Only the address's
    * own name counts: display names are chosen by each agent, so matching them would let anyone pose
-   * as "David". "david" also finds david-claude or david-antigravity (preferring the one online).
+   * as "Theo". "theo" also finds theo-claude or theo-antigravity (preferring the one online).
    * Looks through every agent this app speaks as, so it reaches people in any of its workspaces.
    */
   private async resolveRoute(candidates: string[], name: string): Promise<{ from: string; to: string }> {
@@ -620,8 +620,11 @@ export class Daemon {
   async send(o: SendOptions, waitMs = 0, verdictMs = 60_000): Promise<SendResult> {
     if (!o.text?.trim()) throw new ClientError(400, "message text is empty");
     let agent: AgentConfig;
-    if (o.from) agent = pickAgent(this.config, o.from);
-    else {
+    if (o.from) {
+      agent = pickAgent(this.config, o.from);
+      // Headless runs send as a fixed agent; a short name ("juno", "juno-claude") still needs resolving.
+      if (!ADDRESS_RE.test(o.to)) o = { ...o, to: (await this.resolveRoute([agent.address], o.to)).to };
+    } else {
       const speakers = this.speakers(o.tool);
       if (!speakers.length) throw new ClientError(400, "No agent is set up for this app yet. Run `a2a connect`.");
       // Continue a thread as the agent that is already in it; reach a full address from its own workspace.
@@ -751,11 +754,23 @@ export class Daemon {
     this.activeRuns.add(p);
   }
 
-  private async processRun(agent: AgentConfig, m: InboundMessage): Promise<void> {
+  private async processRun(configured: AgentConfig, m: InboundMessage): Promise<void> {
     const runId = newRunId();
+    // Notes from the relay's task board: the worker keeps one session per task and, on autopilot,
+    // gets the tools the session's permissions allow.
+    const fromBoard = m.from.endsWith("/console") && m.sender_verified !== false;
+    const taskId = fromBoard ? taskIdOf(m.text) : null;
+    const mission = fromBoard && m.text.startsWith("[a2a-mission]");
+    let agent = configured;
+    let perms: TaskPermissions | undefined;
+    if (taskId || mission) {
+      if (taskId) perms = await this.taskPermissions(agent.address, taskId);
+      if (agent.autopilot && perms) agent = { ...agent, ...toolsFor(perms) };
+    }
+    const sessionKey = taskId ? `task:${taskId}` : m.thread_id;
     const useSessions = agent.session !== "none" && (agent.runtime === "claude" || agent.runtime === "opencode");
     const session = useSessions
-      ? (this.state.prepare("SELECT session_id FROM sessions WHERE agent = ? AND thread_id = ?").get(agent.address, m.thread_id) as { session_id: string } | undefined)
+      ? (this.state.prepare("SELECT session_id FROM sessions WHERE agent = ? AND thread_id = ?").get(agent.address, sessionKey) as { session_id: string } | undefined)
       : undefined;
     const env = {
       A2A_HOME: this.home,
@@ -778,11 +793,11 @@ export class Daemon {
     const result = await runAgent({
       agent,
       message: m,
-      prompt: buildPrompt(m, randomBytes(6).toString("hex")),
+      prompt: taskId || mission ? buildTaskPrompt(m, randomBytes(6).toString("hex"), perms) : buildPrompt(m, randomBytes(6).toString("hex")),
       sessionId: session?.session_id,
       env,
       mcpConfigPath,
-      timeoutMs: durationMs(agent.timeout, 15 * 60_000),
+      timeoutMs: durationMs(agent.timeout, taskId || mission ? 45 * 60_000 : 15 * 60_000),
     });
     rmSync(mcpConfigPath, { force: true });
 
@@ -792,9 +807,13 @@ export class Daemon {
     if (useSessions && result.sessionId) {
       this.state
         .prepare("INSERT INTO sessions (agent, thread_id, runtime, session_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (agent, thread_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at")
-        .run(agent.address, m.thread_id, agent.runtime, result.sessionId, iso());
+        .run(agent.address, sessionKey, agent.runtime, result.sessionId, iso());
     }
     this.markHandled(m.id);
+    // A task run that failed would otherwise leave its part silently stuck until a check-in.
+    if (taskId && result.error) {
+      await this.taskCall([agent.address], taskId, "update", { status: "blocked", note: `Autopilot run failed on ${agent.address.split("/").pop()}: ${result.error.slice(0, 300)}` }).catch(() => {});
+    }
     this.log(`${result.error ? "✕" : "✓"} ${runId} ${agent.runtime} finished in ${((Date.now() - t0) / 1000).toFixed(1)}s${result.error ? `: ${result.error}` : ""}`);
 
     const { replied } = this.state.prepare("SELECT replied FROM runs WHERE id = ?").get(runId) as { replied: number };
@@ -802,6 +821,61 @@ export class Daemon {
       const text = result.error ? `[a2a] ${agent.address} could not handle this message: ${result.error}` : result.output;
       if (text) await this.send({ from: agent.address, to: m.from, text, thread_id: m.thread_id, in_reply_to: m.id, kind: "reply", expects_reply: false, scope: m.scope }, 0, 0);
     }
+  }
+
+  /** A task's permissions, read as one of our agents that takes part in it. */
+  private async taskPermissions(agent: string, taskId: string): Promise<TaskPermissions | undefined> {
+    try {
+      const t = await signedGet(this.serverFor(agent), agent, this.keys.get(agent)!, `/v1/tasks/${encodeURIComponent(taskId)}`);
+      return t.permissions as TaskPermissions;
+    } catch (err) {
+      this.log(`could not read task ${taskId}: ${(err as Error).message}`);
+      return undefined;
+    }
+  }
+
+  /** Tasks this app's agents coordinate or work on, across workspaces. */
+  async tasks(agents: string[]): Promise<Record<string, unknown>[]> {
+    const lists = await Promise.all(
+      agents.map(async (a) => {
+        const r = await signedGet(this.serverFor(a), a, this.keys.get(a)!, "/v1/tasks").catch(() => ({ tasks: [] }));
+        return ((r.tasks as Record<string, unknown>[]) ?? []).map((t) => ({ ...t, you: a }));
+      }),
+    );
+    return lists.flat();
+  }
+
+  /** Creates a task as the first of our agents that can reach every assignee. */
+  async createTask(agents: string[], body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    let last: unknown;
+    for (const a of agents) {
+      try {
+        return { ...(await signedSend(this.serverFor(a), a, this.keys.get(a)!, "POST", "/v1/tasks", body)), you: a };
+      } catch (err) {
+        last = err;
+        // Another workspace may know these people; anything else is a real error.
+        if (!(err instanceof RelayError) || !["unknown_agent", "not_reachable", "unknown_session"].includes(err.code)) break;
+      }
+    }
+    const e = last as RelayError;
+    throw new ClientError(e?.status ?? 500, e?.message ?? "could not create the task");
+  }
+
+  /** Reads or acts on a task as whichever of our agents takes part in it. */
+  async taskCall(agents: string[], taskId: string, action: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const path = `/v1/tasks/${encodeURIComponent(taskId)}`;
+    let last: unknown;
+    for (const a of agents) {
+      try {
+        const r = action === "detail" ? await signedGet(this.serverFor(a), a, this.keys.get(a)!, path) : await signedSend(this.serverFor(a), a, this.keys.get(a)!, "POST", `${path}/${action}`, body);
+        return { ...r, you: a };
+      } catch (err) {
+        last = err;
+        if (!(err instanceof RelayError) || err.status !== 404) break;
+      }
+    }
+    const e = last as RelayError;
+    throw new ClientError(e?.status ?? 404, (e?.status === 404 ? `No task ${taskId} that this app takes part in.` : (e?.message ?? "task call failed")));
   }
 
   /** Called through the MCP reply tool: replies to the message a run was started for. */
@@ -1018,6 +1092,16 @@ export class Daemon {
           return reply(200, { message: await this.nextInbox(mine(body.agent, body.tool), waitMs(body.wait_seconds, 0)), notices: this.takeNotices(mine(body.agent, body.tool)) });
         case "POST /notices":
           return reply(200, { notices: this.takeNotices(mine(body.agent, body.tool)) });
+        case "GET /tasks":
+          return reply(200, { tasks: await this.tasks(mine(q.get("agent"), q.get("tool"))) });
+        case "POST /tasks/create":
+          return reply(200, await this.createTask(mine(body.agent, body.tool), (body.task ?? {}) as Record<string, unknown>));
+        case "POST /tasks/call": {
+          const action = str(body.action) ?? "detail";
+          if (!["detail", "update", "report", "vote", "parts"].includes(action)) throw new ClientError(400, `unknown task action ${action}`);
+          if (typeof body.task_id !== "string") throw new ClientError(400, "task_id is required");
+          return reply(200, await this.taskCall(mine(body.agent, body.tool), body.task_id, action, (body.input ?? {}) as Record<string, unknown>));
+        }
         case "GET /runs":
           return reply(200, { runs: this.state.prepare("SELECT id, agent, thread_id, message_id, runtime, status, started_at, ended_at, replied, error, cost_usd FROM runs ORDER BY started_at DESC LIMIT 30").all() });
         default:

@@ -5,13 +5,13 @@ import { dirname, join } from "node:path";
 import { SKILL_MD } from "./instructions.ts";
 
 /**
- * The AI apps A2A plugs into. Each gets its own agent (sam-claude, sam-antigravity, ...) and an MCP
+ * The AI apps A2A plugs into. Each gets its own agent (robin-claude, robin-antigravity, ...) and an MCP
  * server entry that runs `a2a mcp --tool <id>`, so every app speaks as itself.
  */
 export interface Tool {
   id: string;
   label: string;
-  /** Goes after the person's name in the agent address: sam-<suffix>. */
+  /** Goes after the person's name in the agent address: robin-<suffix>. */
   suffix: string;
 }
 

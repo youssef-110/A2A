@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { verifyRequestSignature } from "@a2a/protocol";
 import { RELAY_VERSION, type Account, type Relay, type RelayEvent } from "./relay.ts";
+import { TaskError, describePermissions } from "./tasks.ts";
 
 const MAX_BODY = 1 << 20;
 const SESSION_TTL_S = 24 * 3600;
@@ -176,6 +177,43 @@ export function createApi(opts: ApiOptions): Api {
     if (typeof text !== "string") throw new HttpError(400, "text_required");
     if (!relay.agentSetBrief(agent, decodeURIComponent(ctx.params[0]!), text)) throw new HttpError(404, "not_found");
     return { ok: true };
+  });
+  // Tasks: split work across agents, track it, and finish when everyone agrees.
+  const board = <T>(fn: () => T): T => {
+    try {
+      return fn();
+    } catch (err) {
+      if (err instanceof TaskError) throw new HttpError(err.status, err.code, err.message);
+      throw err;
+    }
+  };
+  route("GET", "/v1/tasks", (ctx) => ({ tasks: relay.tasks.listFor(requireAgent(ctx)) }));
+  route("POST", "/v1/tasks", async (ctx) => {
+    const agent = requireAgent(ctx);
+    const body = await ctx.body();
+    return board(() => relay.tasks.create(agent, body));
+  });
+  route("GET", "/v1/tasks/:id", (ctx) => {
+    const agent = requireAgent(ctx);
+    return board(() => relay.tasks.detailFor(agent, decodeURIComponent(ctx.params[0]!)));
+  });
+  route("POST", "/v1/tasks/:id/:action", async (ctx) => {
+    const agent = requireAgent(ctx);
+    const id = decodeURIComponent(ctx.params[0]!);
+    const body = await ctx.body();
+    const t = relay.tasks;
+    switch (ctx.params[1]) {
+      case "update":
+        return board(() => t.update(agent, id, body));
+      case "report":
+        return board(() => t.report(agent, id, body));
+      case "vote":
+        return board(() => t.vote(agent, id, body));
+      case "parts":
+        return board(() => t.addParts(agent, id, body));
+      default:
+        throw new HttpError(404, "not_found");
+    }
   });
   route("GET", "/v1/keys/:address", (ctx) => {
     requireAgent(ctx);
@@ -383,6 +421,61 @@ export function createApi(opts: ApiOptions): Api {
   route("GET", "/v1/admin/console/messages", (ctx) => {
     requireAdmin(ctx);
     return { address: relay.consoleAddress, messages: relay.listMessages({ agent: relay.consoleAddress, limit: 200 }) };
+  });
+
+  route("GET", "/v1/admin/tasks", (ctx) => {
+    requireAdmin(ctx);
+    return { tasks: relay.tasks.list(ctx.url.searchParams.get("session") ?? undefined) };
+  });
+  route("GET", "/v1/admin/tasks/:id", (ctx) => {
+    requireAdmin(ctx);
+    const d = relay.tasks.detail(decodeURIComponent(ctx.params[0]!));
+    if (!d) throw new HttpError(404, "not_found");
+    return d;
+  });
+  route("POST", "/v1/admin/tasks/:id/cancel", (ctx) => {
+    requireAdmin(ctx);
+    if (!relay.tasks.cancel(decodeURIComponent(ctx.params[0]!), "admin")) throw new HttpError(409, "not_running");
+    return { ok: true };
+  });
+  // A mission from the dashboard: one agent becomes the coordinator and splits it across the others.
+  route("POST", "/v1/admin/tasks/kickoff", async (ctx) => {
+    requireAdmin(ctx);
+    const b = await ctx.body();
+    const mission = typeof b.mission === "string" ? b.mission.trim().slice(0, 8000) : "";
+    if (!mission) throw new HttpError(400, "mission_required");
+    if (typeof b.to !== "string") throw new HttpError(400, "invalid_recipient");
+    const to = board(() => relay.resolveAddress(relay.consoleAddress, b.to as string));
+    const sessionId = typeof b.session_id === "string" && b.session_id ? b.session_id : null;
+    const perms = relay.tasks.permissions(sessionId ?? "workspace");
+    const text = [
+      "[a2a-mission] A mission from the workspace owner, sent from the dashboard. You are the coordinator.",
+      "",
+      mission,
+      "",
+      "What to do:",
+      "1. Read the session brief with list_sessions and see who is reachable with list_agents.",
+      `2. Split the work into clear parts and hand them out with create_task${sessionId ? ` (session_id ${sessionId})` : ""}. Give each part enough detail to work alone. You may keep a part for yourself.`,
+      "3. Keep the work moving without waiting for the owner: answer questions, check on parts with task_status, help anyone blocked, and add missing work with add_parts.",
+      "4. When every part is reported, read the reports and vote with task_vote. The task ends when everyone votes done, and everyone gets the full report.",
+      "",
+      `Permissions: ${describePermissions(perms)}`,
+    ].join("\n");
+    const r = relay.systemNotify(to, text);
+    relay.audit("admin", "task.kickoff", to, { session_id: sessionId });
+    ctx.status = r.status;
+    return { ...r.body, to };
+  });
+  route("GET", "/v1/admin/permissions/:scope", (ctx) => {
+    requireAdmin(ctx);
+    const scope = decodeURIComponent(ctx.params[0]!);
+    return { scope, inherited: scope !== "workspace" && !relay.tasks.hasOwnPermissions(scope), permissions: relay.tasks.permissions(scope), summary: describePermissions(relay.tasks.permissions(scope)) };
+  });
+  route("PUT", "/v1/admin/permissions/:scope", async (ctx) => {
+    requireAdmin(ctx);
+    const scope = decodeURIComponent(ctx.params[0]!);
+    const p = relay.tasks.setPermissions(scope, await ctx.body(), "admin");
+    return { scope, inherited: scope !== "workspace" && !relay.tasks.hasOwnPermissions(scope), permissions: p, summary: describePermissions(p) };
   });
 
   // Voice: Reson8 speech-to-text. The API key stays here; the browser gets a 10-minute token.

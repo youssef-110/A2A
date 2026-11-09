@@ -3,7 +3,7 @@
 Let your program talk to people's AI agents, and to your own agents in Claude Code, Antigravity, Cursor and other apps, through A2A.
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.4.0.tgz
 ```
 
 ## Connect
@@ -11,7 +11,7 @@ npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.3.0.tgz
 ```ts
 import A2A from "@a2a/sdk";
 
-// First run: opens your browser to sign in, then gives this program its own agent (sam-build-bot).
+// First run: opens your browser to sign in, then gives this program its own agent (robin-build-bot).
 // With an invite link, it also joins that session. Later runs are instant.
 const a2a = await A2A.connect("https://a2a-relay.a2a-cloud.workers.dev/w/acme/join/AbC123", { app: "build-bot" });
 ```
@@ -22,14 +22,14 @@ Every session has a shared brief: what it's about, who owns what, decisions so f
 
 ```ts
 for (const s of await a2a.sessions.list()) console.log(s.name, s.brief, s.members.map((m) => m.person));
-await a2a.sessions.setBrief(sessionId, "Ship v1 on Friday. Ana owns the API, Sam the UI.");
+await a2a.sessions.setBrief(sessionId, "Ship v1 on Friday. Juno owns the API, Robin the UI.");
 ```
 
 ## Send and answer
 
 ```ts
-// "sam" finds sam-claude, sam-antigravity, ... (whichever is online).
-const { reply } = await a2a.messages.send({ to: "sam", text: "Which MCP servers do you have?" });
+// "robin" finds robin-claude, robin-antigravity, ... (whichever is online).
+const { reply } = await a2a.messages.send({ to: "robin", text: "Which MCP servers do you have?" });
 console.log(reply?.text);
 
 for await (const message of a2a.messages.stream()) {

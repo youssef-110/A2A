@@ -117,11 +117,11 @@ export async function endSession(env: AccountsEnv, req: Request, secure: boolean
 const WINDOW_MS = 15 * 60_000;
 const MAX_FAILURES = 10;
 
-export async function tooManyFailures(env: AccountsEnv, keys: string[]): Promise<boolean> {
+export async function tooManyFailures(env: AccountsEnv, keys: string[], max = MAX_FAILURES): Promise<boolean> {
   const since = iso(Date.now() - WINDOW_MS);
   for (const key of keys) {
     const r = await env.ACCOUNTS.prepare("SELECT COUNT(*) AS n FROM auth_attempts WHERE key = ? AND at > ?").bind(key, since).first<{ n: number }>();
-    if ((r?.n ?? 0) >= MAX_FAILURES) return true;
+    if ((r?.n ?? 0) >= max) return true;
   }
   return false;
 }
@@ -403,4 +403,68 @@ export async function guestWorkspaces(env: AccountsEnv, userId: string): Promise
     .bind(userId, userId)
     .all<{ id: string; slug: string; name: string; do_name: string }>();
   return r.results;
+}
+
+// ------------------------------------------------------------------ password reset and newsletter
+
+const RESET_MINUTES = 30;
+const validEmail = (s: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length <= 254;
+
+/** A one-use reset token for the account with this email, or null if there is none (the caller never says which). */
+export async function startPasswordReset(env: AccountsEnv, email: string): Promise<{ user: User; token: string } | null> {
+  const user = await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url FROM users WHERE email = ?").bind(email.trim().toLowerCase()).first<User>();
+  if (!user) return null;
+  const token = randomToken();
+  await env.ACCOUNTS.batch([
+    // Only the newest link works: asking again cancels the earlier ones.
+    env.ACCOUNTS.prepare("DELETE FROM password_resets WHERE user_id = ? OR expires_at < ?").bind(user.id, iso()),
+    env.ACCOUNTS.prepare("INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)").bind(await sha256Hex(token), user.id, iso(), iso(Date.now() + RESET_MINUTES * 60_000)),
+  ]);
+  return { user, token };
+}
+
+export async function resetTokenValid(env: AccountsEnv, token: string): Promise<boolean> {
+  return !!(await env.ACCOUNTS.prepare("SELECT 1 FROM password_resets WHERE token_hash = ? AND expires_at > ?").bind(await sha256Hex(token), iso()).first());
+}
+
+/**
+ * Sets a new password with a reset token. The token is used up, and every other sign-in of the
+ * account (browsers and a2a CLIs) is signed out, in case someone else had the old password.
+ */
+export async function finishPasswordReset(env: AccountsEnv, token: string, password: string): Promise<User | { error: string }> {
+  if (password.length < 10) return { error: "Use at least 10 characters for your password." };
+  const hash = await sha256Hex(token);
+  const row = await env.ACCOUNTS.prepare("SELECT user_id FROM password_resets WHERE token_hash = ? AND expires_at > ?").bind(hash, iso()).first<{ user_id: string }>();
+  if (!row) return { error: "This reset link expired or was already used. Ask for a new one." };
+  // Delete first: if the link is used twice at once, only one request sets the password.
+  const del = await env.ACCOUNTS.prepare("DELETE FROM password_resets WHERE token_hash = ?").bind(hash).run();
+  if (!del.meta.changes) return { error: "This reset link expired or was already used. Ask for a new one." };
+  await env.ACCOUNTS.batch([
+    env.ACCOUNTS.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(password), row.user_id),
+    env.ACCOUNTS.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(row.user_id),
+    env.ACCOUNTS.prepare("DELETE FROM password_resets WHERE user_id = ?").bind(row.user_id),
+  ]);
+  return (await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").bind(row.user_id).first<User>())!;
+}
+
+/** Adds (or re-adds) an email to the newsletter. isNew is false when it was already subscribed. */
+export async function subscribe(env: AccountsEnv, emailIn: string, source: string): Promise<{ email: string; unsub_token: string; isNew: boolean } | { error: string }> {
+  const email = emailIn.trim().toLowerCase();
+  if (!validEmail(email)) return { error: "Enter a valid email address." };
+  const existing = await env.ACCOUNTS.prepare("SELECT unsub_token, unsubscribed_at FROM subscribers WHERE email = ?").bind(email).first<{ unsub_token: string; unsubscribed_at: string | null }>();
+  if (existing && !existing.unsubscribed_at) return { email, unsub_token: existing.unsub_token, isNew: false };
+  const token = existing?.unsub_token ?? randomToken(24);
+  await env.ACCOUNTS.prepare(
+    "INSERT INTO subscribers (email, unsub_token, source, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (email) DO UPDATE SET unsubscribed_at = NULL, created_at = excluded.created_at",
+  )
+    .bind(email, token, source.slice(0, 30), iso())
+    .run();
+  return { email, unsub_token: token, isNew: true };
+}
+
+export async function unsubscribe(env: AccountsEnv, token: string): Promise<string | null> {
+  const row = await env.ACCOUNTS.prepare("SELECT email FROM subscribers WHERE unsub_token = ?").bind(token).first<{ email: string }>();
+  if (!row) return null;
+  await env.ACCOUNTS.prepare("UPDATE subscribers SET unsubscribed_at = COALESCE(unsubscribed_at, ?) WHERE unsub_token = ?").bind(iso(), token).run();
+  return row.email;
 }

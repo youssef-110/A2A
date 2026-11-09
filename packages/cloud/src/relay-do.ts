@@ -6,8 +6,9 @@ import { doDb } from "./do-db.ts";
 import { DoHub } from "./do-hub.ts";
 import { defaultPolicy, workspacePolicy } from "./policy.ts";
 import type { AccountsEnv } from "./accounts.ts";
+import type { EmailEnv } from "./email.ts";
 
-export interface Env extends AccountsEnv {
+export interface Env extends AccountsEnv, EmailEnv {
   RELAY: DurableObjectNamespace;
   ASSETS: Fetcher;
   A2A_ADMIN_TOKEN?: string;

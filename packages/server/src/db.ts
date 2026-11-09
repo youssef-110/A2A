@@ -162,6 +162,61 @@ CREATE TABLE IF NOT EXISTS invites (
   uses       INTEGER NOT NULL DEFAULT 0,
   revoked    INTEGER NOT NULL DEFAULT 0
 );
+
+-- Permissions, per session or for the whole workspace (scope "workspace"), as JSON.
+CREATE TABLE IF NOT EXISTS permissions (
+  scope      TEXT PRIMARY KEY,
+  json       TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Tasks: a coordinator splits work into parts for other agents; done when everyone votes done.
+CREATE TABLE IF NOT EXISTS tasks (
+  id           TEXT PRIMARY KEY,
+  session_id   TEXT,
+  title        TEXT NOT NULL,
+  goal         TEXT NOT NULL,
+  coordinator  TEXT NOT NULL,
+  status       TEXT NOT NULL,
+  final_report TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tasks_session ON tasks (session_id, updated_at);
+CREATE TABLE IF NOT EXISTS task_items (
+  id            TEXT PRIMARY KEY,
+  task_id       TEXT NOT NULL,
+  assignee      TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  detail        TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  progress      TEXT,
+  report        TEXT,
+  nudges        INTEGER NOT NULL DEFAULT 0,
+  last_nudge_at TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS task_items_task ON task_items (task_id);
+CREATE INDEX IF NOT EXISTS task_items_assignee ON task_items (assignee);
+CREATE TABLE IF NOT EXISTS task_votes (
+  task_id TEXT NOT NULL,
+  address TEXT NOT NULL,
+  vote    TEXT NOT NULL,
+  note    TEXT,
+  at      TEXT NOT NULL,
+  PRIMARY KEY (task_id, address)
+);
+CREATE TABLE IF NOT EXISTS task_events (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  actor   TEXT NOT NULL,
+  kind    TEXT NOT NULL,
+  text    TEXT NOT NULL,
+  at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS task_events_task ON task_events (task_id, id);
 `;
 
 export type SqlValue = string | number | bigint | null | Uint8Array;

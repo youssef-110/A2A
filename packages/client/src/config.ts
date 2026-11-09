@@ -27,6 +27,8 @@ export interface AgentConfig {
   /** claude: alias or model id. codex: model id. opencode: provider/model, e.g. anthropic/claude-sonnet-5-5. */
   model?: string;
   permission_mode?: string;
+  /** Task runs get the tools the session's permissions allow (the owner's permissions bar), not only allowed_tools. */
+  autopilot?: boolean;
   /** Extra system prompt text for the spawned agent. */
   instructions?: string;
   session?: "per_thread" | "none";
@@ -41,7 +43,7 @@ export interface ClientConfig {
   relay_public_key?: string;
   /** Other relays this computer is in, each with its pinned key (workspaces of people who invited you). */
   networks?: { server: string; relay_public_key: string; name?: string }[];
-  /** The base of this person's agent names: "sam" for sam-claude, sam-antigravity, ... */
+  /** The base of this person's agent names: "robin" for robin-claude, robin-antigravity, ... */
   person?: string;
   default_agent?: string;
   agents: AgentConfig[];

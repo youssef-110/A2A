@@ -4,7 +4,7 @@ import { scan, type AttachmentInput, type Finding } from "./scanners.ts";
 import { actionFor, type Policy } from "./policy.ts";
 import type { Judge, JudgeInput, JudgeOutput, JudgeSet } from "./judges/types.ts";
 
-export type StageName = "envelope" | "scanners" | "judge" | "escalation";
+export type StageName = "envelope" | "scanners" | "judge" | "escalation" | "permissions";
 
 export interface StageResult {
   stage: StageName;

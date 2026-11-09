@@ -69,16 +69,16 @@ test("invite links activate new agents, respect their use limit and can be revok
 
 test("joining with a link, sending by name, and an open policy that lets anything through", async () => {
   const { r, dir } = await openRelay();
-  const homes = [tempDir("join-sam"), tempDir("join-david")];
+  const homes = [tempDir("join-robin"), tempDir("join-theo")];
   const daemons: Daemon[] = [];
   try {
     const { url } = (await adminFetch(r.url, "POST", "/v1/admin/invites", { max_uses: 2 })).body as { url: string };
-    const sam = await joinNetwork(homes[0]!, url, { name: "sam" });
-    const david = await joinNetwork(homes[1]!, url, { name: "guest-david", runtime: "command" });
-    assert.equal(sam.address, "agent://acme/sam");
-    assert.equal(david.status, "active");
+    const robin = await joinNetwork(homes[0]!, url, { name: "robin" });
+    const theo = await joinNetwork(homes[1]!, url, { name: "guest-theo", runtime: "command" });
+    assert.equal(robin.address, "agent://acme/robin");
+    assert.equal(theo.status, "active");
 
-    // david answers with the echo agent so we can see the round trip.
+    // theo answers with the echo agent so we can see the round trip.
     const { saveConfig, loadConfig } = await import("../packages/client/src/config.ts");
     const cfg = loadConfig(homes[1]!);
     cfg.agents[0]!.command = [process.execPath, ECHO_AGENT];
@@ -91,9 +91,9 @@ test("joining with a link, sending by name, and an open policy that lets anythin
     }
     await waitFor(() => daemons.every((d) => d.info().connected === true), 5000, "both connected");
 
-    // "guest-david" resolves to the full address, the free-form scope is accepted, and the question isn't blocked.
-    const r1 = await daemons[0]!.send({ to: "guest-david", text: "Which MCP servers do you have on your machine?", scope: "engineering-chat" }, 10_000);
-    assert.equal(r1.reply?.from, "agent://acme/guest-david");
+    // "guest-theo" resolves to the full address, the free-form scope is accepted, and the question isn't blocked.
+    const r1 = await daemons[0]!.send({ to: "guest-theo", text: "Which MCP servers do you have on your machine?", scope: "engineering-chat" }, 10_000);
+    assert.equal(r1.reply?.from, "agent://acme/guest-theo");
     assert.match(r1.reply!.text, /MCP servers/);
 
     await assert.rejects(daemons[0]!.send({ to: "nobody-here", text: "hi" }), /No agent called "nobody-here"/);
@@ -217,15 +217,15 @@ test("sessions keep each guest private: guests reach only the owner, never each 
   const policyPath = join(dir, "policy.yaml");
   writeFileSync(policyPath, "org: acme\nregistration: invite\nisolation: sessions\nscopes:\n  general:\n    description: Anything.\nrules:\n  block: []\n  hold: []\n  redact: []\nguard:\n  judge: off\n");
   const r = await relay({ policyPath, judges: null });
-  const homes = [tempDir("ses-owner"), tempDir("ses-david"), tempDir("ses-maya")];
+  const homes = [tempDir("ses-owner"), tempDir("ses-theo"), tempDir("ses-wren")];
   const daemons: Daemon[] = [];
   try {
     const owner = (await adminFetch(r.url, "POST", "/v1/admin/invites", { owner: true })).body as { url: string };
-    const david = (await adminFetch(r.url, "POST", "/v1/admin/sessions", { name: "David" })).body as { id: string; invite: { url: string } };
-    const maya = (await adminFetch(r.url, "POST", "/v1/admin/sessions", { name: "Maya" })).body as { invite: { url: string } };
-    await joinNetwork(homes[0]!, owner.url, { name: "lena" });
-    await joinNetwork(homes[1]!, david.invite.url, { name: "david" });
-    await joinNetwork(homes[2]!, maya.invite.url, { name: "maya" });
+    const theo = (await adminFetch(r.url, "POST", "/v1/admin/sessions", { name: "Theo" })).body as { id: string; invite: { url: string } };
+    const wren = (await adminFetch(r.url, "POST", "/v1/admin/sessions", { name: "Wren" })).body as { invite: { url: string } };
+    await joinNetwork(homes[0]!, owner.url, { name: "ivy" });
+    await joinNetwork(homes[1]!, theo.invite.url, { name: "theo" });
+    await joinNetwork(homes[2]!, wren.invite.url, { name: "wren" });
     for (const home of homes) {
       const d = new Daemon({ home, log: () => {} });
       await d.start();
@@ -233,18 +233,18 @@ test("sessions keep each guest private: guests reach only the owner, never each 
     }
     await waitFor(() => daemons.every((d) => d.info().connected === true), 5000, "all connected");
     const reach = async (i: number) => (await daemons[i]!.directory(daemons[i]!.config.agents[0]!.address)).map((a) => a.address).filter((a) => !a.endsWith("/console")).sort();
-    assert.deepEqual(await reach(0), ["agent://acme/david", "agent://acme/maya"]);
-    assert.deepEqual(await reach(1), ["agent://acme/lena"]);
-    assert.deepEqual(await reach(2), ["agent://acme/lena"]);
+    assert.deepEqual(await reach(0), ["agent://acme/theo", "agent://acme/wren"]);
+    assert.deepEqual(await reach(1), ["agent://acme/ivy"]);
+    assert.deepEqual(await reach(2), ["agent://acme/ivy"]);
 
-    const cross = await daemons[1]!.send({ to: "agent://acme/maya", text: "hi", scope: "general" }, 0);
+    const cross = await daemons[1]!.send({ to: "agent://acme/wren", text: "hi", scope: "general" }, 0);
     assert.equal(cross.state, "blocked");
     assert.equal(cross.reason_code, "not_in_session");
-    assert.notEqual((await daemons[0]!.send({ to: "david", text: "hello" }, 0)).state, "blocked");
+    assert.notEqual((await daemons[0]!.send({ to: "theo", text: "hello" }, 0)).state, "blocked");
 
     // Archiving a session cuts its guest off.
-    await adminFetch(r.url, "DELETE", `/v1/admin/sessions/${david.id}`);
-    assert.equal((await daemons[0]!.send({ to: "agent://acme/david", text: "still there?", scope: "general" }, 0)).reason_code, "not_in_session");
+    await adminFetch(r.url, "DELETE", `/v1/admin/sessions/${theo.id}`);
+    assert.equal((await daemons[0]!.send({ to: "agent://acme/theo", text: "still there?", scope: "general" }, 0)).reason_code, "not_in_session");
   } finally {
     for (const d of daemons) await d.stop();
     await r.close();

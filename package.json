@@ -10,6 +10,7 @@
     "relay": "node --disable-warning=ExperimentalWarning packages/server/src/main.ts",
     "demo": "node --disable-warning=ExperimentalWarning demo/start.ts",
     "demo:scenario": "node --disable-warning=ExperimentalWarning demo/scenario.ts",
+    "demo:swarm": "node --disable-warning=ExperimentalWarning scripts/demo-swarm.mjs",
     "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 test/*.test.ts",
     "eval": "node --disable-warning=ExperimentalWarning packages/guard/scripts/eval.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p packages/cloud/tsconfig.json --noEmit",

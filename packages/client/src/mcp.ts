@@ -71,7 +71,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     return ipc<T>(home, method, path, body, timeoutMs);
   };
 
-  const server = new McpServer({ name: "a2a", version: "0.3.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.4.0" }, { instructions: INSTRUCTIONS });
 
   /**
    * Sign-in happens in the browser, which can take longer than one tool call may wait. The first call
@@ -83,13 +83,11 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     if (!account) {
       const fresh = !pendingLogin(home, origin);
       const start = pendingLogin(home, origin) ?? (await startLogin(home, origin));
-      if (fresh) openBrowser(start.verify_url);
-      account = await finishLogin(home, origin, 40_000).catch((err) => {
-        throw err;
-      });
+      if (fresh) openBrowser(start.verify_url_complete);
+      account = await finishLogin(home, origin, 40_000);
       if (!account) {
         return text(
-          `The user needs to sign in. Tell them: open ${start.verify_url} (a browser tab may already be open), sign in with Google or email, and enter the code ${start.user_code}. ` +
+          `The user needs to approve the sign-in. Tell them: open ${start.verify_url_complete} (a browser tab may already be open), sign in with Google or email, check the code is ${start.user_code}, and click Connect. ` +
             `When they say it's done, call connect again with the same arguments. The code expires in about ${Math.max(1, Math.round(start.expires_in / 60))} minutes.`,
         );
       }
@@ -131,7 +129,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
             : "Same as connect (older name): join A2A with an invite link.",
         inputSchema: {
           invite_link: name === "connect" ? z.string().optional().describe("Session invite link, https://<relay>/w/<workspace>/join/<code>. Leave empty to just connect this app.") : z.string().describe("The invite link the user was given"),
-          name: z.string().optional().describe("The person's name for agent addresses (sam -> sam-claude). Defaults to their account's first name."),
+          name: z.string().optional().describe("The person's name for agent addresses (robin -> robin-claude). Defaults to their account's first name."),
           setup_other_apps: z.boolean().optional().describe("Also add A2A to the other AI apps installed on this computer (Antigravity, Cursor, ...)"),
         },
       },
@@ -193,6 +191,180 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     },
   );
 
+  // ------------------------------------------------------------ tasks
+
+  const part = z.object({
+    assignee: z.string().describe("Who does it: a name like juno or juno-claude, or a full agent:// address. You may assign yourself."),
+    title: z.string().describe("The part in a few words"),
+    detail: z.string().optional().describe("Everything they need to do it alone: context, files, what done looks like"),
+  });
+  /** One task as a short, readable block. */
+  const showTask = (t: Record<string, any>, full = false): string => {
+    const lines = [
+      `${t.title} (task_id ${t.id}) - ${t.status}, ${t.progress?.done ?? 0} of ${t.progress?.total ?? 0} parts done. Coordinator: ${t.coordinator}${t.you ? `. You: ${t.you}` : ""}`,
+      t.goal ? `Goal: ${t.goal}` : "",
+      ...(t.parts ?? []).map((p: Record<string, any>) =>
+        [`- [${p.status}] ${p.assignee}: ${p.title} (part_id ${p.id})`, full && p.detail ? `  Detail: ${p.detail}` : "", p.progress ? `  Progress: ${p.progress}` : "", full && p.report ? `  Report:\n${String(p.report).replace(/^/gm, "    ")}` : ""].filter(Boolean).join("\n"),
+      ),
+      t.votes?.length ? `Votes: ${t.votes.map((v: Record<string, any>) => `${v.address} ${v.vote}${v.note ? ` (${v.note})` : ""}`).join("; ")}` : "",
+      full && t.final_report ? `\nFinal report:\n${t.final_report}` : "",
+    ];
+    return lines.filter(Boolean).join("\n");
+  };
+  const taskCall = (task_id: string, action: string, input: Record<string, unknown> = {}) => call<Record<string, any>>("POST", "/tasks/call", { ...who(), task_id, action, input });
+
+  server.registerTool(
+    "create_task",
+    {
+      description:
+        "Split work across other agents. You become the coordinator: each assignee is told their part and works on it on their own, the relay checks in on parts that go quiet, and when every part is reported everyone votes. The task ends when all of you vote done, and everyone gets the combined report.",
+      inputSchema: {
+        title: z.string().describe("The whole task in a few words"),
+        goal: z.string().optional().describe("What the finished task delivers"),
+        parts: z.array(part).min(1).max(20).describe("One entry per agent's part"),
+        session_id: z.string().optional().describe("The session it belongs to (list_sessions). Usually leave empty; the relay picks the session the assignees share."),
+      },
+    },
+    async (args) => {
+      try {
+        const t = await call<Record<string, any>>("POST", "/tasks/create", { ...who(), task: args });
+        return text(`Task created and handed out.\n\n${showTask(t)}\n\nThe assignees work on their own. Check progress with task_status; you'll get a note as each part is reported.`);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "add_parts",
+    {
+      description: "Coordinator only: add more parts to a task (missing work, or a part to reassign). Reopens the task; voting starts again once the new parts are reported.",
+      inputSchema: { task_id: z.string(), parts: z.array(part).min(1).max(20) },
+    },
+    async (args) => {
+      try {
+        return text(`Parts added.\n\n${showTask(await taskCall(args.task_id, "parts", { parts: args.parts }))}`);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_tasks",
+    { description: "Tasks you coordinate or have a part in, with each part's status.", inputSchema: {} },
+    async () => {
+      try {
+        const r = await call<{ tasks: Record<string, any>[] }>("GET", `/tasks?${query()}`);
+        return text(r.tasks.length ? r.tasks.map((t) => showTask(t)).join("\n\n") : "No tasks yet. Start one with create_task.");
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_status",
+    { description: "One task in full: every part with its details, progress and report, the votes, and the final report when done.", inputSchema: { task_id: z.string() } },
+    async (args) => {
+      try {
+        const t = await taskCall(args.task_id, "detail");
+        const recent = (t.events ?? []).slice(0, 12).map((e: Record<string, any>) => `${e.at.slice(11, 16)} ${String(e.actor).split("/").pop()}: ${e.text}`);
+        return text(`${showTask(t, true)}${recent.length ? `\n\nRecent activity:\n${recent.join("\n")}` : ""}`);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_update",
+    {
+      description: "Post progress on your part of a task, or say you are blocked (the coordinator is told). Keeps the relay from checking in.",
+      inputSchema: {
+        task_id: z.string(),
+        note: z.string().describe("What you did or are doing; if blocked, why"),
+        status: z.enum(["working", "blocked"]).optional().describe("Default working"),
+        part_id: z.string().optional().describe("Only if you have several parts in this task"),
+      },
+    },
+    async (args) => {
+      try {
+        const t = await taskCall(args.task_id, "update", { note: args.note, status: args.status ?? "working", part_id: args.part_id });
+        return text(`Posted. ${t.progress.done} of ${t.progress.total} parts are done.`);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_report",
+    {
+      description: "Finish your part of a task with a full report: what you did, files changed or results, and anything left open. The coordinator gets it; when every part is reported, everyone votes.",
+      inputSchema: { task_id: z.string(), report: z.string().max(20000), part_id: z.string().optional().describe("Only if you have several parts in this task") },
+    },
+    async (args) => {
+      try {
+        const t = await taskCall(args.task_id, "report", { report: args.report, part_id: args.part_id });
+        return text(t.status === "review" ? "Report saved. Every part is in: everyone is now asked to vote with task_vote." : `Report saved. ${t.progress.done} of ${t.progress.total} parts are done.`);
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "task_vote",
+    {
+      description: "Once every part is reported: vote whether the whole task is done. It ends only when everyone votes done. Voting not done (say what is missing) reopens it for the coordinator.",
+      inputSchema: { task_id: z.string(), done: z.boolean(), note: z.string().optional().describe("Required when not done: what is missing") },
+    },
+    async (args) => {
+      try {
+        const t = await taskCall(args.task_id, "vote", { done: args.done, note: args.note });
+        if (t.status === "done") return text(`Everyone agreed: the task is done.\n\n${t.final_report ?? ""}`);
+        return text(args.done ? `Vote recorded. Waiting for ${t.participants.length - t.votes.length} more.` : "Recorded: the task is reopened and the coordinator was told what is missing.");
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "autopilot",
+    {
+      description: `Let ${label}'s agent work on A2A tasks on its own while the user is away: task assignments, check-ins and votes start a headless run in the current folder, with the tools the session's permissions allow (the owner sets them in the dashboard). Other messages are answered read-only. Turn it off to handle everything yourself.`,
+      inputSchema: { enabled: z.boolean() },
+    },
+    async (args) => {
+      try {
+        const runtime = tool ? AUTO_RUNTIME[tool] : undefined;
+        if (args.enabled && !runtime) throw new Error(`${label} can't run headless, so it can't work on its own. Claude Code, Codex and OpenCode can.`);
+        const config = loadConfig(home);
+        const targets = tool ? config.agents.filter((a) => a.tool === tool) : [];
+        if (!targets.length) throw new Error(notSetUp);
+        for (const a of targets) {
+          a.runtime = args.enabled ? runtime! : "none";
+          a.autopilot = args.enabled;
+          if (args.enabled) {
+            a.workdir = process.cwd();
+            a.allowed_tools = a.allowed_tools?.length ? a.allowed_tools : ["Read", "Grep", "Glob"];
+          }
+        }
+        saveConfig(home, config);
+        await call("POST", "/reload", {});
+        return text(
+          args.enabled
+            ? `Autopilot is on for ${targets.map((a) => a.address).join(", ")} in ${process.cwd()}. Task work runs on its own with the session's permissions; tell the user they can watch it on the session page.`
+            : "Autopilot is off. Messages and tasks wait for check_inbox.",
+        );
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
   server.registerTool(
     "auto_reply",
     {
@@ -240,9 +412,9 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
   server.registerTool(
     "send_message",
     {
-      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-david) or just a name (guest-david, David).",
+      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-theo) or just a name (guest-theo, Theo).",
       inputSchema: {
-        to: z.string().describe("Recipient: agent://<org>/<name>, or a name like guest-david"),
+        to: z.string().describe("Recipient: agent://<org>/<name>, or a name like guest-theo"),
         text: z.string().describe("The message"),
         scope: z.string().optional().describe("Policy scope. Usually leave empty; the relay picks one."),
         thread_id: z.string().optional().describe("Continue an existing thread instead of starting a new one"),

@@ -156,7 +156,7 @@ async function startLink(sender) {
   const res = await fetch(`${RELAY}/auth/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ host: os.hostname() }) });
   const link = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(link.error || "Couldn't reach a2a. Check your connection and try again.");
-  if (!process.env.A2A_NO_OPEN) openExternal(link.verify_url);
+  if (!process.env.A2A_NO_OPEN) openExternal(link.verify_url_complete || link.verify_url);
   const until = Date.now() + link.expires_in * 1000;
   const tick = async () => {
     if (Date.now() > until) return send(sender, { state: "expired" });

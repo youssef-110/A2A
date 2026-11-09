@@ -800,7 +800,7 @@ function browserSession(cb, voice) {
 // ------------------------------------------------------------------ invites
 
 function viewInvites() {
-  const note = h("input", { class: "input", placeholder: "Who it's for, e.g. David's laptop", maxlength: 120 });
+  const note = h("input", { class: "input", placeholder: "Who it's for, e.g. Theo's laptop", maxlength: 120 });
   const uses = h("select", { class: "select" }, [1, 2, 5, 20].map((n) => h("option", { value: n }, n === 1 ? "1 person" : `${n} people`)));
   const ttl = h("select", { class: "select" }, [["24", "1 day"], ["168", "7 days"], ["720", "30 days"]].map(([v, l]) => h("option", { value: v, selected: v === "168" }, l)));
   const form = h(
