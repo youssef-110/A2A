@@ -407,3 +407,48 @@ html { scrollbar-color: #333 transparent; }
   .news { grid-template-columns: 1fr; padding: 28px 22px; margin-bottom: 64px; }
   .news-form { grid-template-columns: 1fr; }
 }
+
+/* ---------------------------------------------------------------- live map demo (site-net.js + netviz.js) */
+.net-demo {
+  --nv-ink: var(--ink); --nv-ink-2: var(--ink-2); --nv-ink-3: var(--ink-3); --nv-bg: var(--card);
+  --nv-line: rgb(255 255 255 / 0.12); --nv-line-live: rgb(255 255 255 / 0.3); --nv-hot: rgb(255 255 255 / 0.8);
+  --nv-signal: var(--signal); --nv-allow: #30d158; --nv-hold: #ff9f0a; --nv-block: #ff6961;
+  --nv-hub: var(--card-2); --nv-chip: rgb(24 24 26 / 0.94);
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 0; border-radius: 28px; overflow: hidden;
+  background: var(--card); box-shadow: inset 0 0 0 1px var(--hair);
+}
+.nd-map {
+  padding: 20px;
+  background:
+    radial-gradient(ellipse 55% 50% at 50% 50%, rgb(41 151 255 / 0.1), transparent 70%),
+    radial-gradient(circle at 1px 1px, rgb(255 255 255 / 0.055) 1px, transparent 0) 0 0 / 24px 24px;
+}
+.nd-side { display: grid; align-content: start; gap: 22px; padding: 28px 26px; border-left: 1px solid var(--hair); background: var(--bg-2); }
+.nd-task { display: grid; gap: 8px; }
+.nd-kicker { font-size: 12px; font-weight: 550; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.nd-task b { font-size: 19px; font-weight: 600; letter-spacing: -0.02em; }
+.nd-meta { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--ink-2); }
+.nd-state { display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px; border-radius: 999px; background: rgb(41 151 255 / 0.14); color: var(--signal); font-weight: 550; font-size: 12.5px; }
+.nd-state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: nd-breathe 1.2s ease-in-out infinite; }
+.nd-state.vote { background: rgb(255 159 10 / 0.14); color: #ff9f0a; }
+.nd-state.done { background: rgb(48 209 88 / 0.14); color: #30d158; }
+.nd-state.done::before { animation: none; }
+.nd-count { font-variant-numeric: tabular-nums; }
+.nd-bar { height: 4px; border-radius: 999px; background: var(--hair); overflow: hidden; }
+.nd-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: #30d158; transition: width 0.7s var(--ease); }
+.nd-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; min-height: 216px; }
+.nd-log li { display: flex; align-items: baseline; gap: 10px; font-size: 14px; line-height: 1.4; color: var(--ink-2); animation: nd-in 0.5s var(--ease); }
+.nd-log li:first-child { color: var(--ink); }
+.nd-log .fd { width: 7px; height: 7px; border-radius: 50%; flex: none; transform: translateY(-1px); background: var(--ink); }
+.nd-log .fd.t-reply, .nd-log .fd.t-done { background: #30d158; }
+.nd-log .fd.t-board { background: var(--signal); }
+.nd-foot { font-size: 13px; color: var(--ink-3); }
+@keyframes nd-in { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes nd-breathe { 50% { opacity: 0.3; } }
+@media (max-width: 900px) {
+  .net-demo { grid-template-columns: 1fr; }
+  .nd-side { border-left: 0; border-top: 1px solid var(--hair); }
+  .nd-map { padding: 8px; }
+  .nd-log { min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .nd-state::before { animation: none; } }

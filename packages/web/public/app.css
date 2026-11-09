@@ -228,7 +228,6 @@ svg { flex: none; }
 .mic svg { width: 18px; height: 18px; }
 .mic[aria-pressed="true"] { background: var(--block); color: #fff; }
 .mic[aria-pressed="true"]::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid var(--block); animation: ring 1.4s var(--ease) infinite; }
-@keyframes ring { from { opacity: 0.9; transform: scale(0.92); } to { opacity: 0; transform: scale(1.25); } }
 .send { margin-left: auto; width: 34px; height: 34px; border: 0; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: var(--primary-ink); transition: opacity 0.15s, transform 0.14s var(--ease); }
 .send:disabled { opacity: 0.25; cursor: default; }
 .send:not(:disabled):active { transform: scale(0.92); }
@@ -580,33 +579,6 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 13px; line-height
 
 .map-wrap { width: min(900px, 100%); margin: 0 auto; padding: 18px 24px 48px; display: grid; gap: 14px; }
 .map-card { border-radius: 20px; background: radial-gradient(ellipse at center, var(--panel-2), var(--panel) 70%); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
-.agent-map { display: block; width: 100%; height: auto; }
-.agent-map .edge { stroke: var(--line-2); stroke-linecap: round; }
-.agent-map .edge.board { stroke-dasharray: 2 6; }
-.agent-map .node { transition: opacity 0.3s; }
-.agent-map .node.off { opacity: 0.45; }
-.agent-map .ring { fill: none; stroke: var(--line-2); stroke-width: 2; }
-.agent-map .face { fill: var(--active); }
-.agent-map .ini { fill: var(--ink); font: 600 14px var(--font); text-anchor: middle; }
-.agent-map .name { fill: var(--ink); font: 550 12.5px var(--font); text-anchor: middle; }
-.agent-map .sub { fill: var(--ink-3); font: 400 11px var(--font); text-anchor: middle; }
-.agent-map .dot { fill: var(--line-2); stroke: var(--panel); stroke-width: 2; }
-.agent-map .node.on .dot { fill: var(--allow); }
-.agent-map .st-working .ring, .agent-map .st-coordinating .ring { stroke: var(--signal); animation: ring 1.6s ease-in-out infinite; }
-.agent-map .st-blocked .ring { stroke: var(--hold); }
-.agent-map .st-done .ring { stroke: var(--allow); }
-.agent-map .hub circle { fill: var(--panel-2); stroke: var(--line-2); stroke-width: 1.5; }
-.agent-map .hub-t { fill: var(--ink-2); font: 500 10.5px var(--font); text-anchor: middle; }
-.agent-map .pulse { fill: var(--ink); filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.55)); }
-.agent-map .pulse.board { fill: var(--signal); filter: drop-shadow(0 0 6px var(--signal)); }
-.agent-map .pulse.bad { fill: var(--block); }
-.agent-map .pulse.held { fill: var(--hold); }
-.agent-map .pulse.land { animation: land 0.7s var(--ease) forwards; }
-.agent-map .trail { stroke: var(--ink-3); stroke-width: 1.5; stroke-linecap: round; opacity: 0.6; }
-.agent-map .trail.board { stroke: var(--signal); }
-.agent-map .trail.fade { transition: opacity 0.7s; opacity: 0; }
-@keyframes ring { 50% { stroke-opacity: 0.35; } }
-@keyframes land { to { r: 16; opacity: 0; } }
 .map-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
 .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .lg { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
@@ -628,7 +600,7 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 13px; line-height
   .t-events li span { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .agent-map .st-working .ring, .agent-map .st-coordinating .ring, .pchip.working::before { animation: none; }
+  .pchip.working::before { animation: none; }
 }
 .mono-av.board-av { background: var(--signal-soft); color: var(--signal); }
 .mono-av.board-av svg { width: 12px; height: 12px; }
@@ -639,3 +611,22 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 13px; line-height
 .perm-bar, .perm-panel { grid-template-columns: minmax(0, 1fr); }
 .session-col { grid-template-columns: minmax(0, 1fr); }
 .main { grid-template-columns: minmax(0, 1fr); }
+
+/* Live map (netviz.js): dashboard colours for the shared graph module. */
+.map-card {
+  --nv-ink: var(--ink); --nv-ink-2: var(--ink-2); --nv-ink-3: var(--ink-3); --nv-bg: var(--panel);
+  --nv-line: var(--line-2); --nv-line-live: rgb(255 255 255 / 0.3); --nv-hot: rgb(255 255 255 / 0.75);
+  --nv-signal: var(--signal); --nv-allow: var(--allow); --nv-hold: var(--hold); --nv-block: var(--block);
+  --nv-hub: var(--panel-2); --nv-chip: rgb(24 24 26 / 0.94);
+  padding: 8px;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 50%, rgb(41 151 255 / 0.07), transparent 70%),
+    radial-gradient(circle at 1px 1px, rgb(255 255 255 / 0.05) 1px, transparent 0) 0 0 / 22px 22px,
+    var(--panel);
+}
+:root[data-theme="light"] .map-card { --nv-line-live: rgb(0 0 0 / 0.28); --nv-hot: rgb(0 0 0 / 0.6); --nv-chip: rgb(255 255 255 / 0.96); background: radial-gradient(ellipse 60% 55% at 50% 50%, rgb(0 102 204 / 0.06), transparent 70%), radial-gradient(circle at 1px 1px, rgb(0 0 0 / 0.06) 1px, transparent 0) 0 0 / 22px 22px, var(--panel); }
+.fd { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; align-self: center; margin-right: 6px; background: var(--ink); }
+.fd.t-reply, .fd.t-done { background: var(--allow); }
+.fd.t-board { background: var(--signal); }
+.fd.t-held { background: var(--hold); }
+.fd.t-blocked { background: var(--block); }

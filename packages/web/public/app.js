@@ -1,4 +1,5 @@
 // A2A dashboard. No build step: plain modules, DOM built with h(), live updates over SSE.
+import { createNetwork } from "/netviz.js";
 // Every relay call goes to /api/w/<workspace>/..., which the Worker allows only for members.
 
 const S = {
@@ -125,6 +126,8 @@ function redactedText(text) {
 }
 
 const ICONS = {
+  network:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="m6.5 6.5 3.7 3.7M17.5 6.5l-3.7 3.7M6.5 17.5l3.7-3.7M17.5 17.5l-3.7-3.7"/></svg>',
   home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>',
   chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m7 10 5 5 5-5"/></svg>',
@@ -201,10 +204,7 @@ function initials(address) {
   return (nameOf(address) || short(address)).replace(/^guest-/, "").slice(0, 2);
 }
 function avatar(address, size) {
-  let hash = 0;
-  for (const c of address ?? "") hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
-  const dark = document.documentElement.dataset.theme !== "light";
-  const [bg, ink] = (dark ? AV_DARK : AV)[hash % AV.length];
+  const [bg, ink] = avColors(address);
   return h("span", { class: `mono-av ${size ?? ""}`, style: `--av-bg:${bg};--av-ink:${ink}`, "aria-hidden": "true" }, initials(address));
 }
 function bigAvatar(address) {
@@ -248,6 +248,7 @@ function pipeline(stages) {
 
 const NAV = [
   ["sessions", "Home"],
+  ["network", "Live map"],
   ["traffic", "Activity"],
   ["agents", "Agents"],
   ["review", "Review"],
@@ -255,8 +256,8 @@ const NAV = [
   ["audit", "Audit log"],
 ];
 // Views reachable by URL, including the ones that live outside the sidebar list.
-const VIEW_NAMES = ["sessions", "session", "shared", "talk", "traffic", "agents", "review", "policy", "settings", "audit"];
-const NAV_ICON = { sessions: "home", traffic: "traffic", agents: "agents", review: "review", policy: "policy", audit: "audit" };
+const VIEW_NAMES = ["sessions", "session", "shared", "talk", "network", "traffic", "agents", "review", "policy", "settings", "audit"];
+const NAV_ICON = { sessions: "home", network: "network", traffic: "traffic", agents: "agents", review: "review", policy: "policy", audit: "audit" };
 
 function navCount(view) {
   if (view === "review") return S.overview?.stats?.held || 0;
@@ -411,6 +412,7 @@ function renderView() {
     session: viewSession,
     shared: viewShared,
     talk: viewTalk,
+    network: viewNetwork,
     traffic: viewTraffic,
     agents: viewAgents,
     review: viewReview,
@@ -1334,6 +1336,7 @@ function soon() {
   rerenderTimer = setTimeout(() => {
     renderSide();
     if (["traffic", "agents", "review"].includes(S.view)) renderView();
+    if (S.view === "network") (drawMap(), document.getElementById("map-feed")?.replaceWith(mapFeed([...S.messages].reverse())));
   }, 250);
 }
 
@@ -1365,7 +1368,8 @@ function connectEvents() {
     }
     if (S.view === "talk" || S.view === "session") renderCallLog();
     if (S.selected === m.thread_id && (S.view === "traffic" || S.view === "review")) loadDetail();
-    if (S.view === "session" && S.sessionTab === "map" && (m.state === "screening" || m.state === "blocked" || m.state === "held")) pulse(m);
+    const onMap = (S.view === "session" && S.sessionTab === "map") || S.view === "network";
+    if (onMap && (m.state === "screening" || m.state === "blocked" || m.state === "held")) pulse(m);
     if (S.view === "session" && S.sessionData && !S.sessionData.error) {
       clearTimeout(S.sessionReload);
       S.sessionReload = setTimeout(loadSession, 400);
@@ -1395,6 +1399,7 @@ function connectEvents() {
   events.addEventListener("policy", () => refresh());
   events.addEventListener("task", () => {
     if (S.view === "session") soonExtras();
+    if (S.view === "network") api("GET", "/v1/admin/tasks").then((r) => ((S.allTasks = r.tasks), drawMap())).catch(() => {});
   });
   events.addEventListener("permissions", (e) => {
     const ev = JSON.parse(e.data);
@@ -2068,7 +2073,7 @@ function refreshSessionBody() {
   if (S.view !== "session") return;
   const inPlace = (S.sessionTab === "map" && document.getElementById("agent-map")) || (S.sessionTab === "tasks" && document.getElementById("task-list"));
   if (!inPlace) return renderView();
-  if (S.sessionTab === "map") (drawMap(), document.getElementById("map-feed")?.replaceWith(mapFeed()));
+  if (S.sessionTab === "map") (drawMap(), document.getElementById("map-feed")?.replaceWith(mapFeed(S.sessionData?.messages)));
   else document.getElementById("task-list").replaceWith(taskList());
   document.getElementById("perm-bar")?.replaceWith(permissionsBar());
   document.querySelector(".session-col > .chat-tabs")?.replaceWith(sessionTabs());
@@ -2307,34 +2312,20 @@ function tasksPane(d) {
   );
 }
 
-// ---------------------------------------------------------------- live map
+// ---------------------------------------------------------------- live map (session and workspace)
 
 const SVG = "http://www.w3.org/2000/svg";
-function s(tag, attrs, ...kids) {
-  const el = document.createElementNS(SVG, tag);
-  for (const [k, v] of Object.entries(attrs ?? {})) if (v !== undefined && v !== null) el.setAttribute(k, v);
-  for (const kid of kids.flat()) if (kid) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
-  return el;
+let net = null;
+
+function avColors(address) {
+  let hash = 0;
+  for (const c of address ?? "") hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
+  return (document.documentElement.dataset.theme !== "light" ? AV_DARK : AV)[hash % AV.length];
 }
 
-/** Where each agent sits: the task board in the middle, agents on a ring around it. */
-function mapLayout() {
-  const d = S.sessionData;
-  const me = S.overview?.relay?.console_address;
-  const agents = d.members.filter((m) => m.address !== me);
-  const W = 720;
-  const H = 460;
-  const r = Math.min(W, H) / 2 - 70;
-  const pos = new Map([[me, { x: W / 2, y: H / 2 }]]);
-  agents.forEach((m, i) => {
-    const a = (i / Math.max(agents.length, 1)) * Math.PI * 2 - Math.PI / 2;
-    pos.set(m.address, { x: W / 2 + Math.cos(a) * r * 1.25, y: H / 2 + Math.sin(a) * r });
-  });
-  return { W, H, me, agents, pos };
-}
-
-function partStatusOf(address) {
-  const live = (S.sessionTasks ?? []).filter((t) => t.status === "active" || t.status === "review");
+/** What an agent is doing across live tasks: working, blocked, coordinating or done. */
+function partStatusOf(address, tasks) {
+  const live = (tasks ?? []).filter((t) => t.status === "active" || t.status === "review");
   const parts = live.flatMap((t) => t.parts.filter((p) => p.assignee === address));
   if (parts.some((p) => p.status === "blocked")) return "blocked";
   if (parts.some((p) => p.status === "working" || p.status === "assigned")) return "working";
@@ -2343,95 +2334,106 @@ function partStatusOf(address) {
   return null;
 }
 
+/** Nodes and edges for a set of agents and the messages between them; the relay sits in the middle. */
+function graphOf(agents, messages, tasks, hubLabel) {
+  const me = S.overview?.relay?.console_address ?? "console";
+  const ids = new Set([me, ...agents.map((a) => a.address)]);
+  const nodes = [
+    { id: me, hub: true, label: hubLabel, sub: "relay" },
+    ...agents.map((a) => {
+      const st = partStatusOf(a.address, tasks);
+      return {
+        id: a.address,
+        label: (a.person || nameOf(a.address)).replace(/\s*\([^)]*\)\s*$/, ""),
+        sub: [appOf(a) ?? short(a.address), st].filter(Boolean).join(" · "),
+        initials: initials(a.address),
+        colors: avColors(a.address),
+        online: !!a.online,
+        status: st,
+        title: `${a.address}${a.online ? " · online" : " · offline"}`,
+      };
+    }),
+  ];
+  const counts = new Map();
+  for (const m of messages ?? []) {
+    if (!ids.has(m.from) || !ids.has(m.to)) continue;
+    const k = [m.from, m.to].sort().join("|");
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const edges = [...counts].map(([k, n]) => {
+    const [a, b] = k.split("|");
+    return { a, b, weight: n, board: a === me || b === me };
+  });
+  return { nodes, edges };
+}
+
+function currentGraph() {
+  if (S.view === "network") {
+    const me = S.overview?.relay?.console_address;
+    const agents = S.agents.filter((a) => a.status === "active" && a.address !== me);
+    return graphOf(agents, S.messages, S.allTasks, "Relay");
+  }
+  if (!S.sessionData) return null;
+  const me = S.overview?.relay?.console_address;
+  return graphOf(S.sessionData.members.filter((m) => m.address !== me), S.sessionData.messages, S.sessionTasks, "Task board");
+}
+
 function drawMap() {
   const svg = document.getElementById("agent-map");
-  if (!svg || !S.sessionData) return;
-  const { W, H, me, agents, pos } = mapLayout();
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  const counts = new Map();
-  for (const m of S.sessionData.messages ?? []) {
-    if (!pos.has(m.from) || !pos.has(m.to)) continue;
-    const key = [m.from, m.to].sort().join("|");
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  const edges = s("g", { id: "map-edges" });
-  for (const [key, n] of counts) {
-    const [a, b] = key.split("|");
-    const p = pos.get(a);
-    const q = pos.get(b);
-    edges.append(s("line", { x1: p.x, y1: p.y, x2: q.x, y2: q.y, class: `edge ${a === me || b === me ? "board" : ""}`, "stroke-width": Math.min(1 + Math.log2(n + 1), 5) }));
-  }
-  const nodes = s("g", { id: "map-nodes" });
-  const center = pos.get(me);
-  nodes.append(s("g", { class: "node hub", transform: `translate(${center.x} ${center.y})` }, s("circle", { r: 30 }), s("text", { y: 4, class: "hub-t" }, "Task board"), s("text", { y: 50, class: "sub" }, "relay")));
-  for (const m of agents) {
-    const p = pos.get(m.address);
-    const st = partStatusOf(m.address);
-    nodes.append(
-      s(
-        "g",
-        { class: `node ${m.online ? "on" : "off"} ${st ? `st-${st}` : ""}`, transform: `translate(${p.x} ${p.y})` },
-        s("title", {}, `${m.address}${m.online ? " · online" : " · offline"}${st ? ` · ${st}` : ""}`),
-        s("circle", { r: 26, class: "ring" }),
-        s("circle", { r: 21, class: "face" }),
-        s("text", { y: 5, class: "ini" }, initials(m.address)),
-        s("circle", { r: 5, cx: 18, cy: -18, class: "dot" }),
-        s("text", { y: 46, class: "name" }, m.person || nameOf(m.address)),
-        s("text", { y: 61, class: "sub" }, `${appOf(m) ?? short(m.address)}${st ? ` · ${st}` : ""}`),
-      ),
-    );
-  }
-  svg.querySelector("#map-edges")?.replaceWith(edges);
-  svg.querySelector("#map-nodes")?.replaceWith(nodes);
-  if (!svg.querySelector("#map-edges")) svg.prepend(edges);
-  if (!svg.querySelector("#map-nodes")) svg.append(nodes);
-  if (!svg.querySelector("#map-pulses")) svg.append(s("g", { id: "map-pulses" }));
+  const g = svg && currentGraph();
+  if (!g) return;
+  if (!net || net.svg !== svg) net = { svg, api: createNetwork(svg, { width: 760, height: 470 }) };
+  net.api.update(g.nodes, g.edges);
 }
 
-/** A dot that travels from sender to recipient when a message moves. */
+/** The words shown in the chip at the recipient: the message without the task board's prefix. */
+const chipText = (m) => String(m.preview ?? m.text ?? "").replace(/^\[a2a-(task \S+|mission)\]\s*/, "");
+function toneOf(m) {
+  if (m.state === "blocked") return "blocked";
+  if (m.state === "held") return "held";
+  if (m.from?.endsWith("/console")) return /Everyone agreed/.test(m.preview ?? "") ? "done" : "board";
+  return m.in_reply_to || m.kind === "reply" ? "reply" : "msg";
+}
+
 function pulse(m) {
-  const svg = document.getElementById("agent-map");
-  if (!svg || !S.sessionData || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const { pos } = mapLayout();
-  const p = pos.get(m.from);
-  const q = pos.get(m.to);
-  if (!p || !q) return;
-  const layer = svg.querySelector("#map-pulses");
-  const cls = m.state === "blocked" || m.state === "held" ? `bad ${m.state}` : m.from.endsWith("/console") ? "board" : "";
-  const dot = s("circle", { r: 6, class: `pulse ${cls}`, cx: p.x, cy: p.y });
-  const trail = s("line", { x1: p.x, y1: p.y, x2: p.x, y2: p.y, class: `trail ${cls}` });
-  layer.append(trail, dot);
-  const t0 = performance.now();
-  const dur = 900;
-  const step = (now) => {
-    const k = Math.min((now - t0) / dur, 1);
-    const e = 1 - (1 - k) ** 3;
-    const x = p.x + (q.x - p.x) * e;
-    const y = p.y + (q.y - p.y) * e;
-    dot.setAttribute("cx", x);
-    dot.setAttribute("cy", y);
-    trail.setAttribute("x2", x);
-    trail.setAttribute("y2", y);
-    if (k < 1) requestAnimationFrame(step);
-    else {
-      dot.classList.add("land");
-      trail.classList.add("fade");
-      setTimeout(() => (dot.remove(), trail.remove()), 700);
-    }
-  };
-  requestAnimationFrame(step);
+  if (!net || !document.contains(net.svg)) return;
+  net.api.send(m.from, m.to, { tone: toneOf(m), label: chipText(m) });
 }
 
-function mapFeed() {
-  const recent = [...(S.sessionData.messages ?? [])].slice(-6).reverse();
+function mapFeed(messages) {
+  const recent = [...(messages ?? [])].slice(-6).reverse();
   return h(
     "ol",
     { id: "map-feed", class: "map-feed" },
-    recent.map((m) => h("li", {}, h("b", {}, m.from.endsWith("/console") ? "Task board" : nameOf(m.from)), h("span", { class: "muted" }, " to "), h("b", {}, m.to.endsWith("/console") ? "you" : nameOf(m.to)), h("span", { class: "map-prev" }, redactedText(m.preview ?? m.text ?? "")))),
+    recent.map((m) =>
+      h(
+        "li",
+        {},
+        h("i", { class: `fd t-${toneOf(m)}` }),
+        h("b", {}, m.from.endsWith("/console") ? "Task board" : nameOf(m.from)),
+        h("span", { class: "muted" }, " to "),
+        h("b", {}, m.to.endsWith("/console") ? "you" : nameOf(m.to)),
+        h("span", { class: "map-prev" }, redactedText(chipText(m))),
+      ),
+    ),
   );
 }
 
-function mapPane() {
+function mapLegend() {
+  return h(
+    "div",
+    { class: "map-legend muted small" },
+    h("span", {}, h("i", { class: "lg on" }), "Online"),
+    h("span", {}, h("i", { class: "lg working" }), "Working"),
+    h("span", {}, h("i", { class: "lg blocked" }), "Blocked"),
+    h("span", {}, h("i", { class: "lg done" }), "Part done"),
+    h("span", {}, h("i", { class: "fd t-msg" }), "Message"),
+    h("span", {}, h("i", { class: "fd t-reply" }), "Reply"),
+    h("span", {}, h("i", { class: "fd t-board" }), "Task board"),
+  );
+}
+
+function mapPane(messages = S.sessionData?.messages) {
   setTimeout(drawMap);
   return h(
     "div",
@@ -2439,19 +2441,22 @@ function mapPane() {
     h(
       "div",
       { class: "map-wrap" },
-      h("div", { class: "map-card" }, s("svg", { id: "agent-map", class: "agent-map", role: "img", "aria-label": "Live map of the agents in this session and the messages between them" })),
-      h(
-        "div",
-        { class: "map-legend muted small" },
-        h("span", {}, h("i", { class: "lg on" }), "Online"),
-        h("span", {}, h("i", { class: "lg working" }), "Working"),
-        h("span", {}, h("i", { class: "lg blocked" }), "Blocked"),
-        h("span", {}, h("i", { class: "lg done" }), "Part done"),
-        h("span", {}, "Lines thicken as two agents talk more. Dots move as messages travel."),
-      ),
-      mapFeed(),
+      h("div", { class: "map-card" }, Object.assign(document.createElementNS(SVG, "svg"), { id: "agent-map" })),
+      mapLegend(),
+      mapFeed(messages),
     ),
   );
+}
+
+/** Every agent in the workspace, live: the hackathon screen. */
+function viewNetwork() {
+  if (!S.allTasks) api("GET", "/v1/admin/tasks").then((r) => ((S.allTasks = r.tasks), drawMap())).catch(() => {});
+  const pane = mapPane([...S.messages].reverse());
+  const svg = pane.querySelector("svg");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Live map of every agent in this workspace and the messages between them");
+  const online = S.agents.filter((a) => a.online && a.status === "active").length;
+  return { title: [h("span", {}, "Live map"), h("span", { class: "topbar-sub" }, `${online} online`)], body: pane };
 }
 
 function sessionTabs() {
