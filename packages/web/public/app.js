@@ -2397,7 +2397,9 @@ function toneOf(m) {
 
 function pulse(m) {
   if (!net || !document.contains(net.svg)) return;
-  net.api.send(m.from, m.to, { tone: toneOf(m), label: chipText(m) });
+  // Held or blocked messages never show their words on the map, only what happened to them.
+  const label = m.state === "blocked" ? "Blocked by the guard" : m.state === "held" ? "Held for review" : chipText(m);
+  net.api.send(m.from, m.to, { tone: toneOf(m), label });
 }
 
 function mapFeed(messages) {
