@@ -195,6 +195,10 @@ function run(cmd: string, args: string[], opts: { cwd?: string; env: Record<stri
   });
 }
 
+const SECRET_FILES = ["**/.env", "**/.env.*", "~/.ssh/**", "~/.aws/**", "~/.a2a/**", "**/*.pem", "**/id_rsa*", "**/id_ed25519*"];
+const CODE_LATER = ["**/.claude/**", "**/.git/**", "**/.mcp.json", "**/CLAUDE.md", "**/AGENTS.md", "**/.cursor/**", "**/.codex/**", "**/.vscode/**", "**/.husky/**"];
+const PROTECTED = [...SECRET_FILES.map((p) => `Read(${p})`), ...[...SECRET_FILES, ...CODE_LATER].map((p) => `Edit(${p})`)]; // Edit rules cover every file-writing tool
+
 async function runClaude(ctx: RunContext): Promise<RunResult> {
   const a = ctx.agent;
   const args = [
@@ -205,6 +209,9 @@ async function runClaude(ctx: RunContext): Promise<RunResult> {
     "--allowedTools", [...(a.allowed_tools ?? []), ...A2A_TOOLS].join(","),
     "--permission-mode", a.permission_mode ?? "dontAsk",
   ];
+  // A task's words come from other people. Whatever the permissions, an autopilot run never reads
+  // secrets and never writes files that run code later (hooks, agent config, git hooks).
+  if (a.autopilot && a.permission_mode !== "bypassPermissions") args.push("--disallowedTools", PROTECTED.join(","));
   if (a.model) args.push("--model", a.model);
   if (a.instructions) args.push("--append-system-prompt", a.instructions);
   if (ctx.sessionId) args.push("--resume", ctx.sessionId);

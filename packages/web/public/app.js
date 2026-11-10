@@ -125,6 +125,50 @@ function redactedText(text) {
   return out;
 }
 
+/** **bold** and `code` inside a line; everything else stays plain text. */
+function inline(text) {
+  const out = [];
+  let pos = 0;
+  for (const m of String(text ?? "").matchAll(/\*\*([^*\n]+)\*\*|`([^`\n]+)`/g)) {
+    out.push(...redactedText(text.slice(pos, m.index)), m[1] !== undefined ? h("strong", {}, m[1]) : h("code", {}, m[2]));
+    pos = m.index + m[0].length;
+  }
+  out.push(...redactedText(String(text ?? "").slice(pos)));
+  return out;
+}
+
+/** The small part of Markdown agents write in reports: headings, lists, code, bold. */
+function md(text) {
+  const root = h("div", { class: "md" });
+  let list = null;
+  let para = [];
+  let code = null;
+  const flush = () => {
+    if (para.length) root.append(h("p", {}, inline(para.join("\n"))));
+    para = [];
+  };
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    if (code) {
+      if (/^\s*```/.test(line)) (root.append(h("pre", {}, code.join("\n"))), (code = null));
+      else code.push(line);
+      continue;
+    }
+    const head = /^(#{1,4})\s+(.*)$/.exec(line);
+    const item = /^\s*(?:[-*•]|\d+[.)])\s+(.*)$/.exec(line);
+    if (/^\s*```/.test(line)) (flush(), (list = null), (code = []));
+    else if (head) (flush(), (list = null), root.append(h(`h${Math.min(head[1].length + 2, 5)}`, {}, inline(head[2]))));
+    else if (item) {
+      flush();
+      if (!list) root.append((list = h(/^\s*\d/.test(line) ? "ol" : "ul", {})));
+      list.append(h("li", {}, inline(item[1])));
+    } else if (!line.trim()) (flush(), (list = null));
+    else ((list = null), para.push(line));
+  }
+  if (code) root.append(h("pre", {}, code.join("\n")));
+  flush();
+  return root;
+}
+
 const ICONS = {
   network:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.5"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="m6.5 6.5 3.7 3.7M17.5 6.5l-3.7 3.7M6.5 17.5l3.7-3.7M17.5 17.5l-3.7-3.7"/></svg>',
@@ -181,25 +225,19 @@ const brandMark = () =>
     html: LOGO_MARK,
   });
 
-// A stable, low-key color per agent so a busy list is easy to scan.
-const AV = [
-  ["#e2e8fb", "#2f4fd0"],
-  ["#e2f1e8", "#1b774b"],
-  ["#f6e9dc", "#8a4a12"],
-  ["#ede7fa", "#6645bd"],
-  ["#e1eff2", "#1d6b7a"],
-  ["#f7e3ea", "#a3324f"],
-  ["#ececdf", "#5f5a1d"],
-];
-const AV_DARK = [
-  ["#232c4a", "#9fb1ff"],
-  ["#1b3328", "#7fd8a8"],
-  ["#3a2a1b", "#f0b98a"],
-  ["#2c2445", "#c6b4f7"],
-  ["#173238", "#7fd0de"],
-  ["#3a1f29", "#f29bb2"],
-  ["#2f2e1c", "#d9d48a"],
-];
+// Every agent has its own signal colour, like a lamp on a switchboard: the same agent is the same
+// colour in the roster, the chat, the task board and the live map.
+const SIGNALS = ["#ffb020", "#35d39a", "#4da3ff", "#ff6b8a", "#a78bfa", "#f2d14b", "#4fd1c5", "#ff8a4c"];
+const SIGNALS_LIGHT = ["#a15c00", "#0f7a52", "#0a5fc2", "#b92548", "#6540c4", "#7a6400", "#0d7a70", "#b34a0a"];
+function signalOf(address) {
+  // By position among the workspace's agents, so neighbours never share a colour; a hash for strangers.
+  let i = S.agents.map((a) => a.address).sort().indexOf(address);
+  if (i < 0) {
+    i = 0;
+    for (const c of address ?? "") i = (i * 31 + c.charCodeAt(0)) >>> 0;
+  }
+  return (document.documentElement.dataset.theme === "light" ? SIGNALS_LIGHT : SIGNALS)[i % SIGNALS.length];
+}
 function initials(address) {
   return (nameOf(address) || short(address)).replace(/^guest-/, "").slice(0, 2);
 }
@@ -274,11 +312,20 @@ function sideList() {
     return h(
       "button",
       { class: "s-item", "aria-current": S.view === "session" && S.session === s.id ? "page" : false, onclick: () => openSession(s.id), title: s.name },
-      h("span", { class: `lamp ${online ? "on" : ""}`, "aria-label": online ? "online" : "offline" }),
       h("span", { class: "s-name" }, s.name),
-      s.guests.length ? null : h("span", { class: "s-tag" }, "invited"),
+      s.guests.length ? agentDots(s.guests, online ? "online" : "offline") : h("span", { class: "s-tag" }, "invited"),
     );
   });
+}
+
+/** Up to five agents as small lamps in their own colours: lit when online. */
+function agentDots(agents, label) {
+  return h(
+    "span",
+    { class: "s-dots", "aria-label": label ?? `${agents.length} agents` },
+    agents.slice(0, 5).map((g) => h("i", { class: g.online ? "on" : "", style: `--agent:${signalOf(g.address)}`, title: g.display_name ?? short(g.address) })),
+    agents.length > 5 ? h("span", { class: "s-more" }, `+${agents.length - 5}`) : null,
+  );
 }
 
 /** Sessions other people invited you into, under your own. */
@@ -1318,7 +1365,8 @@ function viewAudit() {
 
 async function refresh() {
   try {
-    const [overview, list, agents] = await Promise.all([api("GET", "/v1/admin/overview"), api("GET", "/v1/admin/messages?limit=200"), api("GET", "/v1/admin/agents")]);
+    const [overview, list, agents, tasks] = await Promise.all([api("GET", "/v1/admin/overview"), api("GET", "/v1/admin/messages?limit=200"), api("GET", "/v1/admin/agents"), api("GET", "/v1/admin/tasks").catch(() => ({ tasks: [] }))]);
+    S.allTasks = tasks.tasks;
     S.overview = overview;
     S.messages = list.messages;
     S.agents = agents.agents;
@@ -1337,6 +1385,9 @@ function soon() {
     renderSide();
     if (["traffic", "agents", "review"].includes(S.view)) renderView();
     if (S.view === "network") (drawMap(), document.getElementById("map-feed")?.replaceWith(mapFeed([...S.messages].reverse())));
+    // Home keeps its composer; only the part below it (setup, what needs you, agents, sessions) redraws.
+    if (S.view === "sessions") (document.getElementById("home-live")?.replaceWith(homeLive()), document.getElementById("home-sub")?.replaceChildren(homeSub()));
+    if (S.view === "session") document.getElementById("roster")?.replaceWith(roster(S.sessionData, S.overview?.relay?.console_address) ?? h("div", { id: "roster", hidden: true }));
   }, 250);
 }
 
@@ -1399,7 +1450,9 @@ function connectEvents() {
   events.addEventListener("policy", () => refresh());
   events.addEventListener("task", () => {
     if (S.view === "session") soonExtras();
-    if (S.view === "network") api("GET", "/v1/admin/tasks").then((r) => ((S.allTasks = r.tasks), drawMap())).catch(() => {});
+    api("GET", "/v1/admin/tasks")
+      .then((r) => ((S.allTasks = r.tasks), S.view === "network" ? drawMap() : soon()))
+      .catch(() => {});
   });
   events.addEventListener("permissions", (e) => {
     const ev = JSON.parse(e.data);
@@ -1439,7 +1492,7 @@ function copyLine(text, label = "Copy") {
 const PLUGIN_INSTALL = "/plugin install a2a@a2a";
 
 /** The one command that sets A2A up: downloads the client, signs in, connects every AI app here. */
-const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.4.0.tgz"}`;
+const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.0.tgz"}`;
 const connectCommand = (url) => `npx -y ${cliUrl()} connect${url ? ` ${url}` : ""}`;
 
 /**
@@ -1654,14 +1707,145 @@ function greeting() {
   return first ? `${part}, ${first}` : part;
 }
 
+/** The words of a message without the task board's routing prefix. */
+const plainPreview = (text) => String(text ?? "").replace(/^\[a2a-(task \S+|mission)\]\s*/, "");
+
+/** One agent as a lamp with its name and a line about what it is doing. A button when it does something. */
+function agentChip(a, { doing, on, onclick, state } = {}) {
+  const person = (a.person || a.account?.name || a.display_name || short(a.address)).replace(/\s*\([^)]*\)\s*$/, "");
+  const app = appOf(a) ?? short(a.address);
+  return h(
+    onclick ? "button" : "span",
+    { class: `agent-chip ${a.online ? "" : "off"} ${on ? "on" : ""} ${state ?? ""}`, style: `--agent:${signalOf(a.address)}`, title: a.address, type: onclick ? "button" : null, "aria-pressed": onclick ? String(!!on) : null, onclick },
+    h("span", { class: "a-lamp" }),
+    h("span", { class: "a-text" }, h("b", {}, person, h("span", { class: "a-app" }, app)), h("span", {}, doing ?? (a.online ? "Online" : "Offline"))),
+  );
+}
+
+/** What is waiting on the person: held messages, agents asking to join, parts that are stuck. */
+function needsYou() {
+  const held = S.overview?.stats?.held || 0;
+  const pending = S.agents.filter((a) => a.status === "pending").length;
+  const blocked = (S.allTasks ?? []).filter((t) => t.status === "active").flatMap((t) => t.parts.filter((p) => p.status === "blocked").map((p) => ({ t, p })));
+  const row = (text, action, onclick) => h("button", { class: "need", type: "button", onclick }, h("span", { class: "need-dot" }), h("span", { class: "need-text" }, text), h("span", { class: "need-go" }, action));
+  const rows = [
+    held ? row(`${held} ${held === 1 ? "message is" : "messages are"} held by the guard`, "Review", () => go("review")) : null,
+    pending ? row(`${pending} ${pending === 1 ? "agent is" : "agents are"} asking to join`, "Decide", () => go("agents")) : null,
+    ...blocked.slice(0, 3).map(({ t, p }) =>
+      row([h("b", {}, nameOf(p.assignee)), ` is blocked on "${p.title}"`, p.progress ? `: ${p.progress}` : ""], "Open", async () => {
+        await openSession(t.session_id);
+        S.sessionTab = "tasks";
+        renderView();
+      }),
+    ),
+  ].filter(Boolean);
+  return rows.length ? h("section", { class: "needs", "aria-label": "Needs you" }, rows) : null;
+}
+
+/** First run, as the three things that actually have to happen, each ticking off live. */
+function setupSteps(mine) {
+  const hasAgent = mine.length > 0;
+  const hasSession = S.sessions.length > 0;
+  const hasGuests = S.sessions.some((x) => x.guests.length);
+  const step = (n, state, title, text, extra) => h("li", { class: `setup-step ${state}` }, h("span", { class: "setup-n", html: state === "done" ? ICONS.check : null }, state === "done" ? null : n), h("h3", {}, title), h("p", {}, text), state === "now" ? extra : null);
+  const second = hasSession && hasGuests ? "done" : hasAgent ? "now" : "todo";
+  return h(
+    "ol",
+    { class: "setup", "aria-label": "Get set up" },
+    step(
+      1,
+      hasAgent ? "done" : "now",
+      hasAgent ? `${mine.length} of your AI apps ${mine.length === 1 ? "is" : "are"} connected` : "Connect your AI apps",
+      hasAgent ? mine.map((a) => appOf(a) ?? short(a.address)).join(", ") : "Paste one prompt into any AI agent on this computer. It signs you in and connects every AI app it finds, each as its own agent, so your Claude Code and your Codex can already work together.",
+      h("div", { class: "setup-body" }, inviteSteps(null, null), h("p", { class: "setup-wait" }, h("span", { class: "spinner" }), "Waiting for your first agent. This page updates the moment it connects.")),
+    ),
+    step(
+      2,
+      second,
+      hasSession ? (hasGuests ? "Your team is in" : "Invite your team") : "Start a session and invite your team",
+      "A session is one shared room. Everyone you invite pastes one prompt, and their agents join yours.",
+      h("div", { class: "setup-body row" }, hasSession ? h("button", { class: "btn", type: "button", onclick: () => openSession(S.sessions[0].id) }, `Open ${S.sessions[0].name}`) : h("button", { class: "btn", type: "button", onclick: newSessionDialog }, "New session")),
+    ),
+    step(
+      3,
+      second === "done" ? "now" : "todo",
+      "Give the job",
+      "Describe what to build. One agent splits it, the others each take a part, and you get one report when every agent agrees it's done.",
+      h("div", { class: "setup-body row" }, h("button", { class: "btn", type: "button", onclick: async () => (await openSession(S.sessions.find((x) => x.guests.length).id), (S.sessionTab = "tasks"), renderView()) }, "Start a mission")),
+    ),
+  );
+}
+
+function sessionCard(x) {
+  const tasks = (S.allTasks ?? []).filter((t) => t.session_id === x.id);
+  const live = tasks.find((t) => t.status === "active" || t.status === "review");
+  const done = tasks.filter((t) => t.status === "done").length;
+  const online = x.guests.filter((g) => g.online).length;
+  return h(
+    "button",
+    { class: `s-card ${live ? "s-live" : ""}`, type: "button", onclick: () => openSession(x.id) },
+    h("span", { class: "s-card-top" }, h("b", {}, x.name), h("span", { class: "muted small" }, x.last_message_at ? ago(x.last_message_at) : "")),
+    x.guests.length
+      ? h("span", { class: "s-card-agents" }, x.guests.slice(0, 7).map((g) => h("span", { class: `av-ring ${g.online ? "on" : ""}`, style: `--agent:${signalOf(g.address)}` }, avatar(g.address))), h("span", { class: "muted small" }, online ? `${online} online` : "nobody online"))
+      : h("span", { class: "muted small" }, "Nobody has joined yet. Open it to copy the invite."),
+    live
+      ? h("span", { class: "s-card-task" }, h("span", { class: "s-card-task-top" }, h("span", { class: "t-name" }, live.title), h("span", { class: "mono small" }, live.status === "review" ? "voting" : `${live.progress.done}/${live.progress.total}`)), progressBar(live.progress.done, live.progress.total))
+      : h("span", { class: "s-card-prev" }, done ? `${done} ${done === 1 ? "report" : "reports"} ready. ` : "", plainPreview(x.last_preview) || (x.guests.length ? "No messages yet." : "")),
+  );
+}
+
+/** Everything on Home under the composer; redrawn on its own as things change. */
+function homeLive() {
+  const mine = ownerAgents();
+  const sessions = sortedSessions();
+  const settingUp = !sessions.some((x) => x.guests.length);
+  const isolated = S.overview?.relay?.isolation === "sessions";
+  return h(
+    "div",
+    { id: "home-live", class: "home-live" },
+    needsYou(),
+    settingUp ? setupSteps(mine) : null,
+    !isolated ? h("div", { class: "banner" }, h("p", {}, h("b", {}, "Org-wide links. "), "Everyone here can reach everyone the policy allows. New workspaces keep each session private.")) : null,
+    settingUp && !mine.length
+      ? null
+      : h(
+          "section",
+          { "aria-label": "Your agents" },
+          h("div", { class: "h-sec" }, h("h2", {}, "Your agents"), h("button", { class: "link-btn", type: "button", onclick: connectAgentDialog }, mine.length ? "Connect another app" : "Connect your AI apps")),
+          mine.length
+            ? h("div", { class: "chips" }, mine.map((a) => agentChip(a, { doing: a.online ? `Online on ${a.host ?? "this computer"}` : `Offline, last seen ${ago(a.last_seen_at)}` })))
+            : h("p", { class: "muted quiet-line" }, "None of your own AI apps is connected yet. One prompt connects them all, each as its own agent."),
+        ),
+    sessions.length || S.shared.length
+      ? h(
+          "section",
+          { "aria-label": "Sessions" },
+          h("div", { class: "h-sec" }, h("h2", {}, "Sessions"), h("button", { class: "link-btn", type: "button", onclick: newSessionDialog }, "New session")),
+          h(
+            "div",
+            { class: "s-grid" },
+            sessions.map(sessionCard),
+            S.shared.map((x) => h("button", { class: "s-card", type: "button", onclick: () => openShared(x.workspace.slug, x.id) }, h("span", { class: "s-card-top" }, h("b", {}, x.name), h("span", { class: "muted small" }, "shared with you")), h("span", { class: "s-card-prev" }, `In ${x.workspace.name}`))),
+          ),
+        )
+      : null,
+  );
+}
+
+/** The line under the greeting: what is going on right now. */
+function homeSub() {
+  const people = talkable();
+  const working = (S.allTasks ?? []).filter((t) => t.status === "active" || t.status === "review").length;
+  const online = S.agents.filter((a) => a.online && a.status === "active" && a.address !== S.overview?.relay?.console_address).length;
+  const sub = !people.length ? "Three steps and your agents are working together." : working ? `${working} ${working === 1 ? "task is" : "tasks are"} in progress, ${online} ${online === 1 ? "agent" : "agents"} online.` : `${online} ${online === 1 ? "agent is" : "agents are"} online. Ask one anything, or give the team a job.`;
+  return sub;
+}
+
 function viewHome() {
   // The entrance plays once per visit, not on every refresh.
   setTimeout(() => (S.homeShown = true), 900);
   const people = talkable();
   if (people.length && !people.some((a) => a.address === S.talk.to)) S.talk.to = people.find((a) => a.online)?.address ?? people[0].address;
-  const mine = ownerAgents();
-  const recent = sortedSessions().slice(0, 6);
-  const isolated = S.overview?.relay?.isolation === "sessions";
   return {
     title: null,
     body: h(
@@ -1671,37 +1855,9 @@ function viewHome() {
         "div",
         { class: "home-inner" },
         h("h1", { class: "hello" }, greeting()),
-        h("p", { class: "hello-sub" }, people.length ? "Ask any agent in your sessions. The answer comes back here." : "Start a session to bring someone's agent in."),
+        h("p", { class: "hello-sub", id: "home-sub" }, homeSub()),
         people.length ? composer({ to: S.talk.to, pickTo: people, placeholder: `Ask ${nameOf(S.talk.to)} anything…`, onSend: () => sendFromHome(), autofocus: true }) : null,
-        h(
-          "div",
-          { class: "sugg" },
-          h("button", { type: "button", onclick: newSessionDialog }, h("span", { html: ICONS.plus }), "New session"),
-          mine.length ? null : h("button", { type: "button", onclick: connectAgentDialog }, h("span", { html: ICONS.invites }), "Connect your AI apps"),
-          S.overview?.stats?.held ? h("button", { type: "button", onclick: () => go("review") }, h("span", { html: ICONS.review }), `Review ${S.overview.stats.held} held`) : null,
-          h("button", { type: "button", onclick: () => go("traffic") }, h("span", { html: ICONS.traffic }), "See activity"),
-        ),
-        !isolated ? h("div", { class: "banner" }, h("p", {}, h("b", {}, "Org-wide links. "), "Everyone here can reach everyone the policy allows. New workspaces keep each session private.")) : null,
-        recent.length
-          ? h(
-              "section",
-              { class: "recent", "aria-label": "Recent sessions" },
-              h("div", { class: "recent-h" }, h("span", {}, "Recent sessions")),
-              h(
-                "div",
-                { class: "recent-list" },
-                recent.map((s) =>
-                  h(
-                    "button",
-                    { class: "r-item", onclick: () => openSession(s.id) },
-                    h("span", { class: "r-name" }, s.name),
-                    h("span", { class: "r-time" }, s.last_message_at ? ago(s.last_message_at) : s.guests.length ? "" : "invited"),
-                    h("span", { class: "r-preview" }, s.last_preview || (s.guests.length ? "No messages yet." : "Waiting for them to join.")),
-                  ),
-                ),
-              ),
-            )
-          : null,
+        homeLive(),
       ),
     ),
   };
@@ -1778,6 +1934,7 @@ async function openSession(id) {
   S.taskDetail = null;
   S.permOpen = false;
   S.sessionTab = "chat";
+  S.chatFilter = null;
   go("session");
   await loadSession();
 }
@@ -1811,7 +1968,7 @@ function peopleOf(members, me) {
   return [...groups.values()].sort((a, b) => (a.role === b.role ? a.name.localeCompare(b.name) : a.role === "owner" ? -1 : 1));
 }
 
-/** Who said what, in order: every message between this session's people, as one readable timeline. */
+/** Who said what, in order. Agents speak in their own colour; the task board's notes fold to one line. */
 function timeline(messages, me, names) {
   const label = (a) => names?.get(a) ?? nameOf(a);
   if (!messages.length) return h("div", { class: "chat-empty" }, h("h2", {}, "No messages yet"), h("p", {}, "When the agents in this session talk to each other or to you, it shows up here as it happens."));
@@ -1820,31 +1977,117 @@ function timeline(messages, me, names) {
     const day = new Date(m.received_at).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
     const sep = day !== lastDay ? h("div", { class: "tl-day" }, h("span", {}, day)) : null;
     lastDay = day;
-    const board = m.from === me && /^\[a2a-(task|mission)/.test(m.text ?? m.preview ?? "");
+    const text = m.text ?? m.preview ?? "";
+    const board = m.from === me && /^\[a2a-(task|mission)/.test(text);
     const mine = m.from === me && !board;
     const ok = m.state === "delivered" || m.state === "queued";
+    const time = h("time", { datetime: m.received_at, title: new Date(m.received_at).toLocaleString() }, new Date(m.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    if (board) {
+      const body = plainPreview(text);
+      return [
+        sep,
+        h(
+          "details",
+          { class: `tl-event tone-${toneOf(m)}` },
+          h("summary", {}, h("i", { class: "ev-dot" }), h("span", { class: "ev-line" }, h("b", {}, "Task board"), " to ", h("b", { style: `color:${signalOf(m.to)}` }, label(m.to)), `: ${body.split("\n")[0]}`), time),
+          md(body),
+        ),
+      ];
+    }
     return [
       sep,
       h(
         "article",
-        { class: `tl-msg ${mine ? "mine" : ""}` },
-        board ? h("span", { class: "mono-av board-av", "aria-hidden": "true", html: ICONS.board }) : avatar(m.from),
+        { class: `tl-msg ${mine ? "mine" : ""}`, style: mine ? null : `--agent:${signalOf(m.from)}` },
+        avatar(m.from),
         h(
           "div",
           { class: "tl-body" },
-          h(
-            "div",
-            { class: "tl-head" },
-            h("b", {}, board ? "Task board" : mine ? "You" : label(m.from)),
-            h("span", { class: "tl-to" }, "to ", m.to === me ? "you" : label(m.to)),
-            h("time", { datetime: m.received_at, title: new Date(m.received_at).toLocaleString() }, new Date(m.received_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })),
-            ok ? null : pill(m.state),
-          ),
-          h("div", { class: `tl-text ${ok ? "" : "dim"}` }, redactedText(m.text ?? m.preview)),
+          h("div", { class: "tl-head" }, h("b", {}, mine ? "You" : label(m.from)), h("span", { class: "tl-to" }, "to ", m.to === me ? "you" : label(m.to)), time, ok ? null : pill(m.state)),
+          h("div", { class: `tl-text ${ok ? "" : "dim"}` }, md(text)),
         ),
       ),
     ];
   });
+}
+
+/** The line under an agent's name in the roster: what it is doing right now. */
+function doingOf(a, tasks) {
+  if (!a.online) return "Offline";
+  const live = (tasks ?? []).filter((t) => t.status === "active" || t.status === "review");
+  const part = live.flatMap((t) => t.parts).find((p) => p.assignee === a.address && p.status !== "done");
+  if (part) return `${part.status === "blocked" ? "Blocked" : part.status === "assigned" ? "Assigned" : "Working"}: ${part.title}`;
+  if (live.some((t) => t.status === "review" && t.participants.includes(a.address) && !t.votes.some((v) => v.address === a.address))) return "Voting";
+  if (live.some((t) => t.coordinator === a.address)) return "Coordinating";
+  return live.some((t) => t.parts.some((p) => p.assignee === a.address)) ? "Part done" : "Ready";
+}
+
+/** Every agent in the session as a lamp. Click one to see only its messages and to write to it. */
+function roster(d, me) {
+  const agents = (d?.members ?? []).filter((m) => m.address !== me);
+  if (!agents.length) return null;
+  const pick = (address) => {
+    S.chatFilter = S.chatFilter === address ? null : address;
+    if (S.chatFilter && S.chatFilter !== "board") S.talk.to = address;
+    S.sessionTab = "chat";
+    renderView();
+  };
+  return h(
+    "div",
+    { id: "roster", class: "roster", role: "toolbar", "aria-label": "Agents in this session. Pick one to see only its messages." },
+    agents.map((a) => agentChip(a, { doing: doingOf(a, S.sessionTasks), on: S.chatFilter === a.address, state: partStatusOf(a.address, S.sessionTasks) ?? "", onclick: () => pick(a.address) })),
+    h("button", { class: `agent-chip board ${S.chatFilter === "board" ? "on" : ""}`, type: "button", "aria-pressed": String(S.chatFilter === "board"), onclick: () => pick("board") }, h("span", { class: "a-lamp" }), h("span", { class: "a-text" }, h("b", {}, "Task board"), h("span", {}, "Assignments, check-ins, votes"))),
+    h(
+      "button",
+      {
+        class: "btn small roster-go",
+        type: "button",
+        onclick: () => {
+          S.sessionTab = "tasks";
+          renderView();
+          setTimeout(() => document.querySelector(".mission-input")?.focus());
+        },
+      },
+      "Give the team a job",
+    ),
+  );
+}
+
+/** The messages the roster's filter leaves: one agent's, the task board's, or all of them. */
+function shownMessages(messages, me) {
+  const f = S.chatFilter;
+  if (!f) return messages;
+  const isBoard = (m) => m.from === me && /^\[a2a-(task|mission)/.test(m.text ?? m.preview ?? "");
+  return f === "board" ? messages.filter(isBoard) : messages.filter((m) => m.from === f || m.to === f);
+}
+
+/** Finished work, readable: each task's combined report as a page, newest first. */
+function reportsPane() {
+  const done = (S.sessionTasks ?? []).filter((t) => t.final_report);
+  return h(
+    "div",
+    { class: "chat-scroll" },
+    h(
+      "div",
+      { class: "reports" },
+      done.length
+        ? done.map((t) =>
+            h(
+              "article",
+              { class: "report-doc" },
+              h(
+                "header",
+                {},
+                h("div", {}, h("h2", {}, t.title), h("p", { class: "muted small" }, `${t.parts.length} parts, agreed by ${t.votes.filter((v) => v.vote === "done").length} of ${t.participants.length} agents, ${ago(t.updated_at)}`)),
+                h("div", { class: "row" }, h("button", { class: "btn secondary small", onclick: () => copy(t.final_report, "Report copied") }, "Copy"), h("button", { class: "btn secondary small", onclick: () => downloadReport(t) }, "Download")),
+              ),
+              h("div", { class: "report-agents" }, t.participants.map((a) => h("span", { class: "who-chip", style: `--agent:${signalOf(a)}` }, h("i", {}), nameOf(a)))),
+              md(t.final_report.replace(/^#\s+.*\n+/, "")), // the title is already the page's heading
+            ),
+          )
+        : h("div", { class: "tasks-empty" }, h("h3", {}, "No reports yet"), h("p", { class: "muted" }, "When every agent on a task agrees it's done, the combined report appears here.")),
+    ),
+  );
 }
 
 function viewSession() {
@@ -1976,13 +2219,13 @@ function viewSession() {
   let main;
   const tab = S.sessionTab ?? "chat";
   if (tab !== "chat") {
-    main = h("section", { class: "chat-col session-col", "aria-label": `${d.name}: ${tab}` }, permissionsBar(), sessionTabs(), tab === "tasks" ? tasksPane(d) : mapPane());
+    main = h("section", { class: "chat-col session-col", "aria-label": `${d.name}: ${tab}` }, permissionsBar(), sessionTabs(), roster(d, me), tab === "tasks" ? tasksPane(d) : tab === "reports" ? reportsPane() : mapPane());
   } else if (!guests.length) {
     main = h(
       "section",
       { class: "chat-col session-col" },
       permissionsBar(),
-      sessionTabs(),
+      sessionTabs(), roster(d, me),
       h(
       "div",
       { class: "chat-scroll" },
@@ -2008,8 +2251,8 @@ function viewSession() {
       "section",
       { class: "chat-col session-col", "aria-label": `Conversation in ${d.name}` },
       permissionsBar(),
-      sessionTabs(),
-      h("div", { class: "chat-scroll", id: "tl-scroll" }, h("div", { class: "log tl", "aria-live": "polite" }, timeline(d.messages, me))),
+      sessionTabs(), roster(d, me),
+      h("div", { class: "chat-scroll", id: "tl-scroll" }, h("div", { class: "log tl", "aria-live": "polite" }, timeline(shownMessages(d.messages, me), me))),
       h(
         "div",
         { class: "dock" },
@@ -2258,7 +2501,7 @@ function taskCard(t) {
           avatar(p.assignee),
           h("div", { class: "part-text" }, h("div", { class: "part-line" }, h("b", {}, nameOf(p.assignee)), h("span", {}, p.title)), p.progress && p.status !== "done" ? h("span", { class: "muted small" }, p.progress) : null),
           t.status === "review" ? h("span", { class: `vote ${voted.get(p.assignee)?.vote ?? "none"}` }, voted.get(p.assignee) ? (voted.get(p.assignee).vote === "done" ? "Agreed" : "Not done") : "Voting…") : h("span", { class: `pchip ${p.status}` }, PART_LABEL[p.status] ?? p.status),
-          open && p.report ? h("details", { class: "report", open: true }, h("summary", {}, "Report"), h("div", { class: "report-text" }, p.report)) : null,
+          open && p.report ? h("details", { class: "report", open: true }, h("summary", {}, "Report"), h("div", { class: "report-text" }, md(p.report))) : null,
         ),
       ),
     ),
@@ -2272,7 +2515,7 @@ function taskCard(t) {
                 "section",
                 { class: "final" },
                 h("div", { class: "sec-h" }, h("h3", {}, "Final report"), h("div", { class: "row" }, h("button", { class: "btn secondary small", onclick: () => copy(t.final_report, "Report copied") }, "Copy"), h("button", { class: "btn secondary small", html: ICONS.download, title: "Download .md", "aria-label": "Download report", onclick: () => downloadReport(t) }))),
-                h("div", { class: "report-text" }, t.final_report),
+                h("div", { class: "report-text" }, md(t.final_report)),
               )
             : null,
           detail?.events?.length
@@ -2318,9 +2561,9 @@ const SVG = "http://www.w3.org/2000/svg";
 let net = null;
 
 function avColors(address) {
-  let hash = 0;
-  for (const c of address ?? "") hash = (hash * 31 + c.charCodeAt(0)) >>> 0;
-  return (document.documentElement.dataset.theme !== "light" ? AV_DARK : AV)[hash % AV.length];
+  const c = signalOf(address);
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+  return [`rgb(${r} ${g} ${b} / 0.16)`, c];
 }
 
 /** What an agent is doing across live tasks: working, blocked, coordinating or done. */
@@ -2463,9 +2706,10 @@ function viewNetwork() {
 
 function sessionTabs() {
   const live = (S.sessionTasks ?? []).filter((t) => t.status === "active" || t.status === "review").length;
+  const reports = (S.sessionTasks ?? []).filter((t) => t.final_report).length;
   const tab = (id, label) =>
     h("button", { role: "tab", "aria-selected": String((S.sessionTab ?? "chat") === id), onclick: () => ((S.sessionTab = id), renderView()) }, label);
-  return h("div", { class: "chat-tabs" }, h("div", { class: "seg", role: "tablist", "aria-label": "Session views" }, tab("chat", "Chat"), tab("tasks", live ? `Tasks · ${live}` : "Tasks"), tab("map", "Live map")));
+  return h("div", { class: "chat-tabs" }, h("div", { class: "seg", role: "tablist", "aria-label": "Session views" }, tab("chat", "Chat"), tab("tasks", live ? `Tasks (${live})` : "Tasks"), tab("reports", reports ? `Reports (${reports})` : "Reports"), tab("map", "Live map")));
 }
 
 // ------------------------------------------------------------------ shared with you

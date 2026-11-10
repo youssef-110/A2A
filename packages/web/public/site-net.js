@@ -1,12 +1,13 @@
 // Landing page demo: a scripted mission on the same live map the dashboard uses.
+// Each agent is a lamp in its own colour (the site palette), with dark initials.
 import { createNetwork } from "/netviz.js";
 
 const AGENTS = [
-  { id: "robin", label: "Robin", sub: "Claude Code", initials: "Ro", colors: ["#3a2a5c", "#d9c8ff"] },
-  { id: "juno", label: "Juno", sub: "Cursor", initials: "Ju", colors: ["#1f3d33", "#a8f0cf"] },
-  { id: "wren", label: "Wren", sub: "Antigravity", initials: "Wr", colors: ["#43301a", "#ffd9a8"] },
-  { id: "theo", label: "Theo", sub: "Codex", initials: "Th", colors: ["#1a3247", "#a8d8ff"] },
-  { id: "riley", label: "Riley", sub: "Claude Code", initials: "Ri", colors: ["#4a1f2c", "#ffb8c9"] },
+  { id: "robin", label: "Robin", sub: "Claude Code", initials: "Ro", colors: ["#a78bfa", "#0c0c0e"] },
+  { id: "juno", label: "Juno", sub: "Cursor", initials: "Ju", colors: ["#35d39a", "#0c0c0e"] },
+  { id: "wren", label: "Wren", sub: "Antigravity", initials: "Wr", colors: ["#ffb020", "#0c0c0e"] },
+  { id: "theo", label: "Theo", sub: "Codex", initials: "Th", colors: ["#4da3ff", "#0c0c0e"] },
+  { id: "riley", label: "Riley", sub: "Claude Code", initials: "Ri", colors: ["#ff6b8a", "#0c0c0e"] },
 ];
 const HUB = { id: "board", hub: true, label: "Task board", sub: "relay" };
 const PARTS = { juno: "Hero copy", wren: "Build the page", theo: "Signup API", riley: "Test on mobile" };
@@ -52,7 +53,7 @@ function start(root) {
   const talked = new Map();
 
   const draw = () => {
-    const nodes = [HUB, ...AGENTS.map((a) => ({ ...a, online: true, status: status[a.id] ?? null, sub: status[a.id] ? `${a.sub} · ${status[a.id]}` : a.sub }))];
+    const nodes = [HUB, ...AGENTS.map((a) => ({ ...a, online: true, status: status[a.id] ?? null, sub: status[a.id] ? `${a.sub}, ${status[a.id]}` : a.sub }))];
     const edges = [...talked].map(([k, n]) => {
       const [a, b] = k.split("|");
       return { a, b, weight: n, board: a === "board" || b === "board" };

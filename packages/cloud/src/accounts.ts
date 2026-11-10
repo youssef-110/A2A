@@ -7,6 +7,8 @@ export interface AccountsEnv {
   ACCOUNTS: D1Database;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
   /** This email gets the original single relay (agent://acme) as a workspace when it signs in. */
   A2A_LEGACY_OWNER?: string;
   A2A_ORG?: string;
@@ -216,6 +218,17 @@ export async function signIn(env: AccountsEnv, input: { email?: unknown; passwor
   return { id: row.id, email: row.email, name: row.name, avatar_url: row.avatar_url };
 }
 
+/**
+ * Replaces everything an unverified sign-up built with an empty workspace. Password sign-ups don't
+ * prove the email, so the first proof of ownership (Google, GitHub or a reset email) must not inherit
+ * agents or invites someone else may have planted under that address.
+ */
+async function freshStart(env: AccountsEnv, user: User): Promise<void> {
+  await env.ACCOUNTS.prepare("DELETE FROM workspaces WHERE do_name != 'relay' AND id IN (SELECT workspace_id FROM memberships WHERE user_id = ? AND role = 'owner')").bind(user.id).run();
+  await env.ACCOUNTS.prepare("DELETE FROM memberships WHERE user_id = ?").bind(user.id).run();
+  await onFirstSignIn(env, user);
+}
+
 /** A new account's own workspace. Nothing here depends on the email being verified. */
 async function onFirstSignIn(env: AccountsEnv, user: User): Promise<void> {
   const first = (user.name ?? user.email).split(/\s+/)[0]!;
@@ -252,7 +265,7 @@ export async function googleStart(env: AccountsEnv, url: URL, next: string): Pro
 
 export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Promise<{ user: User; next: string } | { error: string }> {
   const [state, verifier, nextB64] = (readCookie(req, "a2a_oauth") ?? "").split(".");
-  if (!state || !verifier || url.searchParams.get("state") !== state) return { error: "The sign-in link expired. Try again." };
+  if (!state || !verifier || !timingSafeEqualStr(url.searchParams.get("state") ?? "", state)) return { error: "The sign-in link expired. Try again." };
   const code = url.searchParams.get("code");
   if (!code) return { error: "Google sign-in was cancelled." };
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -279,39 +292,90 @@ export async function googleFinish(env: AccountsEnv, req: Request, url: URL): Pr
   if (!claims.email || !claims.email_verified) return { error: "Your Google account needs a verified email address." };
   const email = claims.email.toLowerCase();
 
-  const existing = await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url, google_sub FROM users WHERE google_sub = ? OR email = ? ORDER BY google_sub IS NULL LIMIT 1")
-    .bind(claims.sub, email)
-    .first<User & { google_sub: string | null }>();
-  let user: User;
-  if (existing) {
-    user = { id: existing.id, email: existing.email, name: existing.name, avatar_url: existing.avatar_url };
-    if (!existing.google_sub) {
-      // A password account with this email, never verified. Google proves who owns the address, so the
-      // Google user takes it over: the old password and every session it opened stop working.
-      await env.ACCOUNTS.batch([
-        env.ACCOUNTS.prepare("UPDATE users SET password_hash = NULL WHERE id = ?").bind(user.id),
-        env.ACCOUNTS.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(user.id),
-      ]);
-    }
-    await env.ACCOUNTS.prepare("UPDATE users SET google_sub = ?, avatar_url = COALESCE(?, avatar_url), name = COALESCE(name, ?) WHERE id = ?")
-      .bind(claims.sub, claims.picture ?? null, claims.name ?? null, user.id)
-      .run();
-  } else {
-    user = { id: newId("usr"), email, name: claims.name ?? email.split("@")[0]!, avatar_url: claims.picture ?? null };
-    await env.ACCOUNTS.prepare("INSERT INTO users (id, email, name, google_sub, avatar_url, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .bind(user.id, email, user.name, claims.sub, user.avatar_url, iso())
-      .run();
-    await onFirstSignIn(env, user);
-  }
+  const user = await oauthUser(env, "google_sub", claims.sub, email, claims.name ?? null, claims.picture ?? null);
+  if (!user) return { error: "This email is linked to a different Google account." };
   await attachLegacyRelay(env, user); // Google has verified this email
-  let next = "/app";
+  return { user, next: oauthNext(nextB64) };
+}
+
+/** Where to go after sign-in, from the OAuth cookie. Only the dashboard or the device-link page. */
+function oauthNext(nextB64: string | undefined): string {
   try {
     const decoded = new TextDecoder().decode(fromB64url(nextB64 ?? ""));
-    if (/^\/(app|link)(\/|\?|$)/.test(decoded)) next = decoded;
+    if (/^\/(app|link)(\/|\?|$)/.test(decoded)) return decoded;
   } catch {
     /* default */
   }
-  return { user, next };
+  return "/app";
+}
+
+/**
+ * The account for an identity whose email the provider has verified: matched by the provider's id,
+ * else by email, else created. `column` is one of two literals, never input.
+ */
+async function oauthUser(env: AccountsEnv, column: "google_sub" | "github_id", sub: string, email: string, name: string | null, avatar: string | null): Promise<User | null> {
+  const existing = await env.ACCOUNTS.prepare(`SELECT id, email, name, avatar_url, google_sub, github_id, email_verified FROM users WHERE ${column} = ? OR email = ? ORDER BY ${column} IS NULL LIMIT 1`)
+    .bind(sub, email)
+    .first<User & { google_sub: string | null; github_id: string | null; email_verified: number }>();
+  if (existing) {
+    if (existing[column] && existing[column] !== sub) return null;
+    if (!existing.email_verified) {
+      // A password account with this email, never verified. The provider proves who owns the address,
+      // so this person takes it over: the old password, every session it opened, and whatever the
+      // earlier sign-up left in its workspace (agents, invites) are gone.
+      await env.ACCOUNTS.batch([
+        env.ACCOUNTS.prepare("UPDATE users SET password_hash = NULL WHERE id = ?").bind(existing.id),
+        env.ACCOUNTS.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(existing.id),
+      ]);
+      await freshStart(env, existing);
+    }
+    await env.ACCOUNTS.prepare(`UPDATE users SET ${column} = ?, email_verified = 1, avatar_url = COALESCE(avatar_url, ?), name = COALESCE(name, ?) WHERE id = ?`).bind(sub, avatar, name, existing.id).run();
+    return { id: existing.id, email: existing.email, name: existing.name ?? name, avatar_url: existing.avatar_url ?? avatar };
+  }
+  const user: User = { id: newId("usr"), email, name: name ?? email.split("@")[0]!, avatar_url: avatar };
+  await env.ACCOUNTS.prepare(`INSERT INTO users (id, email, name, ${column}, avatar_url, email_verified, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)`).bind(user.id, email, user.name, sub, avatar, iso()).run();
+  await onFirstSignIn(env, user);
+  return user;
+}
+
+// ------------------------------------------------------------------ GitHub sign-in
+
+export const GITHUB_CALLBACK = "/auth/callback/github";
+
+export const githubEnabled = (env: AccountsEnv): boolean => !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
+
+export function githubStart(env: AccountsEnv, url: URL, next: string): Response {
+  const state = randomToken(18);
+  const auth = new URL("https://github.com/login/oauth/authorize");
+  auth.search = new URLSearchParams({ client_id: env.GITHUB_CLIENT_ID!, redirect_uri: `${url.origin}${GITHUB_CALLBACK}`, scope: "read:user user:email", state }).toString();
+  // Same cookie shape as Google's (state.verifier.next); GitHub OAuth apps have no PKCE, so the middle is unused.
+  return new Response(null, { status: 302, headers: { location: auth.toString(), "set-cookie": cookie("a2a_oauth", `${state}.gh.${b64url(enc.encode(next))}`, 600, url.protocol === "https:") } });
+}
+
+export async function githubFinish(env: AccountsEnv, req: Request, url: URL): Promise<{ user: User; next: string } | { error: string }> {
+  const [state, , nextB64] = (readCookie(req, "a2a_oauth") ?? "").split(".");
+  if (!state || !timingSafeEqualStr(url.searchParams.get("state") ?? "", state)) return { error: "The sign-in link expired. Try again." };
+  const code = url.searchParams.get("code");
+  if (!code) return { error: "GitHub sign-in was cancelled." };
+  const res = await fetch("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code, redirect_uri: `${url.origin}${GITHUB_CALLBACK}` }),
+  });
+  const token = (await res.json().catch(() => ({}))) as { access_token?: string };
+  if (!res.ok || !token.access_token) return { error: "GitHub didn't confirm the sign-in. Try again." };
+  const gh = { authorization: `Bearer ${token.access_token}`, accept: "application/vnd.github+json", "user-agent": "a2a-relay" };
+  const [profileRes, emailsRes] = await Promise.all([fetch("https://api.github.com/user", { headers: gh }), fetch("https://api.github.com/user/emails", { headers: gh })]);
+  if (!profileRes.ok || !emailsRes.ok) return { error: "GitHub didn't share your profile. Try again." };
+  const profile = (await profileRes.json()) as { id: number; login: string; name: string | null; avatar_url: string | null };
+  const emails = (await emailsRes.json()) as { email: string; primary: boolean; verified: boolean }[];
+  // Only an address GitHub has verified may match an existing account.
+  const email = (emails.find((e) => e.primary && e.verified) ?? emails.find((e) => e.verified))?.email.toLowerCase();
+  if (!profile.id || !email) return { error: "Your GitHub account needs a verified email address." };
+  const user = await oauthUser(env, "github_id", String(profile.id), email, profile.name ?? profile.login, profile.avatar_url);
+  if (!user) return { error: "This email is linked to a different GitHub account." };
+  await attachLegacyRelay(env, user);
+  return { user, next: oauthNext(nextB64) };
 }
 
 // ------------------------------------------------------------------ desktop app sign-in
@@ -439,8 +503,10 @@ export async function finishPasswordReset(env: AccountsEnv, token: string, passw
   // Delete first: if the link is used twice at once, only one request sets the password.
   const del = await env.ACCOUNTS.prepare("DELETE FROM password_resets WHERE token_hash = ?").bind(hash).run();
   if (!del.meta.changes) return { error: "This reset link expired or was already used. Ask for a new one." };
+  const before = await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url, email_verified FROM users WHERE id = ?").bind(row.user_id).first<User & { email_verified: number }>();
+  if (before && !before.email_verified) await freshStart(env, before);
   await env.ACCOUNTS.batch([
-    env.ACCOUNTS.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(await hashPassword(password), row.user_id),
+    env.ACCOUNTS.prepare("UPDATE users SET password_hash = ?, email_verified = 1 WHERE id = ?").bind(await hashPassword(password), row.user_id),
     env.ACCOUNTS.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(row.user_id),
     env.ACCOUNTS.prepare("DELETE FROM password_resets WHERE user_id = ?").bind(row.user_id),
   ]);

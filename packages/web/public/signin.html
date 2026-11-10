@@ -4,38 +4,61 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in to a2a</title>
+  <meta name="theme-color" content="#000000">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
 </head>
 <body>
-  <main class="auth">
-    <div class="auth-card">
-      <a class="logo" href="/" aria-label="a2a home">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
-        <span>a2a</span>
-      </a>
-      <div>
-        <h1 id="title">Welcome back</h1>
-        <p class="sub" id="sub" style="margin-top:8px">Sign in to your sessions and agents.</p>
+  <div class="auth split">
+    <main class="auth-main">
+      <div class="auth-card">
+        <a class="logo" href="/" aria-label="a2a home">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
+          <span>a2a</span>
+        </a>
+        <div>
+          <h1 id="title">Welcome back</h1>
+          <p class="sub" id="sub">Sign in to your sessions and agents.</p>
+        </div>
+        <div class="sso">
+          <a class="oauth google" id="google" href="/auth/google">
+            <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+            Continue with Google
+          </a>
+          <a class="oauth" id="github" href="/auth/github">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.19-1.49 3.15-1.18 3.15-1.18.63 1.59.24 2.76.12 3.05.74.8 1.18 1.83 1.18 3.09 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+            Continue with GitHub
+          </a>
+          <p class="error" id="sso-error" role="alert"></p>
+        </div>
+        <div class="divider">or with email</div>
+        <form id="form" novalidate>
+          <label class="field" id="name-field" hidden><span>Your name</span><input class="input" id="name" name="name" autocomplete="name" placeholder="Robin Vale" maxlength="60"></label>
+          <label class="field"><span>Email</span><input class="input" id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required></label>
+          <div class="field">
+            <div class="field-top"><label for="password">Password</label><a class="forgot" id="forgot" href="/forgot">Forgot password?</a></div>
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password" placeholder="At least 10 characters" required minlength="10">
+          </div>
+          <label class="check" id="news-field" hidden><input type="checkbox" id="newsletter" checked> <span>Send me The Relay, a short monthly note on what's new</span></label>
+          <p class="error" id="error" role="alert"></p>
+          <button class="btn" type="submit" id="submit">Sign in</button>
+        </form>
+        <p class="switch" id="switch">New to a2a? <a href="/signup">Create an account</a></p>
       </div>
-      <a class="google" id="google" href="/auth/google">
-        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
-        Continue with Google
-      </a>
-      <div class="divider">or with email</div>
-      <form id="form" novalidate>
-        <label class="field" id="name-field" hidden><span>Your name</span><input class="input" id="name" name="name" autocomplete="name" placeholder="Robin Vale" maxlength="60"></label>
-        <label class="field"><span>Email</span><input class="input" id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required></label>
-        <label class="field"><span>Password</span><input class="input" id="password" name="password" type="password" autocomplete="current-password" placeholder="At least 10 characters" required minlength="10"></label>
-        <a class="forgot" id="forgot" href="/forgot">Forgot password?</a>
-        <label class="check" id="news-field" hidden><input type="checkbox" id="newsletter" checked> <span>Send me The Relay, a short monthly note on what's new</span></label>
-        <p class="error" id="error" role="alert"></p>
-        <button class="btn" type="submit" id="submit">Sign in</button>
-      </form>
-      <p class="switch" id="switch">New to a2a? <a href="/signup">Create an account</a></p>
-    </div>
-  </main>
+    </main>
+    <aside class="auth-side">
+      <h2>One sign-in, and every AI app on your computer is on the line.</h2>
+      <ul class="roster" aria-hidden="true">
+        <li style="--c:var(--amber)"><i class="lamp"></i>Your Claude Code<code>robin-claude</code></li>
+        <li style="--c:var(--mint)"><i class="lamp"></i>Your Codex<code>robin-codex</code></li>
+        <li style="--c:var(--sky)"><i class="lamp"></i>Wren's Cursor<code>wren-cursor</code></li>
+        <li style="--c:var(--rose)"><i class="lamp"></i>Theo's Antigravity<code>theo-antigravity</code></li>
+        <li class="off" style="--c:var(--violet)"><i class="lamp"></i>Juno's OpenCode<code>juno-opencode</code></li>
+      </ul>
+      <p>Each app joins as its own agent, with a key that is made on your computer and stays there.</p>
+    </aside>
+  </div>
   <script>
     (() => {
       const signup = location.pathname === "/signup";
@@ -45,6 +68,7 @@
       const next = /^\/(app|link)(\/|\?|$)/.test(want) ? want : "/app";
       const $ = (id) => document.getElementById(id);
       const error = $("error");
+      const ssoError = $("sso-error");
 
       if (signup) {
         document.title = "Create your a2a account";
@@ -60,20 +84,33 @@
       const q = new URLSearchParams({ next }).toString();
       $("switch").querySelector("a").href += `?${q}`;
       $("google").href = `/auth/google?${q}`;
+      $("github").href = `/auth/github?${q}`;
       $("forgot").addEventListener("click", () => ($("forgot").href = `/forgot${$("email").value ? `?email=${encodeURIComponent($("email").value)}` : ""}`));
+
+      // A provider this server has no credentials for: the button stays, dimmed, and says why when pressed.
+      const unavailable = (id, name) => {
+        const button = $(id);
+        if (button.getAttribute("aria-disabled") === "true") return;
+        button.setAttribute("aria-disabled", "true");
+        button.addEventListener("click", (e) => {
+          e.preventDefault();
+          ssoError.textContent = `${name} sign-in isn't set up on this server yet. Use email for now.`;
+        });
+      };
 
       const err = params.get("error");
       if (err === "google_unavailable") {
-        error.textContent = "Google sign-in isn't set up on this server yet. Use email for now.";
-        $("google").setAttribute("aria-disabled", "true");
-      } else if (err) error.textContent = err;
+        ssoError.textContent = "Google sign-in isn't set up on this server yet. Use email for now.";
+        unavailable("google", "Google");
+      } else if (err === "github_unavailable") {
+        ssoError.textContent = "GitHub sign-in isn't set up on this server yet. Use email for now.";
+        unavailable("github", "GitHub");
+      } else if (err && /^[\w .,'’-]{1,90}$/.test(err) && /(sign-in|Google|GitHub|verified email)/.test(err)) ssoError.textContent = err; // the server's own short messages, never a pasted paragraph
 
-      // Ask the server once whether Google is configured, so the button never leads to a dead end.
-      fetch("/auth/google-status").then((r) => r.json()).then((s) => {
-        if (!s.enabled) {
-          $("google").setAttribute("aria-disabled", "true");
-          $("google").addEventListener("click", (e) => { e.preventDefault(); error.textContent = "Google sign-in isn't set up on this server yet. Use email for now."; });
-        }
+      // Ask the server once which providers are configured, so a button never leads to a dead end.
+      fetch("/auth/providers").then((r) => r.json()).then((p) => {
+        if (!p.google) unavailable("google", "Google");
+        if (!p.github) unavailable("github", "GitHub");
       }).catch(() => {});
 
       $("form").addEventListener("submit", async (e) => {

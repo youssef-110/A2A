@@ -7,6 +7,10 @@ import {
   deviceLinkByCode,
   endSession,
   finishPasswordReset,
+  GITHUB_CALLBACK,
+  githubEnabled,
+  githubFinish,
+  githubStart,
   GOOGLE_CALLBACK,
   googleEnabled,
   googleFinish,
@@ -28,7 +32,7 @@ import {
 } from "./accounts.ts";
 import { NEWSLETTER_NAME, sendEmail } from "./email.ts";
 
-export { RelayDO } from "./relay-do.ts";
+export { WorkspaceRelay } from "./relay-do.ts";
 
 /**
  * The A2A website and relays on one Worker:
@@ -209,7 +213,8 @@ async function handleAuth(env: Env, req: Request, url: URL, ctx: ExecutionContex
   const secure = url.protocol === "https:";
   const ip = req.headers.get("cf-connecting-ip") ?? "local";
   if (url.pathname === "/auth/signup" && req.method === "POST") {
-    if (await tooManyFailures(env, [`ip:${ip}`])) return json({ error: "Too many attempts. Wait a few minutes and try again." }, 429);
+    if (await tooManyFailures(env, [`ip:${ip}`]) || (await tooManyFailures(env, [`signup:${ip}`], 60))) return json({ error: "Too many attempts. Wait a few minutes and try again." }, 429);
+    await recordFailure(env, [`signup:${ip}`]);
     const body = await readJson(req);
     const r = await signUp(env, body);
     if ("error" in r) {
@@ -221,8 +226,9 @@ async function handleAuth(env: Env, req: Request, url: URL, ctx: ExecutionContex
   }
   if (url.pathname === "/auth/signin" && req.method === "POST") {
     const body = await readJson(req);
-    const keys = [`ip:${ip}`, `email:${String(body.email ?? "").trim().toLowerCase()}`];
-    if (await tooManyFailures(env, keys)) return json({ error: "Too many attempts. Wait a few minutes and try again." }, 429);
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const keys = [`ip:${ip}`, `pair:${ip}:${email}`, `email:${email}`];
+    if ((await tooManyFailures(env, keys.slice(0, 2))) || (await tooManyFailures(env, keys.slice(2), 60))) return json({ error: "Too many attempts. Wait a few minutes and try again." }, 429);
     const user = await signIn(env, body);
     if (!user) {
       await recordFailure(env, keys);
@@ -234,6 +240,7 @@ async function handleAuth(env: Env, req: Request, url: URL, ctx: ExecutionContex
     return json({ ok: true }, 200, { "set-cookie": await endSession(env, req, secure) });
   }
   if (url.pathname === "/auth/google-status") return json({ enabled: googleEnabled(env) });
+  if (url.pathname === "/auth/providers") return json({ google: googleEnabled(env), github: githubEnabled(env) });
 
   // Forgot password: the reply is the same whether or not the email has an account, and the email
   // goes out after replying, so neither the answer nor its timing tells who has one.
@@ -283,8 +290,8 @@ async function handleAuth(env: Env, req: Request, url: URL, ctx: ExecutionContex
 
   // Desktop app sign-in, like a TV code: the app gets a code, the person approves it at /link.
   if (url.pathname === "/auth/device/start" && req.method === "POST") {
-    // Every start counts (not only failures), and agents retry, so this allows more than sign-in does.
-    if (await tooManyFailures(env, [`device:${ip}`], 40)) return json({ error: "Too many sign-in codes. Wait a few minutes and try again." }, 429);
+    // Every start counts (not only failures), agents retry, and a whole room (a hackathon) can share one address.
+    if (await tooManyFailures(env, [`device:${ip}`], 200)) return json({ error: "Too many sign-in codes. Wait a few minutes and try again." }, 429);
     await recordFailure(env, [`device:${ip}`]);
     const body = await readJson(req);
     const cf = (req as Request & { cf?: { city?: string; region?: string; country?: string } }).cf;
@@ -312,6 +319,18 @@ async function handleAuth(env: Env, req: Request, url: URL, ctx: ExecutionContex
     headers.append("set-cookie", "a2a_oauth=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
     return new Response(null, { status: 302, headers });
   }
+  if (url.pathname === "/auth/github") {
+    if (!githubEnabled(env)) return Response.redirect(`${url.origin}/signin?error=github_unavailable`, 302);
+    return githubStart(env, url, url.searchParams.get("next") ?? "/app");
+  }
+  if (url.pathname === GITHUB_CALLBACK) {
+    const r = await githubFinish(env, req, url);
+    if ("error" in r) return Response.redirect(`${url.origin}/signin?error=${encodeURIComponent(r.error)}`, 302);
+    const headers = new Headers({ location: `${url.origin}${r.next}` });
+    headers.append("set-cookie", await createSession(env, r.user.id, secure));
+    headers.append("set-cookie", "a2a_oauth=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+    return new Response(null, { status: 302, headers });
+  }
   return json({ error: "not_found" }, 404);
 }
 
@@ -322,7 +341,7 @@ async function handleApi(env: Env, req: Request, url: URL, ctx: ExecutionContext
   const ip = req.headers.get("cf-connecting-ip") ?? "local";
 
   if (url.pathname === "/api/me") {
-    return json({ user, workspaces: workspaces.map(({ slug, name, role }) => ({ slug, name, role, url: `${url.origin}/w/${slug}` })), google: googleEnabled(env) });
+    return json({ user, workspaces: workspaces.map(({ slug, name, role }) => ({ slug, name, role, url: `${url.origin}/w/${slug}` })), google: googleEnabled(env), github: githubEnabled(env) });
   }
   if (url.pathname.startsWith("/api/shared")) return handleShared(env, req, url, user.id);
   if (url.pathname === "/api/device" && req.method === "GET") {
@@ -382,11 +401,11 @@ async function handleApi(env: Env, req: Request, url: URL, ctx: ExecutionContext
     if (!info.valid) return json({ error: "This invite expired. Create a new one first." }, 400);
     await recordFailure(env, [`invite-mail:${user.id}`]);
     const who = user.name ?? user.email;
-    const sent = await sendEmail(env, url.origin, to, info.session ? `${who} invited you to "${info.session}" on a2a` : `${who} invited you to a2a`, {
+    const sent = await sendEmail(env, url.origin, to, "You were invited to an a2a session", {
       preview: "Your AI agents can work together in one shared session.",
-      heading: info.session ? `Join "${info.session}"` : "You're invited to a2a",
+      heading: "You're invited to a2a",
       paragraphs: [
-        `${who} (${user.email}) invited you to a shared a2a session. Your AI apps (Claude Code, Antigravity, Cursor, Codex and more) each get their own agent and can message everyone else's agents in the session.`,
+        `${who} (${user.email}) invited you to ${info.session ? `the session "${info.session}"` : "a shared session"} on a2a. Your AI apps (Claude Code, Antigravity, Cursor, Codex and more) each get their own agent and can message everyone else's agents in the session.`,
         "Open the invite, copy the prompt into your AI agent, and click Connect when your browser asks. It takes about a minute.",
       ],
       button: { label: "Open the invite", url: `${url.origin}/w/${ws.slug}/join/${m[2]}` },
@@ -450,9 +469,56 @@ async function download(env: Env, req: Request, url: URL, os: string): Promise<R
   });
 }
 
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'", // the small pages (sign-in, join, link, reset) carry inline scripts
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
+  "connect-src 'self' wss://api.reson8.dev",
+  "media-src 'self' blob:",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join("; ");
+
+/** Headers every answer gets. Upgrades (WebSockets) pass through untouched. */
+function secured(res: Response, https: boolean): Response {
+  if (res.status === 101 || res.webSocket) return res;
+  const out = new Response(res.body, res);
+  out.headers.set("x-content-type-options", "nosniff");
+  out.headers.set("referrer-policy", "no-referrer"); // reset tokens and codes travel in URLs
+  out.headers.set("x-frame-options", "DENY");
+  if (https) out.headers.set("strict-transport-security", "max-age=31536000; includeSubDomains");
+  if ((out.headers.get("content-type") ?? "").startsWith("text/html")) out.headers.set("content-security-policy", CSP);
+  return out;
+}
+
+/**
+ * Cookie-backed writes must come from this site: a browser's cross-site request says so in
+ * Sec-Fetch-Site or Origin, and a plain HTML form can't send JSON. The a2a CLI sends neither header.
+ */
+function crossSiteWrite(req: Request, url: URL): boolean {
+  if (req.method === "GET" || req.method === "HEAD") return false;
+  if (req.headers.get("sec-fetch-site") === "cross-site") return true;
+  const origin = req.headers.get("origin");
+  if (origin && origin !== "null" && origin !== url.origin) return true;
+  const type = req.headers.get("content-type");
+  return !!type && !type.toLowerCase().startsWith("application/json");
+}
+
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+    if ((url.pathname.startsWith("/auth/") || url.pathname.startsWith("/api/")) && crossSiteWrite(req, url)) {
+      return secured(json({ error: "cross_site", detail: "This request didn't come from a2a." }, 403), url.protocol === "https:");
+    }
+    return secured(await route(req, env, ctx, url), url.protocol === "https:");
+  },
+} satisfies ExportedHandler<Env>;
+
+async function route(req: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+  {
     const p = url.pathname;
 
     if (p.startsWith("/auth/")) return handleAuth(env, req, url, ctx);
@@ -467,7 +533,12 @@ export default {
       if (!rest!.startsWith("/v1/") || rest!.startsWith("/v1/admin/") || rest!.startsWith("/v1/voice/")) return json({ error: "not_found" }, 404);
       const ws = await workspaceBySlug(env, slug!);
       if (!ws) return json({ error: "unknown_workspace" }, 404);
-      if (rest === "/v1/register" && req.headers.get("authorization")?.startsWith("Bearer ")) return registerAsAccount(env, req, url, ws);
+      if (rest === "/v1/register") {
+        const ip = req.headers.get("cf-connecting-ip") ?? "local";
+        if (await tooManyFailures(env, [`register:${ip}`], 400)) return json({ error: "rate_limited", detail: "Too many agents registered from here. Wait a few minutes and try again." }, 429);
+        await recordFailure(env, [`register:${ip}`]);
+        if (req.headers.get("authorization")?.startsWith("Bearer ")) return registerAsAccount(env, req, url, ws);
+      }
       return toRelay(env, req, ws.do_name, rest!, workspaceHeaders(url, ws));
     }
 
@@ -493,5 +564,5 @@ export default {
     }
     if (PAGES[p]) return asset(env, req, PAGES[p]!);
     return env.ASSETS.fetch(req);
-  },
-} satisfies ExportedHandler<Env>;
+  }
+}

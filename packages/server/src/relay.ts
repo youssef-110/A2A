@@ -159,6 +159,9 @@ function passVerdict(text: string, reason: string): Verdict {
   };
 }
 
+/** A session name as plain words: it is pasted into agents' prompts and emails, so no line breaks, quotes or markup. */
+const cleanName = (s: string): string => s.replace(/[\u0000-\u001f\u007f"`<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+
 export class Relay extends EventEmitter {
   readonly db: Db;
   readonly relayPublicKey: string;
@@ -432,7 +435,7 @@ export class Relay extends EventEmitter {
   }
 
   createSession(input: { name?: unknown; max_members?: unknown; brief?: unknown }, actor: string): { id: string; name: string; max_members: number } {
-    const name = typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 80) : "New session";
+    const name = (typeof input.name === "string" && cleanName(input.name)) || "New session";
     const id = `ses_${randomBytes(9).toString("base64url")}`;
     const max = clampMembers(input.max_members);
     const brief = typeof input.brief === "string" && input.brief.trim() ? input.brief.trim().slice(0, BRIEF_MAX) : null;
@@ -451,8 +454,8 @@ export class Relay extends EventEmitter {
     if (!s || s.archived) return false;
     this.ensureSettings(id);
     const changed: Record<string, unknown> = {};
-    if (typeof input.name === "string" && input.name.trim()) {
-      changed.name = input.name.trim().slice(0, 80);
+    if (typeof input.name === "string" && cleanName(input.name)) {
+      changed.name = cleanName(input.name);
       this.db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(changed.name as string, id);
     }
     if (input.max_members !== undefined) {

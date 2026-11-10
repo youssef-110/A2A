@@ -37,7 +37,7 @@ function cloudJudges(env: Env): (mode: JudgeMode) => JudgeSet | null {
  * The original relay ("relay") serves agent://acme. Workspace relays learn their org and name from
  * the Worker's x-a2a-* headers on their first request and keep them, so they can wake up on their own.
  */
-export class RelayDO extends DurableObject<Env> {
+export class WorkspaceRelay extends DurableObject<Env> {
   private readonly db: Db;
   private relay?: Relay;
   private hub?: DoHub;

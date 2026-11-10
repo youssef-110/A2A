@@ -12,9 +12,13 @@
     "run_worker_first": true
   },
   "durable_objects": {
-    "bindings": [{ "name": "RELAY", "class_name": "RelayDO" }]
+    "bindings": [{ "name": "RELAY", "class_name": "WorkspaceRelay" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayDO"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RelayDO"] },
+    // 0.5.0 started from scratch: deleting the old class deletes every relay's stored data with it.
+    { "tag": "v2", "new_sqlite_classes": ["WorkspaceRelay"], "deleted_classes": ["RelayDO"] }
+  ],
   "d1_databases": [{ "binding": "ACCOUNTS", "database_name": "a2a-accounts", "database_id": "904a913b-a29a-46f3-ae4e-1bb8cceeb871", "migrations_dir": "migrations" }],
   "vars": {
     "A2A_ORG": "acme",
@@ -23,5 +27,5 @@
   },
   "observability": { "enabled": true }
   // Secrets (wrangler secret put): A2A_ADMIN_TOKEN, RESON8_API_KEY (voice),
-  // GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET (Google sign-in), ANTHROPIC_API_KEY (optional LLM guard)
+  // GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET (Google sign-in), GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET (GitHub sign-in), ANTHROPIC_API_KEY (optional LLM guard)
 }

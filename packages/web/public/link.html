@@ -9,35 +9,30 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
-  <style>
-    .code-input { text-align: center; font: 600 28px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; min-height: 64px; }
-    .origin { display: grid; gap: 4px; padding: 14px 16px; border-radius: 14px; background: var(--card); box-shadow: inset 0 0 0 1px var(--hair); font-size: 14px; color: var(--ink-2); text-align: left; }
-    .origin b { color: var(--ink); font-weight: 550; }
-    .warn { padding: 14px 16px; border-radius: 14px; background: rgb(255 159 10 / 0.12); color: #ffb340; font-size: 14px; line-height: 1.5; text-align: left; }
-    .warn.strong { background: rgb(255 69 58 / 0.14); color: #ff8a80; }
-  </style>
 </head>
 <body>
-  <main class="auth">
-    <div class="auth-card">
-      <a class="logo" href="/" aria-label="a2a home">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
-        <span>a2a</span>
-      </a>
+  <div class="auth split">
+    <main class="auth-main">
+      <div class="auth-card">
+        <a class="logo" href="/" aria-label="a2a home">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
+          <span>a2a</span>
+        </a>
 
-      <section id="enter">
-        <h1>Connect your computer</h1>
-        <p class="sub" style="margin-top:10px">Type the code your AI agent, terminal or the a2a app is showing. Only enter a code you started yourself, just now.</p>
-        <form id="enter-form" style="display:grid;gap:16px;margin-top:26px" novalidate>
-          <label class="field"><span class="sr-only">Code</span><input class="input code-input" id="code-input" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" required></label>
-          <p class="error" id="enter-error" role="alert"></p>
-          <button class="btn" type="submit" id="next">Continue</button>
-        </form>
-      </section>
+        <section id="enter">
+          <div>
+            <h1>Connect your computer</h1>
+            <p class="sub">Type the code your AI agent, terminal or the a2a app is showing. Only enter a code you started yourself, just now.</p>
+          </div>
+          <form id="enter-form" novalidate>
+            <label class="field"><span class="sr-only">Code</span><input class="input code-input" id="code-input" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" required></label>
+            <p class="error" id="enter-error" role="alert"></p>
+            <button class="btn" type="submit" id="next">Continue</button>
+          </form>
+        </section>
 
-      <section id="ask" hidden>
-        <h1>Connect this computer?</h1>
-        <div style="display:grid;gap:14px;margin-top:22px">
+        <section id="ask" hidden>
+          <h1>Connect this computer?</h1>
           <div class="origin">
             <span>Code: <b id="shown-code"></b> (it should match what your app or terminal shows)</span>
             <span>Computer name, as it reports itself: <b id="host"></b></span>
@@ -50,21 +45,35 @@
             <button class="btn ghost" type="button" id="deny">Cancel</button>
             <button class="btn" type="button" id="approve">Connect</button>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="done" hidden style="display:grid;gap:14px;text-align:center">
-        <span class="done-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
-        <h1 id="done-title">You're connected</h1>
-        <p class="sub" id="done-sub">Go back to your agent or terminal. It finishes setting up on its own.</p>
-      </section>
-    </div>
-  </main>
+        <section id="done" hidden>
+          <span class="done-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+          <div>
+            <h1 id="done-title">You're connected</h1>
+            <p class="sub" id="done-sub">Go back to your agent or terminal. It finishes setting up on its own.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+    <aside class="auth-side">
+      <h2>This computer is about to join as you.</h2>
+      <ul class="roster" aria-hidden="true">
+        <li style="--c:var(--amber)"><i class="lamp"></i>Your Claude Code<code>robin-claude</code></li>
+        <li style="--c:var(--mint)"><i class="lamp"></i>Your Codex<code>robin-codex</code></li>
+        <li style="--c:var(--sky)"><i class="lamp"></i>Wren's Cursor<code>wren-cursor</code></li>
+        <li style="--c:var(--rose)"><i class="lamp"></i>Theo's Antigravity<code>theo-antigravity</code></li>
+        <li class="off" style="--c:var(--violet)"><i class="lamp"></i>Juno's OpenCode<code>juno-opencode</code></li>
+      </ul>
+      <p>Every AI app on it gets its own agent and its own key. You can disconnect any of them from the dashboard.</p>
+    </aside>
+  </div>
   <script>
     (() => {
       const $ = (id) => document.getElementById(id);
       const show = (id) => ["enter", "ask", "done"].forEach((s) => ($(s).hidden = s !== id));
       let code = "";
+      let prefilled = false;
       const input = $("code-input");
       input.addEventListener("input", () => {
         const raw = input.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -89,6 +98,12 @@
         $("place").textContent = [link.origin_place, link.origin_ip].filter(Boolean).join(", ") || "unknown";
         // A request from a different network than this browser is the shape of a phishing attempt.
         if (link.origin_ip && link.your_ip && link.origin_ip !== link.your_ip) {
+          if (prefilled) {
+            // Someone else's request arriving as a link is how this gets phished: make them read the code off their own screen.
+            prefilled = false;
+            input.value = "";
+            return ($("enter-error").textContent = "This request came from a different network than this browser. If you started it yourself on your computer, type the code it shows. If someone sent you this link, close this tab.");
+          }
           $("warn").classList.add("strong");
           $("warn").textContent = "This request came from a different network than this browser. Only connect if that computer is yours and you just started this on it. If someone sent you a code or a link, press Cancel.";
         }
@@ -101,6 +116,7 @@
       // Opened from the app with ?code=: fill it in and go straight to the confirm step (still one click to connect).
       const given = new URLSearchParams(location.search).get("code");
       if (given) {
+        prefilled = true;
         input.value = given;
         input.dispatchEvent(new Event("input"));
         history.replaceState(null, "", location.pathname);
