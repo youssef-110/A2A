@@ -16,8 +16,10 @@
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RelayDO"] },
-    // 0.5.0 started from scratch: deleting the old class deletes every relay's stored data with it.
-    { "tag": "v2", "new_sqlite_classes": ["WorkspaceRelay"], "deleted_classes": ["RelayDO"] }
+    // 0.5.0 started from scratch on a new class. Cloudflare wants the binding moved first (v2) and the
+    // old class deleted in a later deploy (v3); deleting it deletes every old relay's stored data.
+    { "tag": "v2", "new_sqlite_classes": ["WorkspaceRelay"] },
+    { "tag": "v3", "deleted_classes": ["RelayDO"] }
   ],
   "d1_databases": [{ "binding": "ACCOUNTS", "database_name": "a2a-accounts", "database_id": "904a913b-a29a-46f3-ae4e-1bb8cceeb871", "migrations_dir": "migrations" }],
   "vars": {
