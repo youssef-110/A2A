@@ -35234,7 +35234,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.5.1" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.2" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);

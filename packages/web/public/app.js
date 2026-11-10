@@ -1492,7 +1492,7 @@ function copyLine(text, label = "Copy") {
 const PLUGIN_INSTALL = "/plugin install a2a@a2a";
 
 /** The one command that sets A2A up: downloads the client, signs in, connects every AI app here. */
-const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.1.tgz"}`;
+const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.2.tgz"}`;
 const connectCommand = (url) => `npx -y ${cliUrl()} connect${url ? ` ${url}` : ""}`;
 
 /**

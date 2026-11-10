@@ -74,7 +74,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     return ipc<T>(home, method, path, body, timeoutMs);
   };
 
-  const server = new McpServer({ name: "a2a", version: "0.5.1" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.2" }, { instructions: INSTRUCTIONS });
 
   /**
    * Sign-in happens in the browser, which can take longer than one tool call may wait. The first call
