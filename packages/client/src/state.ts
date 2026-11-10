@@ -38,5 +38,22 @@ export function openState(home: string): State {
   const db = new DatabaseSync(join(home, "state.db"));
   db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
+  // Columns added after the first release; each ALTER fails harmlessly once the column exists.
+  for (const sql of [
+    "ALTER TABLE inbox ADD COLUMN auto INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE runs ADD COLUMN session_id TEXT",
+    "ALTER TABLE runs ADD COLUMN auto INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE runs ADD COLUMN tokens INTEGER",
+    "ALTER TABLE runs ADD COLUMN delivery_ms INTEGER",
+    "ALTER TABLE runs ADD COLUMN start_ms INTEGER",
+    "ALTER TABLE runs ADD COLUMN model_ms INTEGER",
+  ]) {
+    try {
+      db.exec(sql);
+    } catch {
+      /* already there */
+    }
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS runs_agent_time ON runs (agent, started_at)");
   return db;
 }

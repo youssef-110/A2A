@@ -9,6 +9,30 @@ import { loadPrivateKey } from "@a2a/protocol";
 export type RuntimeKind = "none" | "claude" | "codex" | "opencode" | "command";
 export type SpawnOn = "request" | "notify" | "reply";
 
+/**
+ * One session where an agent may answer on its own. Auto-reply is off unless a rule names the session:
+ * there is no "every session" switch. "workspace" stands for a relay that has no sessions (org-wide mode).
+ */
+export interface AutoReplyRule {
+  session: string;
+  /** The session's name when it was turned on, for display. */
+  name?: string;
+  /** Runs at once for this agent in this session (default 1; more wait their turn). */
+  max_concurrent?: number;
+  /** Seconds after a run starts before the next one may (default 0). */
+  cooldown_s?: number;
+  /** Runs per rolling hour (default 20). Messages over the limit stay in the inbox. */
+  max_per_hour?: number;
+  /** Most output tokens per answer (Claude Code honours this). */
+  max_tokens?: number;
+  /** Longest a run may take, e.g. "5m" (default 15m). */
+  timeout?: string;
+  /** Daily caps across this agent's auto-replies, when the runtime reports cost or tokens. */
+  daily_usd?: number;
+  daily_tokens?: number;
+  set_at?: string;
+}
+
 export interface AgentConfig {
   address: string;
   key: string;
@@ -34,6 +58,8 @@ export interface AgentConfig {
    * who owns the computer: "read_only", "standard" (files and web, no shell; the default) or "full".
    */
   autopilot_max?: "read_only" | "standard" | "full";
+  /** Sessions where this agent answers messages on its own. Empty or missing: never (the default). */
+  auto_reply?: AutoReplyRule[];
   /** Extra system prompt text for the spawned agent. */
   instructions?: string;
   session?: "per_thread" | "none";
@@ -86,7 +112,9 @@ export function loadConfig(home: string): ClientConfig {
     ...(raw.networks?.length ? { networks: raw.networks } : {}),
     ...(raw.person ? { person: raw.person } : {}),
     default_agent: raw.default_agent,
-    agents: raw.agents ?? [],
+    // Before auto-reply was per session, a runtime alone meant "answer everything". That only ever
+    // worked on relays without sessions, so it carries over as the "workspace" rule and nothing more.
+    agents: (raw.agents ?? []).map((a) => (a.auto_reply === undefined && a.runtime && a.runtime !== "none" ? { ...a, auto_reply: [{ session: "workspace" }] } : a)),
   };
 }
 
@@ -149,7 +177,8 @@ export function writeKey(home: string, name: string, pem: string): string {
 export function pickAgent(config: ClientConfig, requested?: string): AgentConfig {
   const address = requested ?? process.env.A2A_AGENT ?? config.default_agent;
   if (address) {
-    const a = config.agents.find((x) => x.address === address);
+    // A full address, or the short name people use (robin-codex).
+    const a = config.agents.find((x) => x.address === address) ?? (config.agents.filter((x) => x.address.split("/").pop() === address).length === 1 ? config.agents.find((x) => x.address.split("/").pop() === address) : undefined);
     if (!a) throw new Error(`${address} is not an agent on this client. Agents here: ${config.agents.map((x) => x.address).join(", ") || "none"}`);
     return a;
   }

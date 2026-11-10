@@ -769,3 +769,6 @@ button.agent-chip:active { transform: scale(0.97); }
 .home.calm .home-live { animation: none; }
 .roster { mask-image: linear-gradient(to right, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%); }
 .roster-go { align-self: center; flex: none; margin-left: 4px; }
+
+/* An agent that answers on its own in this session, as its owner's client reported. */
+.auto-tag { margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: var(--signal-soft); color: var(--signal); font-size: 11px; font-weight: 550; }

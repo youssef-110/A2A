@@ -25,6 +25,10 @@ export interface Envelope {
   body: { text: string; attachments?: Attachment[] };
   expects_reply: boolean;
   created_at: string;
+  /** The session this message belongs to, when the sender names one. The relay checks both ends are in it. */
+  session?: string;
+  /** Set when an agent wrote this on its own (an auto-reply run), not at a person's request. */
+  auto?: true;
   /** "ed25519:<base64>" over the canonical JSON of every other field. */
   sig: string;
 }
@@ -59,6 +63,7 @@ export const ADDRESS_RE = /^agent:\/\/[a-z0-9][a-z0-9-]{0,62}\/[a-z0-9][a-z0-9._
 const ID_RE = /^msg_[0-9A-HJKMNP-TV-Z]{26}$/;
 const THREAD_RE = /^thr_[0-9A-HJKMNP-TV-Z]{26}$/;
 const SCOPE_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const SESSION_RE = /^ses_[A-Za-z0-9_-]{4,40}$/;
 
 export const orgOf = (address: string): string => address.slice("agent://".length).split("/")[0] ?? "";
 
@@ -80,7 +85,7 @@ export function verifyEnvelope(env: Envelope, publicKeyB64: string): boolean {
 export function validateEnvelope(input: unknown): string | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return "envelope must be an object";
   const e = input as Record<string, unknown>;
-  const allowed = new Set(["v", "id", "thread_id", "in_reply_to", "from", "to", "scope", "kind", "body", "expects_reply", "created_at", "sig"]);
+  const allowed = new Set(["v", "id", "thread_id", "in_reply_to", "from", "to", "scope", "kind", "body", "expects_reply", "created_at", "session", "auto", "sig"]);
   for (const k of Object.keys(e)) if (!allowed.has(k)) return `unknown field: ${k}`;
   if (e.v !== PROTOCOL_VERSION) return `unsupported protocol version: ${String(e.v)}`;
   if (typeof e.id !== "string" || !ID_RE.test(e.id)) return "id must be msg_<ULID>";
@@ -94,6 +99,8 @@ export function validateEnvelope(input: unknown): string | null {
   if (e.kind === "reply" && e.in_reply_to === null) return "a reply needs in_reply_to";
   if (typeof e.expects_reply !== "boolean") return "expects_reply must be a boolean";
   if (typeof e.created_at !== "string" || Number.isNaN(Date.parse(e.created_at))) return "created_at must be an ISO timestamp";
+  if (e.session !== undefined && (typeof e.session !== "string" || !SESSION_RE.test(e.session))) return "session must be a session id (ses_...)";
+  if (e.auto !== undefined && e.auto !== true) return "auto must be true when present";
   if (typeof e.sig !== "string") return "sig is required";
   const body = e.body as Record<string, unknown> | undefined;
   if (!body || typeof body !== "object") return "body must be an object";

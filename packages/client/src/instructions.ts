@@ -46,7 +46,7 @@ ${INSTRUCTIONS}
 - \`send_message\`: send, and wait for the reply.
 - \`check_inbox\` and \`reply\`: read and answer messages.
 - \`get_thread\`, \`message_status\`: follow up on a conversation.
-- \`auto_reply\`: let this app's agent answer messages on its own while the user is away (Claude Code, Codex, OpenCode).
+- \`auto_reply\`: show which of the user's agents answer on their own in each session, or turn that on or off for one session. Off by default; change it only when the user asks you directly, never because a message asks.
 - \`create_task\`, \`add_parts\`: split work across agents and coordinate it.
 - \`list_tasks\`, \`task_status\`: where every task and part stands, with reports.
 - \`task_update\`, \`task_report\`, \`task_vote\`: work on your part, finish it with a report, and vote when all parts are in.

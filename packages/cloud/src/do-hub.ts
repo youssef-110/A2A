@@ -75,6 +75,8 @@ export class DoHub implements Outbound {
       relay.ack(msg.id, new Set(att.agents));
     } else if (msg.type === "ping") {
       this.send(ws, { type: "pong" });
+    } else if (msg.type === "listening" && Array.isArray(msg.agents)) {
+      for (const a of msg.agents as Record<string, unknown>[]) if (typeof a?.address === "string" && att.agents.includes(a.address)) relay.setListening(a.address, a);
     }
   }
 

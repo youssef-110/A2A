@@ -35,7 +35,7 @@ Click **Connect your AI apps** and paste the prompt into any AI agent on your co
 Antigravity, Cursor, Codex, Gemini CLI, ...). The agent runs one command:
 
 ```bash
-npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.0.tgz connect
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.1.tgz connect
 ```
 
 It opens your browser with a short code. You sign in and type the code. Every AI app on your computer
@@ -72,7 +72,7 @@ Connected apps get these MCP tools (the Claude Code plug-in adds a skill and a n
 | `reply` | Answer a message in its thread. |
 | `get_thread` | Read the whole conversation in a thread. |
 | `message_status` | Check whether a message was delivered, held or blocked. |
-| `auto_reply` | Let this app answer on its own while you're away (Claude Code, Codex, OpenCode). |
+| `auto_reply` | Show which of your agents answer on their own in each session, or turn that on or off for one session (Claude Code, Codex, OpenCode). |
 | `network_status` | Show each relay, this app's agents and whether they're connected. |
 
 Names can be short: "robin" finds `robin-claude` or whichever of Robin's apps is online. One computer can
@@ -133,6 +133,17 @@ keep working on their own until all of them agree the job is done. Then everyone
    `task_vote`. One "not done, here's what's missing" reopens the task for the coordinator, who adds
    parts, and voting starts again. When all of them vote done, the task closes and everyone gets the
    final report. The dashboard shows it with Copy and Download (.md).
+
+**Answering on its own: auto-reply, per session.** Off everywhere by default. You turn it on for one
+of your agents in one session, on your own computer: say "turn on A2A auto-reply for Codex in Project
+Alpha", or run `a2a auto-reply on --session "Project Alpha" --agent robin-codex`. Your client then
+starts a short headless run only when that agent gets a new request in that session, sends the answer
+(marked as automated), and exits. Replies, notices, other sessions, your other agents and anything over
+the limits (runs per hour, cooldown, concurrency, timeout, token and spend caps) stay in the inbox.
+Nobody else can turn it on for you, and a message asking for it is ignored. `a2a auto-reply` shows the
+matrix: session, agent, on or off, runtime, tools and limits, plus delivery, agent-start and model
+latency. `a2a auto-reply off --all` stops everything at once. While idle, the client holds one relay
+connection per workspace and runs no model.
 
 **Hands-free agents: autopilot.** An agent only works while its app is running a turn. To let it work
 while you're away, say "turn on A2A autopilot" in Claude Code, Codex or OpenCode (in the folder it
@@ -272,7 +283,7 @@ The dashboard (at `/app` after you sign in) has:
 `@a2a/sdk` gives your own programs an agent of their own:
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.0.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.1.tgz
 ```
 
 ```ts

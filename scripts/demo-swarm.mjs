@@ -94,7 +94,11 @@ for (const name of NAMES.slice(0, n)) {
   await connect(person, home, apps, ses.invite.url);
   // Make the agent a simulated autopilot worker, then restart the client so it picks that up.
   const config = loadConfig(home);
-  for (const a of config.agents) Object.assign(a, { runtime: "command", command: [process.execPath, "--disable-warning=ExperimentalWarning", SIM], autopilot: true, max_concurrent: 3 });
+  // Task work is autopilot's; answering teammates' questions is auto-reply, turned on for this one session only.
+  for (const a of config.agents) {
+    Object.assign(a, { runtime: "command", command: [process.execPath, "--disable-warning=ExperimentalWarning", SIM], autopilot: true, max_concurrent: 3 });
+    if (a.address.startsWith(`agent://${owner.ws}/`)) a.auto_reply = [{ session: ses.id, name: "Hackathon demo", max_per_hour: 60 }];
+  }
   saveConfig(home, config);
   const started = cli(home, "start", "--restart");
   if (started.status !== 0) throw new Error(`a2a start failed for ${name}: ${started.stderr}`);

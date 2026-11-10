@@ -59,6 +59,13 @@ export interface Delivery {
   verdict: { decision: string; categories: string[] };
   /** The sender's signed envelope, included only when the delivered text is byte-identical to it. */
   envelope?: Envelope;
+  /**
+   * Sessions mode only: the one session this message belongs to, or null when it can't be told (the two
+   * agents share several sessions and the sender didn't name one). Clients decide auto-replies from it.
+   */
+  session?: { id: string; name: string } | null;
+  /** The sender's agent wrote this on its own (an auto-reply), not at a person's request. */
+  auto?: true;
   body_sha256: string;
   relay_sig: string;
 }
@@ -521,7 +528,7 @@ export class Relay extends EventEmitter {
     return (this.db.prepare("SELECT address FROM session_members WHERE session_id = ? ORDER BY joined_at").all(id) as { address: string }[]).map((r) => r.address);
   }
 
-  private memberView(a: string, guests: string[]): Record<string, unknown> {
+  private memberView(a: string, guests: string[], sessionId?: string): Record<string, unknown> {
     const acct = this.accountOf(a);
     return {
       address: a,
@@ -531,6 +538,7 @@ export class Relay extends EventEmitter {
       account_id: acct?.account_id ?? null,
       online: this.isOnline(a),
       role: guests.includes(a) ? "guest" : "owner",
+      ...this.listening(a, sessionId),
     };
   }
 
@@ -566,7 +574,7 @@ export class Relay extends EventEmitter {
         created_at: s.created_at,
         max_members: st.max_members,
         people: this.peopleIn(s.id).size,
-        guests: guests.map((a) => this.memberView(a, guests)),
+        guests: guests.map((a) => this.memberView(a, guests, s.id)),
         last_message_at: last?.received_at ?? null,
         last_preview: last?.preview ?? null,
       };
@@ -588,7 +596,7 @@ export class Relay extends EventEmitter {
       brief: st.brief,
       brief_updated_by: st.brief_updated_by,
       brief_updated_at: st.brief_updated_at,
-      members: this.sessionMembers(id).map((a) => this.memberView(a, guests)),
+      members: this.sessionMembers(id).map((a) => this.memberView(a, guests, id)),
       invites: this.listInvites(id),
       messages: (viewer ? this.viewerMessages(id, viewer) : this.sessionMessages(id, 300)).reverse().map((r) => ({ ...this.summary(r), text: r.delivered_text })),
     };
@@ -907,6 +915,10 @@ export class Relay extends EventEmitter {
     // A wildcard link means "anything goes", so free-form scopes are accepted too.
     if (!p.scopes[env.scope] && !consoleLink && !wildcardLink) return block("unknown_scope", `Scope "${env.scope}" is not defined in policy.`);
 
+    if (env.session && p.isolation === "sessions" && !(this.getSession(env.session) && !this.getSession(env.session)!.archived && this.inSession(env.session, env.from) && this.inSession(env.session, env.to))) {
+      return block("not_in_session", `${env.from} and ${env.to} aren't both in session ${env.session}.`);
+    }
+
     const thread = this.getThread(env.thread_id);
     let parent: MessageRow | undefined;
     if (env.in_reply_to) {
@@ -1136,8 +1148,55 @@ export class Relay extends EventEmitter {
       verdict: { decision: row.decision ?? "allow", categories: JSON.parse(row.categories ?? "[]") },
       envelope: modified ? undefined : env,
       body_sha256: row.body_sha256,
+      ...(this.policy.isolation === "sessions" ? { session: this.sessionOfMessage(env) } : {}),
+      ...(env.auto ? { auto: true as const } : {}),
     };
     return { ...d, relay_sig: signString(canonicalize(d), this.relayKey) };
+  }
+
+  /**
+   * The session a message belongs to: the one its sender named (checked on arrival), else the one its
+   * thread started in, else the only session the two agents share. Null when that is still ambiguous.
+   */
+  sessionOfMessage(env: Envelope): { id: string; name: string } | null {
+    const named = (id: string | undefined | null) => {
+      const s = id ? this.getSession(id) : undefined;
+      return s && !s.archived ? { id: s.id, name: s.name } : null;
+    };
+    if (env.session) return named(env.session);
+    const first = this.db.prepare("SELECT envelope FROM messages WHERE thread_id = ? ORDER BY received_at LIMIT 1").get(env.thread_id) as { envelope: string } | undefined;
+    const started = first ? named((JSON.parse(first.envelope) as Envelope).session) : null;
+    if (started && this.inSession(started.id, env.from) && this.inSession(started.id, env.to)) return started;
+    const theirs = new Set(this.sessionsFor(env.to).map((s) => String(s.id)));
+    const shared = this.sessionsFor(env.from).filter((s) => theirs.has(String(s.id)));
+    return shared.length === 1 ? named(String(shared[0]!.id)) : null;
+  }
+
+  /** Owner agents and the console belong to every session; everyone else through a membership row. */
+  private inSession(id: string, address: string): boolean {
+    return this.isOwnerAgent(address) || !!this.db.prepare("SELECT 1 FROM session_members WHERE session_id = ? AND address = ?").get(id, address);
+  }
+
+  // ------------------------------------------------------------ who is listening
+
+  /**
+   * An agent's client says which sessions it may auto-reply in. Only the agent itself can say so (the
+   * hub only passes on addresses that signed in on that connection), and only sessions it is in count.
+   */
+  setListening(address: string, input: { sessions?: unknown; runtime?: unknown; tasks?: unknown }): void {
+    const sessions = (Array.isArray(input.sessions) ? input.sessions : []).filter((s): s is string => typeof s === "string" && this.inSession(s, address)).slice(0, 200);
+    const runtime = typeof input.runtime === "string" ? input.runtime.slice(0, 20) : null;
+    this.db
+      .prepare("INSERT INTO agent_listening (address, sessions, runtime, tasks, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (address) DO UPDATE SET sessions = excluded.sessions, runtime = excluded.runtime, tasks = excluded.tasks, updated_at = excluded.updated_at")
+      .run(address, JSON.stringify(sessions), runtime, input.tasks === true ? 1 : 0, iso());
+    for (const id of new Set([...sessions, ...this.sessionsFor(address).map((s) => s.id)])) this.emitEvent("session", { id });
+  }
+
+  /** Whether an agent auto-replies in a session, as its own client last reported. */
+  private listening(address: string, sessionId?: string): { auto_reply: boolean; auto_tasks: boolean; runtime: string | null } {
+    const row = this.db.prepare("SELECT sessions, runtime, tasks FROM agent_listening WHERE address = ?").get(address) as { sessions: string; runtime: string | null; tasks: number } | undefined;
+    if (!row) return { auto_reply: false, auto_tasks: false, runtime: null };
+    return { auto_reply: !!sessionId && (JSON.parse(row.sessions) as string[]).includes(sessionId), auto_tasks: !!row.tasks, runtime: row.runtime };
   }
 
   tryDeliver(id: string): boolean {

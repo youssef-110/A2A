@@ -196,8 +196,9 @@ test("end to end: headless workers pick up their parts, report and vote on their
   const r = await startRelay({ dataDir, port: 0, adminToken: "test-admin-token", judges: { fast: new HeuristicJudge() }, policyPath });
   const worker = join(ROOT, "test/fixtures/task-worker.mjs");
   const lead = await client(r.url, "robin", [{ address: A("robin-claude"), runtime: "none" }]);
-  const w1 = await client(r.url, "juno", [{ address: A("juno-claude"), runtime: "command", command: [process.execPath, worker] }]);
-  const w2 = await client(r.url, "wren", [{ address: A("wren-claude"), runtime: "command", command: [process.execPath, worker] }]);
+  // Workers opt into task work explicitly (autopilot); a runtime alone no longer starts anything.
+  const w1 = await client(r.url, "juno", [{ address: A("juno-claude"), runtime: "command", command: [process.execPath, worker], autopilot: true }]);
+  const w2 = await client(r.url, "wren", [{ address: A("wren-claude"), runtime: "command", command: [process.execPath, worker], autopilot: true }]);
   try {
     // Wren's client caches its (still empty) directory before the session exists.
     await ipc(w2.home, "GET", `/directory?agent=${encodeURIComponent(A("wren-claude"))}`);

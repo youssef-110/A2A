@@ -96,6 +96,8 @@ export class Hub implements Outbound {
         this.relay.ack(msg.id, conn.agents);
       } else if (msg.type === "ping") {
         this.send(ws, { type: "pong" });
+      } else if (msg.type === "listening" && Array.isArray(msg.agents)) {
+        for (const a of msg.agents as Record<string, unknown>[]) if (typeof a?.address === "string" && conn.agents.has(a.address)) this.relay.setListening(a.address, a);
       }
     });
 

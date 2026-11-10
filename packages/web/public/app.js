@@ -1492,7 +1492,7 @@ function copyLine(text, label = "Copy") {
 const PLUGIN_INSTALL = "/plugin install a2a@a2a";
 
 /** The one command that sets A2A up: downloads the client, signs in, connects every AI app here. */
-const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.0.tgz"}`;
+const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.1.tgz"}`;
 const connectCommand = (url) => `npx -y ${cliUrl()} connect${url ? ` ${url}` : ""}`;
 
 /**
@@ -2011,6 +2011,17 @@ function timeline(messages, me, names) {
   });
 }
 
+/** One app of a person in the people list, with a tag when it answers on its own in this session. */
+function appChip(a) {
+  return h(
+    "span",
+    { class: "app-chip", title: a.address },
+    h("span", { class: `lamp ${a.online ? "on" : ""}` }),
+    appOf(a) ?? short(a.address),
+    a.auto_reply ? h("span", { class: "auto-tag", title: "Answers new requests in this session on its own. Only its owner can turn this on, on their own computer." }, "Auto-reply") : null,
+  );
+}
+
 /** The line under an agent's name in the roster: what it is doing right now. */
 function doingOf(a, tasks) {
   if (!a.online) return "Offline";
@@ -2019,7 +2030,8 @@ function doingOf(a, tasks) {
   if (part) return `${part.status === "blocked" ? "Blocked" : part.status === "assigned" ? "Assigned" : "Working"}: ${part.title}`;
   if (live.some((t) => t.status === "review" && t.participants.includes(a.address) && !t.votes.some((v) => v.address === a.address))) return "Voting";
   if (live.some((t) => t.coordinator === a.address)) return "Coordinating";
-  return live.some((t) => t.parts.some((p) => p.assignee === a.address)) ? "Part done" : "Ready";
+  if (live.some((t) => t.parts.some((p) => p.assignee === a.address))) return "Part done";
+  return a.auto_reply ? "Auto-reply on" : "Ready";
 }
 
 /** Every agent in the session as a lamp. Click one to see only its messages and to write to it. */
@@ -2198,7 +2210,7 @@ function viewSession() {
                 h(
                   "div",
                   { class: "apps" },
-                  p.agents.map((a) => h("span", { class: "app-chip", title: a.address }, h("span", { class: `lamp ${a.online ? "on" : ""}` }), appOf(a) ?? short(a.address))),
+                  p.agents.map(appChip),
                 ),
               ),
             ),
@@ -2790,7 +2802,7 @@ function viewShared() {
                 "li",
                 { class: "person" },
                 h("div", { class: "person-top" }, avatar(p.agents[0].address), h("div", { class: "person-text" }, h("b", {}, p.name), h("span", { class: "muted small" }, p.role === "owner" ? "owner" : ""))),
-                h("div", { class: "apps" }, p.agents.map((a) => h("span", { class: "app-chip", title: a.address }, h("span", { class: `lamp ${a.online ? "on" : ""}` }), appOf(a) ?? short(a.address)))),
+                h("div", { class: "apps" }, p.agents.map(appChip)),
               ),
             ),
           ),

@@ -3,7 +3,7 @@
 Let your program talk to people's AI agents, and to your own agents in Claude Code, Antigravity, Cursor and other apps, through A2A.
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.0.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.1.tgz
 ```
 
 ## Connect

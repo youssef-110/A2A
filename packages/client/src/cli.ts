@@ -1,4 +1,6 @@
 import { parseArgs } from "node:util";
+import { resolve as resolvePath } from "node:path";
+import { formatMatrix, type MatrixRow } from "./autoreply.ts";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ADDRESS_RE, generateAgentKeyPair, loadPrivateKey } from "@a2a/protocol";
@@ -36,6 +38,11 @@ Setup by hand
       [--runtime none|claude|codex|opencode] [--workdir DIR] [--display-name NAME] [--no-start] [--force]
   init --server URL [--name NAME]         Create the client config and pin the relay's key
   agents add <address> [options]          Create a key for an agent on this machine and register it
+  auto-reply [status]                     Which of your agents answer on their own, per session
+  auto-reply on --session S --agent A     Let agent A answer new requests in session S on its own
+       [--max-per-hour N] [--cooldown SEC] [--concurrent N] [--max-tokens N] [--timeout 5m]
+       [--daily-usd X] [--daily-tokens N] [--tools Read,Grep] [--model M] [--workdir DIR]
+  auto-reply off [--agent A] [--session S] [--all]   Stop it for one agent, one session, or everything
       --runtime none|claude|codex|opencode|command   What to start when a message arrives (default none)
       --command "prog args"                 For runtime command (or to replace \`codex exec\`)
       --workdir DIR  --allowed-tools Read,Grep  --model NAME  --instructions TEXT
@@ -554,6 +561,56 @@ async function main(argv: string[]): Promise<number> {
       }
       const r = await ipc<{ messages: Record<string, unknown>[] }>(H, "GET", `/inbox${values.agent ? `?agent=${encodeURIComponent(values.agent)}` : ""}`);
       print(!!values.json, r, () => (r.messages.length ? r.messages.map((m) => `${m.handled ? " " : "•"} ${m.received_at} ${m.id} ${m.from} -> ${m.to}\n  ${String(m.text).replace(/\s+/g, " ").slice(0, 160)}`).join("\n") : "Inbox is empty."));
+      return 0;
+    }
+
+    case "auto-reply": {
+      const { values, positionals } = parseArgs({
+        args,
+        allowPositionals: true,
+        options: {
+          session: { type: "string" },
+          agent: { type: "string", multiple: true },
+          all: { type: "boolean" },
+          "max-per-hour": { type: "string" },
+          cooldown: { type: "string" },
+          concurrent: { type: "string" },
+          "max-tokens": { type: "string" },
+          timeout: { type: "string" },
+          "daily-usd": { type: "string" },
+          "daily-tokens": { type: "string" },
+          tools: { type: "string" },
+          model: { type: "string" },
+          workdir: { type: "string" },
+          json: { type: "boolean" },
+        },
+      });
+      const action = positionals[0] ?? "status";
+      if (action === "status") {
+        const r = await ipc<{ matrix: MatrixRow[] }>(H, "GET", "/auto-reply");
+        print(!!values.json, r, () => formatMatrix(r.matrix));
+        return 0;
+      }
+      if (action !== "on" && action !== "off") throw new Error("Usage: a2a auto-reply [status | on --session <name> --agent <name> | off [--agent <name>] [--session <name>] [--all]]");
+      if (process.env.A2A_RUN_ID) throw new Error("An auto-reply run can't change auto-reply settings.");
+      const n = (v?: string): number | undefined => (v === undefined ? undefined : Number(v));
+      const r = await ipc<{ changed: string[]; session: { name: string } | null; matrix: MatrixRow[] }>(H, "POST", "/auto-reply", {
+        action,
+        session: values.session,
+        agents: values.agent,
+        all: values.all,
+        workdir: values.workdir ? resolvePath(values.workdir) : process.cwd(),
+        max_per_hour: n(values["max-per-hour"]),
+        cooldown_s: n(values.cooldown),
+        max_concurrent: n(values.concurrent),
+        max_tokens: n(values["max-tokens"]),
+        timeout: values.timeout,
+        daily_usd: n(values["daily-usd"]),
+        daily_tokens: n(values["daily-tokens"]),
+        tools: values.tools?.split(",").map((t) => t.trim()).filter(Boolean),
+        model: values.model,
+      });
+      print(!!values.json, r, () => `${action === "on" ? `Auto-reply on in "${r.session?.name}" for` : "Auto-reply off for"} ${r.changed.map((a) => a.split("/").pop()).join(", ") || "nothing (no change)"}.\n\n${formatMatrix(r.matrix)}`);
       return 0;
     }
 

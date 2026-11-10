@@ -35,17 +35,34 @@ import {
   socketPath,
   useTcpIpc,
   type AgentConfig,
+  type AutoReplyRule,
   type ClientConfig,
 } from "./config.ts";
 import { openState, type State } from "./state.ts";
 import { RelayError, relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
 import { buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
+import { toolById } from "./tools.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const CLI_PATH = resolve(here, "cli.ts");
 
 const iso = (): string => new Date().toISOString();
 const TERMINAL_FAILURES = new Set(["blocked", "rejected", "expired"]);
+
+/** The headless runtime that answers for an app, when its owner turns auto-reply on. */
+export const APP_RUNTIME: Record<string, "claude" | "codex" | "opencode"> = { "claude-code": "claude", codex: "codex", opencode: "opencode" };
+const RUNTIME_BIN: Record<string, string> = { claude: "claude", codex: "codex", opencode: "opencode" };
+/** Auto-runs one thread may start per hour, whatever the per-agent limits: a guard against loops. */
+const THREAD_RUNS_PER_HOUR = 6;
+
+/** Whether a program can be started: on PATH (with Windows extensions), or an existing path. */
+function onPath(bin: string): boolean {
+  if (/[\\/]/.test(bin)) return existsSync(bin);
+  const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").concat("") : [""];
+  return (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":").some((dir) => dir && exts.some((e) => existsSync(join(dir, bin + e.toLowerCase())) || existsSync(join(dir, bin + e))));
+}
+
+type AutoDecision = { run: true; rule?: AutoReplyRule; board?: boolean } | { run: false; why: string };
 
 /** One relay connection. A computer can be in several workspaces (its own, and sessions others invited it into). */
 interface Link {
@@ -73,6 +90,12 @@ export interface SendOptions {
   expects_reply?: boolean;
   /** Files to send along, e.g. a context capsule. Base64 data; the relay limits the whole message size. */
   attachments?: { name: string; mime: string; data: string }[];
+  /** The session this is for: an id, or a name of a session the sending agent is in. Replies keep the parent's. */
+  session?: string;
+  /** Written by an agent on its own (an auto-reply run), not at a person's request. */
+  auto?: boolean;
+  /** Sent from inside a headless run: marks it automated and keeps the run's session. */
+  run_id?: string;
 }
 
 export interface SendResult {
@@ -134,7 +157,7 @@ export class Daemon {
   private readonly log: (msg: string) => void;
   private readonly links = new Map<string, Link>();
   private stopping = false;
-  private outboxTimer?: NodeJS.Timeout;
+  private flushTimer?: NodeJS.Timeout;
   private ipc?: Server;
   private ipcToken = "";
   private readonly replyWaiters = new Map<string, Set<(r: WaitResult) => void>>();
@@ -164,15 +187,18 @@ export class Daemon {
 
     await this.startIpc();
     for (const server of serversOf(this.config)) this.connect(server);
-    this.outboxTimer = setInterval(() => void this.flushOutbox(), 2000);
-    this.outboxTimer.unref();
+    // No timer runs while idle: the outbox is flushed when something is sent, and retried only while it holds messages.
+    this.scheduleFlush();
 
-    // Messages that were stored but never handled (e.g. the client stopped mid-run) are dispatched again.
-    const pending = this.state.prepare("SELECT delivery FROM inbox WHERE handled = 0 ORDER BY received_at").all() as { delivery: string }[];
+    // Auto-runs that were accepted but never finished (the client stopped mid-run) start again, if still allowed.
+    // Messages that were left for the owner stay in the inbox, even if auto-reply has been turned on since.
+    this.state.prepare("UPDATE runs SET status = 'failed', ended_at = ?, error = 'the client stopped during this run' WHERE status = 'running'").run(iso());
+    this.state.prepare("UPDATE inbox SET handled = 1 WHERE handled = 0 AND auto = 1 AND id IN (SELECT message_id FROM runs WHERE replied = 1)").run();
+    const pending = this.state.prepare("SELECT delivery FROM inbox WHERE handled = 0 AND auto = 1 ORDER BY received_at").all() as { delivery: string }[];
     for (const p of pending) {
       const m = JSON.parse(p.delivery) as InboundMessage;
       const agent = this.agent(m.to);
-      if (agent && agent.runtime !== "none") this.dispatch(agent, m);
+      if (agent) this.dispatch(agent, m);
     }
   }
 
@@ -207,6 +233,8 @@ export class Daemon {
       if (!link || !link.ws) this.connect(server);
       else if (before.get(server) !== this.agentsOn(server).map((a) => a.address).join(",")) link.ws?.close(4000, "reload");
     }
+    // Auto-reply may have been turned on or off: tell each relay, so the session pages show it.
+    for (const link of this.links.values()) if (link.connected && link.ws?.readyState === link.ws?.OPEN) this.reportListening(link);
     this.log(`reloaded config: ${this.config.agents.length} agent(s) on ${serversOf(this.config).length} relay(s)`);
   }
 
@@ -223,7 +251,7 @@ export class Daemon {
 
   async stop(): Promise<void> {
     this.stopping = true;
-    clearInterval(this.outboxTimer);
+    clearTimeout(this.flushTimer);
     for (const l of this.links.values()) {
       clearTimeout(l.timer);
       l.ws?.close();
@@ -324,6 +352,7 @@ export class Daemon {
       for (const r of link.rejected) this.log(`  ${r.address} not accepted: ${r.reason}${r.reason === "agent_pending" ? " (approve it in the relay console)" : ""}`);
       void this.flushOutbox();
       void this.reconcile(link);
+      this.reportListening(link);
     } else if (msg.type === "deliver") {
       await this.onDeliver(link, ws, msg.message as DeliveryPayload);
     } else if (msg.type === "status") {
@@ -410,6 +439,10 @@ export class Daemon {
       modified: d.modified,
       sender_verified: senderVerified,
       files: this.saveAttachments(d.id, d.attachments as { name: string; mime: string; data: string }[] | undefined),
+      ...(d.session !== undefined ? { session: (d.session as { id: string; name: string } | null) ?? null } : {}),
+      ...(d.auto === true ? { automated: true } : {}),
+      sent_at: d.created_at,
+      received_at: iso(),
     };
 
     const fresh = this.state.prepare("INSERT OR IGNORE INTO seen (id, received_at) VALUES (?, ?)").run(d.id, iso()).changes === 1;
@@ -431,7 +464,9 @@ export class Daemon {
       this.markHandled(m.id);
       return;
     }
-    if (agent.runtime === "none") {
+    const decision = this.autoDecision(agent, m);
+    if (!decision.run) {
+      if (agent.runtime !== "none") this.log(`· ${m.id} left in the inbox for ${agent.address}: ${decision.why}`);
       const queue = this.inboxWaiters.get(agent.address);
       const next = queue?.shift();
       if (next) {
@@ -440,7 +475,186 @@ export class Daemon {
       }
       return;
     }
+    this.state.prepare("UPDATE inbox SET auto = 1 WHERE id = ?").run(m.id);
     this.dispatch(agent, m);
+  }
+
+  // ------------------------------------------------------------ auto-reply
+
+  /**
+   * Whether a delivered message starts a headless run. Everything here is this computer's decision: the
+   * agent is its owner's, the owner turned it on for this exact session, the message is a new request,
+   * and the local limits allow it. Anything else stays in the inbox for the owner.
+   */
+  autoDecision(agent: AgentConfig, m: InboundMessage): AutoDecision {
+    const no = (why: string): AutoDecision => ({ run: false, why });
+    if (agent.runtime === "none") return no("auto-reply is off");
+    // The task board's notes are autopilot's, a separate switch the owner turns on with the autopilot tool.
+    const fromBoard = m.from.endsWith("/console") && m.sender_verified !== false && /^\[a2a-(task \S+|mission)\]/.test(m.text);
+    if (fromBoard) return agent.autopilot ? { run: true, board: true } : no("autopilot is off");
+    if (m.session === null) return no("the message isn't tied to one session (the sender shares several with this agent and named none)");
+    const key = m.session === undefined ? "workspace" : m.session.id;
+    const rule = (agent.auto_reply ?? []).find((r) => r.session === key);
+    if (!rule) return no(`auto-reply is off ${m.session ? `in "${m.session.name}"` : "on this relay"}`);
+    if (m.kind !== "request") return no(`a ${m.kind} never starts an auto-reply`);
+    if (m.automated) return no("loop guard: another agent's automated request never starts an auto-reply");
+
+    const count = (sql: string, ...args: (string | number)[]): number => Number((this.state.prepare(sql).get(...args) as { n: number | null }).n ?? 0);
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+    if (count("SELECT COUNT(*) AS n FROM runs WHERE auto = 1 AND thread_id = ? AND started_at > ?", m.thread_id, hourAgo) >= THREAD_RUNS_PER_HOUR) return no(`thread limit: ${THREAD_RUNS_PER_HOUR} auto-replies in this thread in the last hour`);
+    const inScope = "auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ?";
+    if (count(`SELECT COUNT(*) AS n FROM runs WHERE ${inScope} AND started_at > ?`, agent.address, key, hourAgo) >= (rule.max_per_hour ?? 20)) return no(`rate limit: ${rule.max_per_hour ?? 20} auto-replies per hour`);
+    // Even a sender that leaves out the automated mark can't take the whole hourly budget.
+    const perSender = Math.max(2, Math.ceil((rule.max_per_hour ?? 20) / 2));
+    if (count("SELECT COUNT(*) AS n FROM runs r JOIN inbox i ON i.id = r.message_id WHERE r.auto = 1 AND r.agent = ? AND i.from_addr = ? AND r.started_at > ?", agent.address, m.from, hourAgo) >= perSender) {
+      return no(`per-sender limit: ${perSender} auto-replies per hour to ${m.from.split("/").pop()}`);
+    }
+    if (rule.cooldown_s) {
+      const since = new Date(Date.now() - rule.cooldown_s * 1000).toISOString();
+      if (count(`SELECT COUNT(*) AS n FROM runs WHERE ${inScope} AND started_at > ?`, agent.address, key, since) > 0) return no(`cooling down for ${rule.cooldown_s}s after the last auto-reply`);
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    if (rule.daily_usd !== undefined && count("SELECT SUM(cost_usd) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_usd) return no(`daily spend cap of $${rule.daily_usd} reached`);
+    if (rule.daily_tokens !== undefined && count("SELECT SUM(tokens) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_tokens) return no(`daily token cap of ${rule.daily_tokens} reached`);
+    return { run: true, rule };
+  }
+
+  /** Tells a relay which sessions this computer's agents there answer in on their own, so its pages can show it. */
+  private reportListening(link: Link): void {
+    const agents = this.agentsOn(link.server)
+      .filter((a) => link.accepted.includes(a.address))
+      .map((a) => ({
+        address: a.address,
+        sessions: a.runtime === "none" ? [] : (a.auto_reply ?? []).map((r) => r.session).filter((s) => s !== "workspace"),
+        runtime: a.runtime === "none" ? null : a.runtime,
+        tasks: a.runtime !== "none" && !!a.autopilot,
+      }));
+    if (agents.length && link.ws && link.ws.readyState === link.ws.OPEN) link.ws.send(JSON.stringify({ type: "listening", agents }));
+  }
+
+  /** Whether an agent's runtime can actually start on this computer. */
+  runtimeReady(a: AgentConfig): boolean {
+    if (a.runtime === "none") return false;
+    if (a.runtime === "command") return !!a.command?.length && onPath(a.command[0]!);
+    if (a.runtime === "claude" && process.env.A2A_CLAUDE_BIN) return onPath(process.env.A2A_CLAUDE_BIN);
+    return onPath(RUNTIME_BIN[a.runtime] ?? a.runtime);
+  }
+
+  /**
+   * The auto-reply matrix: every session each of this computer's agents is in, whether it answers there
+   * on its own, with what, and within which limits. Relays without sessions show one "workspace" row.
+   */
+  async autoReplyMatrix(): Promise<Record<string, unknown>[]> {
+    const rows: Record<string, unknown>[] = [];
+    for (const a of this.config.agents) {
+      const r = await signedGet(this.serverFor(a.address), a.address, this.keys.get(a.address)!, "/v1/sessions").catch(() => null);
+      const sessions = ((r?.sessions as { id: string; name: string }[] | undefined) ?? []).map((s) => ({ id: s.id, name: s.name }));
+      if (r && !sessions.length && (a.auto_reply ?? []).some((x) => x.session === "workspace")) sessions.push({ id: "workspace", name: "Whole workspace (no sessions)" });
+      for (const s of sessions) {
+        const rule = (a.auto_reply ?? []).find((x) => x.session === s.id);
+        const recent = this.state
+          .prepare("SELECT AVG(delivery_ms) AS delivery_ms, AVG(start_ms) AS start_ms, AVG(model_ms) AS model_ms, COUNT(*) AS runs FROM (SELECT * FROM runs WHERE auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ? ORDER BY started_at DESC LIMIT 20)")
+          .get(a.address, s.id) as { delivery_ms: number | null; start_ms: number | null; model_ms: number | null; runs: number };
+        rows.push({
+          session_id: s.id,
+          session: s.name,
+          agent: a.address,
+          app: a.tool ? (toolById(a.tool)?.label ?? a.tool) : (a.display_name ?? a.address.split("/").pop()),
+          enabled: !!rule && a.runtime !== "none",
+          runtime: a.runtime,
+          runtime_ready: this.runtimeReady(a),
+          workdir: a.workdir ?? null,
+          tools: a.allowed_tools ?? [],
+          model: a.model ?? null,
+          limits: rule
+            ? { max_concurrent: rule.max_concurrent ?? 1, cooldown_s: rule.cooldown_s ?? 0, max_per_hour: rule.max_per_hour ?? 20, max_tokens: rule.max_tokens ?? null, timeout: rule.timeout ?? "15m", daily_usd: rule.daily_usd ?? null, daily_tokens: rule.daily_tokens ?? null }
+            : null,
+          autopilot: a.runtime !== "none" && !!a.autopilot,
+          running: this.running.get(a.address) ?? 0,
+          recent: recent.runs ? { runs: recent.runs, avg_delivery_ms: Math.round(recent.delivery_ms ?? 0), avg_start_ms: Math.round(recent.start_ms ?? 0), avg_model_ms: Math.round(recent.model_ms ?? 0) } : null,
+        });
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * Turns auto-reply on for some of this computer's agents in one session, or off for one agent, one
+   * session or everything. Only reachable from this computer (the local socket, with its token).
+   */
+  async setAutoReply(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (body.run_id) throw new ClientError(403, "An auto-reply run can't change auto-reply settings. Only the owner can, from their own app or terminal.");
+    const action = body.action === "on" ? "on" : body.action === "off" ? "off" : null;
+    if (!action) throw new ClientError(400, 'action must be "on" or "off"');
+    const config = this.config;
+    const wanted = Array.isArray(body.agents) ? (body.agents as unknown[]).filter((x): x is string => typeof x === "string" && !!x) : [];
+    const tool = typeof body.tool === "string" && body.tool ? body.tool : undefined;
+    const apps = Array.isArray(body.apps) ? (body.apps as unknown[]).filter((x): x is string => typeof x === "string") : [];
+    let targets = wanted.length
+      ? wanted.map((w) => pickAgent(config, w))
+      : apps.length
+        ? config.agents.filter((a) => a.tool && apps.includes(a.tool))
+        : tool
+          ? config.agents.filter((a) => a.tool === tool)
+          : action === "off"
+            ? config.agents
+            : [];
+    if (!targets.length) throw new ClientError(400, action === "on" ? "Name the agents to turn on (for example claude-code or robin-codex)." : "No agents match.");
+
+    let session: { id: string; name: string } | null = null;
+    const sessionArg = typeof body.session === "string" ? body.session.trim() : "";
+    const local = sessionArg ? config.agents.flatMap((a) => a.auto_reply ?? []).find((r) => r.session === sessionArg || r.name?.toLowerCase() === sessionArg.toLowerCase()) : undefined;
+    if (action === "off" && local) session = { id: local.session, name: local.name ?? local.session };
+    else if (sessionArg) {
+      const rows = await this.autoReplyMatrix();
+      const match = rows.find((r) => r.session_id === sessionArg) ?? rows.find((r) => String(r.session).toLowerCase() === sessionArg.toLowerCase());
+      if (match) session = { id: String(match.session_id), name: String(match.session) };
+      else if (sessionArg === "workspace") session = { id: "workspace", name: "Whole workspace (no sessions)" };
+      else throw new ClientError(404, `None of your agents is in a session called "${sessionArg}".`);
+    }
+
+    const changed: string[] = [];
+    if (action === "on") {
+      if (!session) throw new ClientError(400, "Name the session to turn auto-reply on in. There is no switch for every session at once.");
+      const sessionId = session.id;
+      if (sessionId !== "workspace") {
+        const rows = await this.autoReplyMatrix();
+        targets = targets.filter((a) => rows.some((r) => r.agent === a.address && r.session_id === sessionId));
+        if (!targets.length) throw new ClientError(400, `None of those agents is in "${session.name}".`);
+      }
+      const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined);
+      for (const a of targets) {
+        if (a.runtime === "none") {
+          const runtime = a.tool ? APP_RUNTIME[a.tool] : undefined;
+          if (!runtime) throw new ClientError(400, `${a.tool ? (toolById(a.tool)?.label ?? a.tool) : a.address} can't run headless, so it can't answer on its own. Claude Code, Codex and OpenCode can.`);
+          a.runtime = runtime;
+        }
+        if (typeof body.workdir === "string" && body.workdir) a.workdir = body.workdir;
+        if (Array.isArray(body.tools) && body.tools.length) a.allowed_tools = (body.tools as unknown[]).filter((t): t is string => typeof t === "string");
+        else a.allowed_tools = a.allowed_tools?.length ? a.allowed_tools : ["Read", "Grep", "Glob"];
+        if (typeof body.model === "string" && body.model) a.model = body.model;
+        const rule: AutoReplyRule = {
+          session: sessionId,
+          name: session.name,
+          set_at: iso(),
+          ...Object.fromEntries(
+            (["max_concurrent", "cooldown_s", "max_per_hour", "max_tokens", "daily_usd", "daily_tokens"] as const).flatMap((k) => (num(body[k]) !== undefined ? [[k, num(body[k])]] : [])),
+          ),
+          ...(typeof body.timeout === "string" && body.timeout ? { timeout: body.timeout } : {}),
+        };
+        a.auto_reply = [...(a.auto_reply ?? []).filter((r) => r.session !== sessionId), rule];
+        changed.push(a.address);
+      }
+    } else {
+      for (const a of targets) {
+        const before = a.auto_reply?.length ?? 0;
+        a.auto_reply = body.all === true || !session ? [] : (a.auto_reply ?? []).filter((r) => r.session !== session!.id);
+        if ((a.auto_reply?.length ?? 0) !== before) changed.push(a.address);
+      }
+    }
+    saveConfig(this.home, config);
+    await this.reload();
+    return { ok: true, action, session, changed, matrix: await this.autoReplyMatrix() };
   }
 
   private onStatus(u: { id: string; state: string; reason_code: string | null }): void {
@@ -654,6 +868,26 @@ export class Daemon {
     const kind: MessageKind = o.kind ?? (inReplyTo ? "reply" : "request");
     if (kind === "reply" && !inReplyTo) throw new ClientError(400, "a reply needs in_reply_to");
 
+    // Messages from inside an auto-reply run are marked as automated and stay in that run's session.
+    let auto = !!o.auto;
+    let session = o.session?.trim() || undefined;
+    if (o.run_id) {
+      const run = this.state.prepare("SELECT auto, session_id FROM runs WHERE id = ?").get(o.run_id) as { auto: number; session_id: string | null } | undefined;
+      if (run?.auto) auto = true;
+      if (!session && run?.session_id && run.session_id !== "workspace") session = run.session_id;
+    }
+    if (!session && inReplyTo) {
+      const parent = this.state.prepare("SELECT delivery FROM inbox WHERE id = ?").get(inReplyTo) as { delivery: string } | undefined;
+      const s = parent ? (JSON.parse(parent.delivery) as InboundMessage).session : undefined;
+      if (s) session = s.id;
+    }
+    if (session && !session.startsWith("ses_")) {
+      const r = await signedGet(this.serverFor(agent.address), agent.address, this.keys.get(agent.address)!, "/v1/sessions").catch(() => ({ sessions: [] }));
+      const found = ((r.sessions as { id: string; name: string }[]) ?? []).find((s) => s.name.toLowerCase() === session!.toLowerCase());
+      if (!found) throw new ClientError(404, `${agent.address} isn't in a session called "${session}".`);
+      session = found.id;
+    }
+
     const env = signEnvelope(
       {
         v: PROTOCOL_VERSION,
@@ -667,6 +901,8 @@ export class Daemon {
         body: o.attachments?.length ? { text: o.text, attachments: o.attachments } : { text: o.text },
         expects_reply: o.expects_reply ?? kind === "request",
         created_at: iso(),
+        ...(session ? { session } : {}),
+        ...(auto ? { auto: true as const } : {}),
       },
       this.keys.get(agent.address)!,
     );
@@ -678,6 +914,7 @@ export class Daemon {
     this.state.prepare("INSERT INTO outbox (id, envelope, next_at, created_at) VALUES (?, ?, 0, ?)").run(env.id, JSON.stringify(env), now);
     this.log(`▶ ${env.id} ${env.from} -> ${env.to} (${kind}, ${scope})`);
     await this.flushOne(env.id);
+    this.scheduleFlush();
     const submitted = this.state.prepare("SELECT state FROM sent WHERE id = ?").get(env.id) as { state: string };
     if (verdict && submitted.state === "screening") await verdict;
 
@@ -727,15 +964,33 @@ export class Daemon {
       for (const { id } of due) await this.flushOne(id);
     } finally {
       this.flushing = false;
+      this.scheduleFlush();
     }
+  }
+
+  /** One timer, set only while the outbox holds messages, for the next retry. Nothing ticks while idle. */
+  private scheduleFlush(): void {
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
+    if (this.stopping) return;
+    const { at } = this.state.prepare("SELECT MIN(next_at) AS at FROM outbox").get() as { at: number | null };
+    if (at === null) return;
+    this.flushTimer = setTimeout(() => void this.flushOutbox(), Math.max(250, at - Date.now()));
+    this.flushTimer.unref();
   }
 
   // ------------------------------------------------------------ running agents
 
-  private dispatch(agent: AgentConfig, m: InboundMessage): void {
-    const spawnOn = agent.spawn_on ?? ["request", "notify"];
-    if (!spawnOn.includes(m.kind as never)) return;
-    const max = agent.max_concurrent ?? 1;
+  private dispatch(configured: AgentConfig, m: InboundMessage): void {
+    // The current config decides, so turning auto-reply off also stops runs that were waiting their turn.
+    const agent = this.agent(configured.address) ?? configured;
+    const decision = this.autoDecision(agent, m);
+    if (!decision.run) {
+      this.state.prepare("UPDATE inbox SET auto = 0 WHERE id = ?").run(m.id);
+      this.log(`· ${m.id} left in the inbox for ${agent.address}: ${decision.why}`);
+      return;
+    }
+    const max = decision.rule?.max_concurrent ?? agent.max_concurrent ?? 1;
     if ((this.running.get(agent.address) ?? 0) >= max) {
       const q = this.backlog.get(agent.address) ?? [];
       q.push(m);
@@ -743,7 +998,7 @@ export class Daemon {
       return;
     }
     this.running.set(agent.address, (this.running.get(agent.address) ?? 0) + 1);
-    const p = this.processRun(agent, m)
+    const p = this.processRun(agent, m, decision.rule)
       .catch((err) => this.log(`run for ${m.id} failed: ${(err as Error).stack ?? err}`))
       .finally(() => {
         this.activeRuns.delete(p);
@@ -754,7 +1009,7 @@ export class Daemon {
     this.activeRuns.add(p);
   }
 
-  private async processRun(configured: AgentConfig, m: InboundMessage): Promise<void> {
+  private async processRun(configured: AgentConfig, m: InboundMessage, rule?: AutoReplyRule): Promise<void> {
     const runId = newRunId();
     // Notes from the relay's task board: the worker keeps one session per task and, on autopilot,
     // gets the tools the session's permissions allow.
@@ -772,13 +1027,14 @@ export class Daemon {
     const session = useSessions
       ? (this.state.prepare("SELECT session_id FROM sessions WHERE agent = ? AND thread_id = ?").get(agent.address, sessionKey) as { session_id: string } | undefined)
       : undefined;
-    const env = {
+    const env: Record<string, string> = {
       A2A_HOME: this.home,
       A2A_AGENT: agent.address,
       A2A_THREAD: m.thread_id,
       A2A_MESSAGE_ID: m.id,
       A2A_RUN_ID: runId,
       A2A_SOCKET: socketPath(this.home),
+      ...(rule?.max_tokens && agent.runtime === "claude" ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(rule.max_tokens) } : {}),
     };
     const mcpConfigPath = join(this.home, "run", `${runId}.mcp.json`);
     writeFileSync(
@@ -786,24 +1042,34 @@ export class Daemon {
       JSON.stringify({ mcpServers: { a2a: { type: "stdio", command: process.execPath, args: ["--disable-warning=ExperimentalWarning", CLI_PATH, "mcp"], env } } }, null, 2),
       { mode: 0o600 },
     );
-    this.state.prepare("INSERT INTO runs (id, agent, thread_id, message_id, runtime, status, started_at) VALUES (?, ?, ?, ?, ?, 'running', ?)").run(runId, agent.address, m.thread_id, m.id, agent.runtime, iso());
+    const auto = !!rule;
+    const sessionKey_ = rule ? (m.session?.id ?? "workspace") : null;
+    this.state
+      .prepare("INSERT INTO runs (id, agent, thread_id, message_id, runtime, status, started_at, auto, session_id, delivery_ms) VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?)")
+      .run(runId, agent.address, m.thread_id, m.id, agent.runtime, iso(), auto ? 1 : 0, sessionKey_, m.sent_at && m.received_at ? Math.max(0, Date.parse(m.received_at) - Date.parse(m.sent_at)) : null);
     this.log(`⚙ ${runId} starting ${agent.runtime} for ${agent.address}${session ? " (resuming thread session)" : ""}`);
 
     const t0 = Date.now();
+    const owner = this.config.person ?? this.config.name;
+    const app = agent.tool ? (toolById(agent.tool)?.label ?? agent.tool) : (agent.display_name ?? agent.address.split("/").pop()!);
     const result = await runAgent({
       agent,
       message: m,
-      prompt: taskId || mission ? buildTaskPrompt(m, randomBytes(6).toString("hex"), perms, agent.autopilot ? agent.allowed_tools : undefined) : buildPrompt(m, randomBytes(6).toString("hex")),
+      prompt:
+        taskId || mission
+          ? buildTaskPrompt(m, randomBytes(6).toString("hex"), perms, agent.autopilot ? agent.allowed_tools : undefined)
+          : buildPrompt(m, randomBytes(6).toString("hex"), auto ? { owner, app, session: m.session?.name } : undefined),
       sessionId: session?.session_id,
       env,
       mcpConfigPath,
-      timeoutMs: durationMs(agent.timeout, taskId || mission ? 45 * 60_000 : 15 * 60_000),
+      timeoutMs: durationMs(rule?.timeout ?? agent.timeout, taskId || mission ? 45 * 60_000 : 15 * 60_000),
     });
+    const startMs = m.received_at ? Math.max(0, t0 - Date.parse(m.received_at)) : null;
     rmSync(mcpConfigPath, { force: true });
 
     this.state
-      .prepare("UPDATE runs SET status = ?, ended_at = ?, error = ?, output = ?, cost_usd = ? WHERE id = ?")
-      .run(result.error ? "failed" : "succeeded", iso(), result.error ?? null, result.output.slice(0, 20_000), result.costUsd ?? null, runId);
+      .prepare("UPDATE runs SET status = ?, ended_at = ?, error = ?, output = ?, cost_usd = ?, tokens = ?, start_ms = ?, model_ms = ? WHERE id = ?")
+      .run(result.error ? "failed" : "succeeded", iso(), result.error ?? null, result.output.slice(0, 20_000), result.costUsd ?? null, result.tokens ?? null, startMs, Date.now() - t0, runId);
     if (useSessions && result.sessionId) {
       this.state
         .prepare("INSERT INTO sessions (agent, thread_id, runtime, session_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (agent, thread_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at")
@@ -819,7 +1085,7 @@ export class Daemon {
     const { replied } = this.state.prepare("SELECT replied FROM runs WHERE id = ?").get(runId) as { replied: number };
     if (m.expects_reply && !replied) {
       const text = result.error ? `[a2a] ${agent.address} could not handle this message: ${result.error}` : result.output;
-      if (text) await this.send({ from: agent.address, to: m.from, text, thread_id: m.thread_id, in_reply_to: m.id, kind: "reply", expects_reply: false, scope: m.scope }, 0, 0);
+      if (text) await this.send({ from: agent.address, to: m.from, text, thread_id: m.thread_id, in_reply_to: m.id, kind: "reply", expects_reply: false, scope: m.scope, auto, session: m.session?.id }, 0, 0);
     }
   }
 
@@ -880,10 +1146,11 @@ export class Daemon {
 
   /** Called through the MCP reply tool: replies to the message a run was started for. */
   async replyFromRun(runId: string, text: string, expectsReply = false): Promise<SendResult> {
-    const run = this.state.prepare("SELECT agent, message_id FROM runs WHERE id = ?").get(runId) as { agent: string; message_id: string } | undefined;
+    const run = this.state.prepare("SELECT agent, message_id, auto, session_id FROM runs WHERE id = ?").get(runId) as { agent: string; message_id: string; auto: number; session_id: string | null } | undefined;
     if (!run) throw new ClientError(404, `unknown run ${runId}`);
     const m = this.state.prepare("SELECT from_addr, thread_id, scope FROM inbox WHERE id = ?").get(run.message_id) as { from_addr: string; thread_id: string; scope: string };
-    const r = await this.send({ from: run.agent, to: m.from_addr, text, thread_id: m.thread_id, in_reply_to: run.message_id, kind: "reply", expects_reply: expectsReply, scope: m.scope });
+    const session = run.session_id && run.session_id !== "workspace" ? run.session_id : undefined;
+    const r = await this.send({ from: run.agent, to: m.from_addr, text, thread_id: m.thread_id, in_reply_to: run.message_id, kind: "reply", expects_reply: expectsReply, scope: m.scope, auto: !!run.auto, session });
     this.state.prepare("UPDATE runs SET replied = 1 WHERE id = ?").run(runId);
     return r;
   }
@@ -1034,6 +1301,10 @@ export class Daemon {
           return reply(200, this.info());
         case "POST /send":
           return reply(200, await this.send(body as unknown as SendOptions, waitMs(body.wait_seconds, 0)));
+        case "GET /auto-reply":
+          return reply(200, { matrix: await this.autoReplyMatrix() });
+        case "POST /auto-reply":
+          return reply(200, await this.setAutoReply(body));
         case "POST /reply": {
           if (typeof body.text !== "string") throw new ClientError(400, "text is required");
           if (typeof body.run_id === "string" && body.run_id) return reply(200, await this.replyFromRun(body.run_id, body.text, Boolean(body.expects_reply)));
