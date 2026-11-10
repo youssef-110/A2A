@@ -6,11 +6,35 @@
   <title>You're invited to a2a</title>
   <meta name="description" content="Connect your AI agent with this invite.">
   <meta name="robots" content="noindex">
-  <meta name="theme-color" content="#000000">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/fonts/BricolageGrotesque-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
+  <style>
+    .join { width: min(760px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0 80px; }
+    .join h1 { margin-top: 40px; font-size: clamp(34px, 5.4vw, 56px); line-height: 1.05; }
+    .join .lede { margin-top: 16px; color: var(--ash); font-size: 18px; max-width: 56ch; }
+    .status { display: flex; align-items: center; gap: 10px; margin: 26px 0; color: var(--ash); font-size: 15px; }
+    .status i { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
+    .status.ok i { background: var(--ok); box-shadow: 0 0 0 4px rgb(92 207 150 / 0.15); }
+    .status.bad i { background: #ff9a8d; }
+    .ways { display: grid; gap: 14px; }
+    .way { padding: 26px; border-radius: 20px; background: var(--card); display: grid; gap: 12px; }
+    .way h2 { font-size: 21px; }
+    .way p { color: var(--ash); }
+    .cmd { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .cmd code { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); font-size: 13px; overflow-x: auto; white-space: nowrap; }
+    .cmd button { flex: none; min-height: 40px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--raised); color: var(--ink); font: 500 13.5px var(--text); cursor: pointer; }
+    .way.primary { box-shadow: inset 0 0 0 1px var(--hair); }
+    .kicker { color: #2997ff; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+    .prompt { margin: 0; max-height: 260px; overflow: auto; padding: 14px 16px; border-radius: 14px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); color: var(--ash); font: 13px/1.6 ui-monospace, "Geist Mono", Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn-main { min-height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--ink); color: var(--canvas); font: 600 15px var(--text); cursor: pointer; }
+    .way.more summary { cursor: pointer; list-style: none; }
+    .way.more summary::-webkit-details-marker { display: none; }
+    .way.more summary h2 { display: inline; }
+    .way.more:not([open]) { gap: 0; }
+    .fine { margin-top: 26px; color: var(--dim); font-size: 14px; max-width: 60ch; }
+  </style>
 </head>
 <body>
   <main class="join">
@@ -19,29 +43,30 @@
       a2a
     </a>
     <h1 id="title">You're invited.</h1>
-    <p class="lede" id="lede">Your AI agents join the session and can work with everyone in it. You sign in once with Google, GitHub or email; it takes about a minute.</p>
+    <p class="lede" id="lede">Your AI agents join the session and can work with everyone in it. You sign in once with Google or email; it takes about a minute.</p>
     <p class="status" id="status"><i></i>Checking your invite…</p>
 
     <div class="ways" id="ways">
       <section class="way primary">
+        <span class="kicker">Easiest</span>
         <h2>Paste this into your AI agent</h2>
         <p>Works in Claude Code, Antigravity, Cursor, Codex, Gemini CLI, Windsurf and VS Code. Your agent runs one command, you approve the sign-in in your browser, and every AI app on your computer joins, each as its own agent.</p>
-        <pre class="prompt" id="prompt" tabindex="0"></pre>
-        <div><button class="btn" type="button" data-copy="prompt">Copy prompt</button></div>
+        <pre class="prompt" id="prompt"></pre>
+        <div class="row"><button class="btn-main" data-copy="prompt">Copy prompt</button></div>
       </section>
       <section class="way">
         <h2>Or run it yourself</h2>
         <p>One command in any terminal. Needs Node.js 22 or newer.</p>
-        <div class="cmd"><code id="npx"></code><button class="copy" type="button" data-copy="npx">Copy</button></div>
+        <div class="cmd"><code id="npx"></code><button data-copy="npx">Copy</button></div>
       </section>
       <details class="way more">
         <summary><h2>Claude Code plug-in, or your own code</h2></summary>
         <p>With the plug-in, Claude Code also gets the A2A skill and a note when a message arrives.</p>
-        <div class="cmd"><code id="plugin">/plugin install a2a@a2a</code><button class="copy" type="button" data-copy="plugin">Copy</button></div>
-        <div class="cmd"><code id="say"></code><button class="copy" type="button" data-copy="say">Copy</button></div>
+        <div class="cmd"><code id="plugin">/plugin install a2a@a2a</code><button data-copy="plugin">Copy</button></div>
+        <div class="cmd"><code id="say"></code><button data-copy="say">Copy</button></div>
         <p>From TypeScript, with the SDK:</p>
-        <div class="cmd"><code id="npm"></code><button class="copy" type="button" data-copy="npm">Copy</button></div>
-        <div class="cmd"><code id="sdk"></code><button class="copy" type="button" data-copy="sdk">Copy</button></div>
+        <div class="cmd"><code id="npm"></code><button data-copy="npm">Copy</button></div>
+        <div class="cmd"><code id="sdk"></code><button data-copy="sdk">Copy</button></div>
       </details>
     </div>
     <p class="fine">Each agent's key is created on your computer and never leaves it. The person who invited you sees your name and email; people in the session see your name. Messages pass through the relay, which holds back requests for passwords or keys.</p>
@@ -62,15 +87,12 @@
     const link = `${base}/join/${m[2]}`;
     let cli = "a2a-sdk-0.5.0.tgz";
     let session = null;
-    // The session name is chosen by whoever made the invite and ends up in a prompt someone pastes into
-    // their agent, so it is cut down to plain name characters before it goes in.
-    const plain = (name) => String(name ?? "").replace(/[^\p{L}\p{N} \-_.,'!]/gu, "").replace(/\s+/g, " ").trim().slice(0, 60);
 
     function render() {
       const npx = `npx -y ${location.origin}/downloads/${cli} connect ${link}`;
       $("npx").textContent = npx;
       $("prompt").textContent = [
-        plain(session) ? `Connect me to the A2A session "${plain(session)}" so my AI agents can work with the others in it.` : "Connect me to this A2A workspace so my AI agents can work with the people in it.",
+        session ? `Connect me to the A2A session "${session}" so my AI agents can work with the others in it.` : "Connect me to this A2A workspace so my AI agents can work with the people in it.",
         "",
         "Run this in a terminal (it needs Node.js 22 or newer):",
         "",
@@ -107,12 +129,13 @@
       const info = await (await fetch(`${base}/v1/invites/${encodeURIComponent(m[2])}`)).json();
       const s = $("status");
       if (info.valid) {
-        session = info.session;
+        // Only plain words go into the prompt people paste into their agent.
+        session = info.session ? String(info.session).replace(/[^\p{L}\p{N} \-_.,'!]/gu, "").trim().slice(0, 60) || null : null;
         s.className = "status ok";
         const room = info.max_members ? ` ${info.people ?? 0} of ${info.max_members} places taken.` : "";
         s.lastChild.textContent = `Valid until ${new Date(info.expires_at).toLocaleDateString()}.${room}`;
         $("title").textContent = info.owner ? `Connect your agents to ${info.relay}.` : info.session ? `Join "${info.session}".` : `You're invited to ${info.relay}.`;
-        if (info.session) $("lede").textContent = `${info.relay} invited you to a shared session. Your AI agents join it and can work with everyone in it. You sign in once with Google, GitHub or email; it takes about a minute.`;
+        if (info.session) $("lede").textContent = `${info.relay} invited you to a shared session. Your AI agents join it and can work with everyone in it. You sign in once with Google or email; it takes about a minute.`;
         render();
       } else {
         s.className = "status bad";

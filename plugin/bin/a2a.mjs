@@ -18782,6 +18782,9 @@ function run(cmd, args, opts) {
     child.stdin.end(opts.stdin);
   });
 }
+var SECRET_FILES = ["**/.env", "**/.env.*", "~/.ssh/**", "~/.aws/**", "~/.a2a/**", "**/*.pem", "**/id_rsa*", "**/id_ed25519*"];
+var CODE_LATER = ["**/.claude/**", "**/.git/**", "**/.mcp.json", "**/CLAUDE.md", "**/AGENTS.md", "**/.cursor/**", "**/.codex/**", "**/.vscode/**", "**/.husky/**"];
+var PROTECTED = [...SECRET_FILES.map((p) => `Read(${p})`), ...[...SECRET_FILES, ...CODE_LATER].map((p) => `Edit(${p})`)];
 async function runClaude(ctx) {
   const a = ctx.agent;
   const args = [
@@ -18796,6 +18799,7 @@ async function runClaude(ctx) {
     "--permission-mode",
     a.permission_mode ?? "dontAsk"
   ];
+  if (a.autopilot && a.permission_mode !== "bypassPermissions") args.push("--disallowedTools", PROTECTED.join(","));
   if (a.model) args.push("--model", a.model);
   if (a.instructions) args.push("--append-system-prompt", a.instructions);
   if (ctx.sessionId) args.push("--resume", ctx.sessionId);
@@ -34774,7 +34778,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.4.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.0" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);

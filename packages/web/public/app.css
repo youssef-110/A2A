@@ -633,15 +633,11 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 13px; line-height
 
 /* ================================================================ switchboard
    Every agent is a lamp in its own colour (--agent), the same one in the roster, the chat, the
-   task board and the live map. Headings use the display face; everything else stays Geist. */
-@font-face { font-family: "Bricolage Grotesque"; src: url("/fonts/BricolageGrotesque-Variable.woff2") format("woff2"); font-weight: 400 800; font-stretch: 75% 100%; font-display: swap; }
-:root { --display: "Bricolage Grotesque", var(--font); }
-.hello, .page-head h1, .dialog-head h2, .chat-empty h2, .report-doc h2, .mission-head h2 { font-family: var(--display); font-stretch: 88%; font-weight: 650; letter-spacing: -0.02em; }
-
+   task board and the live map. */
 /* ---- home */
 .home { align-content: start; padding: clamp(32px, 8vh, 84px) 24px 72px; }
 .home-inner { width: min(900px, 100%); }
-.hello { text-align: left; font-size: clamp(32px, 4vw, 46px); line-height: 1.05; }
+.hello { text-align: left; font-size: clamp(30px, 3.6vw, 42px); line-height: 1.08; }
 .hello-sub { text-align: left; font-size: 15.5px; }
 .home-live { display: grid; gap: 0; animation: rise 0.7s var(--ease) 160ms both; }
 .h-sec { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 40px 2px 12px; }
@@ -751,7 +747,7 @@ button.agent-chip:active { transform: scale(0.97); }
 .reports { width: min(820px, 100%); margin: 0 auto; padding: 18px 24px 56px; display: grid; gap: 16px; }
 .report-doc { padding: 24px 26px 26px; border-radius: 20px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); }
 .report-doc header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.report-doc h2 { font-size: 24px; line-height: 1.15; }
+.report-doc h2 { font-size: 22px; line-height: 1.2; letter-spacing: -0.028em; }
 .report-doc header p { margin-top: 6px; }
 .report-agents { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 18px; padding-bottom: 18px; box-shadow: 0 1px 0 var(--line); }
 .who-chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--agent) 12%, transparent); color: var(--ink); font-size: 12.5px; }
