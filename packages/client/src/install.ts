@@ -6,6 +6,55 @@ import { CLI_PATH } from "./daemon.ts";
 
 const xml = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/**
+ * Starts this computer's a2a client when the person signs in, so agents with auto-reply on keep
+ * listening with every app closed. It runs `a2a start`, which does nothing when the client already
+ * runs. Windows: a hidden script in the Startup folder. macOS: a LaunchAgent run once at login.
+ * Linux: an XDG autostart entry. Returns the file written, or null when skipped.
+ */
+export function installAutostart(home: string): string | null {
+  // Only for the installed client, never from tests or a source checkout.
+  if (process.env.NODE_TEST_CONTEXT || process.env.A2A_NO_AUTOSTART || !/a2a\.mjs$/.test(CLI_PATH)) return null;
+  const args = [process.execPath, "--disable-warning=ExperimentalWarning", CLI_PATH, "--home", home, "start"];
+  try {
+    if (platform() === "win32") {
+      const dir = join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, "a2a-client.vbs");
+      // VBScript doubles quotes inside a string; 0 = hidden window, False = don't wait.
+      writeFileSync(file, `' Starts the a2a client at sign-in, hidden, so agents with auto-reply on keep listening.\r\nCreateObject("WScript.Shell").Run "${args.map((a) => `""${a}""`).join(" ")}", 0, False\r\n`);
+      return file;
+    }
+    if (platform() === "darwin") {
+      const file = join(homedir(), "Library", "LaunchAgents", "dev.a2a.autostart.plist");
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(
+        file,
+        `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.a2a.autostart</string>
+  <key>ProgramArguments</key>
+  <array>${args.map((a) => `<string>${xml(a)}</string>`).join("")}</array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>${xml(process.env.PATH ?? "/usr/bin:/bin")}</string></dict>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>
+`,
+      );
+      return file;
+    }
+    const file = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "autostart", "a2a-client.desktop");
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `[Desktop Entry]\nType=Application\nName=a2a client\nComment=Keeps agents with auto-reply on listening\nExec=${args.map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" ")}\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n`);
+    return file;
+  } catch {
+    return null;
+  }
+}
+
 /** Writes a launchd agent (macOS) or systemd user unit (Linux) that keeps `a2a run` alive. */
 export function installService(home: string, name: string, load: boolean): string {
   const label = `dev.a2a.client.${name.replace(/[^a-zA-Z0-9.-]/g, "-")}`;

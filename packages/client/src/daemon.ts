@@ -43,6 +43,7 @@ import { openState, type State } from "./state.ts";
 import { RelayError, relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
 import { buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
 import { toolById } from "./tools.ts";
+import { installAutostart } from "./install.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const CLI_PATH = resolve(here, "cli.ts");
@@ -674,7 +675,10 @@ export class Daemon {
     }
     saveConfig(this.home, config);
     await this.reload();
-    return { ok: true, action, session, changed, matrix: await this.autoReplyMatrix() };
+    // Listening must survive a reboot with every app closed: start this client at sign-in.
+    const autostart = action === "on" && changed.length ? installAutostart(this.home) : null;
+    if (autostart) this.log(`a2a will start at sign-in (${autostart}) so auto-reply keeps listening`);
+    return { ok: true, action, session, changed, autostart, matrix: await this.autoReplyMatrix() };
   }
 
   private onStatus(u: { id: string; state: string; reason_code: string | null }): void {

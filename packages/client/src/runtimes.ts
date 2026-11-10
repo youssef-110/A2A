@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AgentConfig } from "./config.ts";
 
 /** What the relay delivered, as the client hands it to a runtime. */
@@ -193,10 +193,40 @@ export function childEnv(base: NodeJS.ProcessEnv, extra: Record<string, string>)
   return { ...env, ...extra };
 }
 
+/**
+ * What to actually start for a command on this computer. Windows can't run a .js file directly, and the
+ * npm-installed CLIs (codex, opencode, ...) are .cmd wrappers that Node can't start without a shell, so
+ * those run the wrapper's JavaScript entry with Node instead. Arguments never pass through a shell.
+ */
+export function resolveSpawn(cmd: string, args: string[]): [string, string[]] {
+  if (/\.[cm]?js$/i.test(cmd)) return [process.execPath, [cmd, ...args]];
+  if (process.platform !== "win32") return [cmd, args];
+  let full = cmd;
+  if (!/[\\/]/.test(cmd)) {
+    const exts = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+    const hit = (process.env.PATH ?? "")
+      .split(";")
+      .filter(Boolean)
+      .flatMap((dir) => (/\.[a-z0-9]+$/i.test(cmd) ? [join(dir, cmd)] : exts.map((e) => join(dir, cmd + e.toLowerCase()))))
+      .find((p) => existsSync(p));
+    if (!hit) return [cmd, args];
+    full = hit;
+  }
+  if (/\.(cmd|bat)$/i.test(full)) {
+    try {
+      // npm's wrapper ends with: "%_prog%" "%dp0%\node_modules\<pkg>\bin\<cli>.js" %*
+      const entry = /"%~?dp0%?\\([^"%]+\.[cm]?js)"/i.exec(readFileSync(full, "utf8"))?.[1];
+      if (entry) return [process.execPath, [join(dirname(full), entry), ...args]];
+    } catch {
+      /* unreadable wrapper: try it as is */
+    }
+  }
+  return [full, args];
+}
+
 function run(cmd: string, args: string[], opts: { cwd?: string; env: Record<string, string>; stdin: string; timeoutMs: number }): Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
-    // Windows can't execute a .js/.mjs file directly (no shebangs), so run JavaScript programs with Node.
-    const [bin, argv] = /\.m?js$/i.test(cmd) ? [process.execPath, [cmd, ...args]] : [cmd, args];
+    const [bin, argv] = resolveSpawn(cmd, args);
     const child = spawn(bin, argv, { cwd: opts.cwd, env: childEnv(process.env, opts.env), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
@@ -263,6 +293,11 @@ async function runCodex(ctx: RunContext): Promise<RunResult> {
   const [cmd, ...base] = ctx.agent.command ?? ["codex", "exec", "--skip-git-repo-check"];
   const args = [...base, "--output-last-message", lastMessage, "-"];
   if (ctx.agent.model) args.unshift("--model", ctx.agent.model);
+  // Codex's own sandbox matches the tools the run may use: read only, unless it may edit files.
+  if (!ctx.agent.command) {
+    const edits = (ctx.agent.allowed_tools ?? []).some((t) => /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(t));
+    args.splice(1, 0, "--sandbox", edits ? "workspace-write" : "read-only");
+  }
   try {
     const r = await run(cmd!, args, { cwd: ctx.agent.workdir, env: ctx.env, stdin: ctx.prompt, timeoutMs: ctx.timeoutMs });
     if (r.timedOut) return { output: "", exitCode: r.code, error: `timed out after ${Math.round(ctx.timeoutMs / 1000)}s` };
