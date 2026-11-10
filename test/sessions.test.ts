@@ -150,3 +150,34 @@ test("a guest's view of a session shows only conversations their own agents took
     cleanup(dir);
   }
 });
+
+test("only the person an agent belongs to can switch its auto-reply from the website, and only for a session it is in", () => {
+  const { relay, dir } = setup();
+  try {
+    const s = relay.createSession({ name: "Launch" }, "admin");
+    const other = relay.createSession({ name: "Other" }, "admin");
+    const code = relay.createInvite({ session_id: s.id, max_uses: 10 }, "admin").code;
+    join_(relay, "robin-claude", { invite: code, account: robin });
+    join_(relay, "juno-codex", { invite: code, account: juno });
+    const ask = (account: string, address: string, session: string) => relay.requestAutoReply(account, `agent://team/${address}`, session, true);
+    // Juno can't switch Robin's agent, even in a session they share.
+    assert.equal((ask(juno.id, "robin-claude", s.id) as { error: string }).error, "not_your_agent");
+    // Robin can't switch it in a session the agent isn't in.
+    assert.equal((ask(robin.id, "robin-claude", other.id) as { error: string }).error, "not_in_session");
+    // Robin's own request reaches the agent's computer only while it is online (no hub here, so offline).
+    assert.equal((ask(robin.id, "robin-claude", s.id) as { error: string }).error, "offline");
+    // A client's report shows up per session, and the agent-facing list agrees with the page.
+    relay.setListening("agent://team/robin-claude", { sessions: [s.id, other.id], runtime: "claude", capable: true, ready: true });
+    const page = relay.sessionDetail(s.id)!.members as { address: string; auto_reply: boolean; can_auto_reply: boolean }[];
+    assert.equal(page.find((m) => m.address === "agent://team/robin-claude")?.auto_reply, true);
+    assert.equal(page.find((m) => m.address === "agent://team/robin-claude")?.can_auto_reply, true);
+    assert.equal(page.find((m) => m.address === "agent://team/juno-codex")?.auto_reply, false);
+    // A session the agent isn't in is dropped from its report.
+    assert.equal((relay.sessionDetail(other.id)!.members as { address: string }[]).some((m) => m.address === "agent://team/robin-claude"), false);
+    const listed = relay.sessionsFor("agent://team/juno-codex")[0]!.members as { address: string; auto_reply: boolean }[];
+    assert.equal(listed.find((m) => m.address === "agent://team/robin-claude")?.auto_reply, true);
+  } finally {
+    relay.db.close?.();
+    cleanup(dir);
+  }
+});

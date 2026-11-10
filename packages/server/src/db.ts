@@ -1,6 +1,7 @@
 export const SCHEMA = `
-CREATE TABLE IF NOT EXISTS agent_listening (
-  address TEXT PRIMARY KEY, sessions TEXT NOT NULL, runtime TEXT, tasks INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS agent_auto (
+  address TEXT PRIMARY KEY, sessions TEXT NOT NULL, runtime TEXT, tasks INTEGER NOT NULL DEFAULT 0,
+  capable INTEGER, ready INTEGER, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS agents (
   address      TEXT PRIMARY KEY,

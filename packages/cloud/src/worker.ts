@@ -126,10 +126,15 @@ async function handleShared(env: Env, req: Request, url: URL, userId: string): P
     );
     return json({ sessions: out.flat() });
   }
-  const m = /^\/api\/shared\/([a-z0-9-]+)\/sessions\/([A-Za-z0-9_-]+)(\/leave)?$/.exec(url.pathname);
+  const m = /^\/api\/shared\/([a-z0-9-]+)\/sessions\/([A-Za-z0-9_-]+)(\/leave|\/auto-reply)?$/.exec(url.pathname);
   const ws = m && spaces.find((w) => w.slug === m[1]);
   if (!m || !ws) return json({ error: "not_found" }, 404);
   const id = encodeURIComponent(m[2]!);
+  if (m[3] === "/auto-reply" && req.method === "POST") {
+    const body = { ...(await readJson(req)), session_id: m[2] };
+    const fwd = new Request(new URL("/v1/admin/auto-reply", url.origin), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return toRelay(env, fwd, ws.do_name, "/v1/admin/auto-reply", { ...workspaceHeaders(url, ws), "x-a2a-account-id": userId }, true);
+  }
   if (m[3] && req.method === "POST") return admin(ws, `/v1/admin/sessions/${id}/accounts/${encodeURIComponent(userId)}`, "DELETE");
   const r = await admin(ws, `/v1/admin/sessions/${id}?account=${encodeURIComponent(userId)}`);
   if (!r.ok) return json({ error: "not_found" }, 404);
@@ -432,7 +437,9 @@ async function handleApi(env: Env, req: Request, url: URL, ctx: ExecutionContext
       await env.ACCOUNTS.prepare("UPDATE workspaces SET name = ? WHERE id = ?").bind(name, ws.id).run();
       return json({ ok: true, name });
     }
-    return toRelay(env, req, ws.do_name, m[2]!, workspaceHeaders(url, ws), true);
+    // The relay checks the agent is this person's; it needs to know who is asking.
+    const who: Record<string, string> = m[2] === "/v1/admin/auto-reply" ? { "x-a2a-account-id": user.id } : {};
+    return toRelay(env, req, ws.do_name, m[2]!, { ...workspaceHeaders(url, ws), ...who }, true);
   }
   return json({ error: "not_found" }, 404);
 }

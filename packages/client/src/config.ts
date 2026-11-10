@@ -77,6 +77,8 @@ export interface ClientConfig {
   /** The base of this person's agent names: "robin" for robin-claude, robin-antigravity, ... */
   person?: string;
   default_agent?: string;
+  /** false: ignore auto-reply switches made on the website; only this computer's apps and terminal change it. */
+  web_controls?: boolean;
   agents: AgentConfig[];
 }
 
@@ -111,6 +113,7 @@ export function loadConfig(home: string): ClientConfig {
     relay_public_key: raw.relay_public_key,
     ...(raw.networks?.length ? { networks: raw.networks } : {}),
     ...(raw.person ? { person: raw.person } : {}),
+    ...(raw.web_controls === false ? { web_controls: false } : {}),
     default_agent: raw.default_agent,
     // Before auto-reply was per session, a runtime alone meant "answer everything". That only ever
     // worked on relays without sessions, so it carries over as the "workspace" rule and nothing more.

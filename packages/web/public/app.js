@@ -2011,6 +2011,70 @@ function timeline(messages, me, names) {
   });
 }
 
+/**
+ * Auto-reply for the signed-in person's own agents in this session: one switch each. The click goes to
+ * the person's own computer through the relay; the switch shows the new state once that computer
+ * reports back. Other people's agents can't be switched here; their tag shows in People.
+ */
+function autoReplySection(members, sessionId, endpoint, reload) {
+  const mine = (members ?? []).filter((m) => m.account_id && m.account_id === S.me?.id && !m.address.endsWith("/console"));
+  S.autoPending ??= {};
+  const flip = async (m, on) => {
+    S.autoPending[`${m.address} ${sessionId}`] = on;
+    reload(true);
+    try {
+      await api("POST", endpoint, { address: m.address, session_id: sessionId, on });
+      toast(on ? `Turning on auto-reply for ${appOf(m) ?? short(m.address)}…` : `Turning off auto-reply for ${appOf(m) ?? short(m.address)}…`);
+    } catch (err) {
+      delete S.autoPending[`${m.address} ${sessionId}`];
+      toast(err.message);
+    }
+    // The computer answers within a moment; refresh even if no live event arrives.
+    setTimeout(() => (delete S.autoPending[`${m.address} ${sessionId}`], reload()), 2500);
+  };
+  const row = (m) => {
+    const pending = S.autoPending[`${m.address} ${sessionId}`];
+    const on = pending ?? !!m.auto_reply;
+    const app = appOf(m) ?? short(m.address);
+    const why = !m.online
+      ? "Your computer is offline. Open the app or run a2a to change this."
+      : m.can_auto_reply === false
+        ? `${app} can't run on its own. Claude Code, Codex and OpenCode can.`
+        : m.auto_reply_ready === false && !m.auto_reply
+          ? `${app} isn't installed as a command on your computer, so it can't run on its own yet.`
+          : null;
+    const disabled = !!why && !m.auto_reply;
+    return h(
+      "li",
+      { class: `auto-row ${disabled ? "off" : ""}` },
+      h(
+        "div",
+        { class: "auto-text" },
+        h("b", {}, app),
+        h("span", { class: "muted small" }, why ?? (pending !== undefined ? "Waiting for your computer…" : on ? "Answers new requests here on its own, then stops." : "Off. Messages wait for you.")),
+      ),
+      h("button", {
+        class: `switch ${on ? "on" : ""}`,
+        type: "button",
+        role: "switch",
+        "aria-checked": String(on),
+        "aria-label": `Auto-reply for ${app}`,
+        disabled: disabled || pending !== undefined,
+        onclick: () => flip(m, !on),
+      }),
+    );
+  };
+  return h(
+    "section",
+    { class: "auto-sec" },
+    h("div", { class: "sec-h" }, h("h3", {}, "Auto-reply"), h("span", { class: "muted small" }, "your agents")),
+    mine.length
+      ? h("ul", { class: "auto-list" }, mine.map(row))
+      : h("p", { class: "muted small" }, "None of your AI apps is in this session yet. Connect one, and you can let it answer here on its own."),
+    h("p", { class: "muted small" }, "Off until you turn it on, here or in your app. Only your computer runs it, and everyone in the session can see which of your agents answer on their own."),
+  );
+}
+
 /** One app of a person in the people list, with a tag when it answers on its own in this session. */
 function appChip(a) {
   return h(
@@ -2176,6 +2240,7 @@ function viewSession() {
           briefBox,
           h("div", { class: "row" }, h("button", { class: "btn secondary small", onclick: () => save({ brief: briefBox.value }, "Brief saved. Every agent in the session sees it.") }, "Save brief")),
         ),
+        autoReplySection(d.members, d.id, "/v1/admin/auto-reply", (soft) => (soft ? renderView() : loadSession())),
         h(
           "section",
           {},
@@ -2790,6 +2855,7 @@ function viewShared() {
         "aside",
         { class: "details", "aria-label": "Session details" },
         h("section", {}, h("h3", {}, "Brief"), d.brief ? h("div", { class: "brief-read" }, d.brief) : h("p", { class: "muted small" }, "No brief yet. Your agent can write one with update_session_brief.")),
+        autoReplySection(d.members, S.sharedKey.id, `/api/shared/${S.sharedKey.slug}/sessions/${encodeURIComponent(S.sharedKey.id)}/auto-reply`, (soft) => (soft ? renderView() : loadSharedSession())),
         h(
           "section",
           {},

@@ -18462,6 +18462,7 @@ function loadConfig(home2) {
     relay_public_key: raw.relay_public_key,
     ...raw.networks?.length ? { networks: raw.networks } : {},
     ...raw.person ? { person: raw.person } : {},
+    ...raw.web_controls === false ? { web_controls: false } : {},
     default_agent: raw.default_agent,
     // Before auto-reply was per session, a runtime alone meant "answer everything". That only ever
     // worked on relays without sessions, so it carries over as the "workspace" rule and nothing more.
@@ -18645,6 +18646,7 @@ import { createServer } from "node:http";
 import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync5, rmSync as rmSync2, unlinkSync, writeFileSync as writeFileSync3 } from "node:fs";
 import { connect } from "node:net";
 import { randomBytes as randomBytes2 } from "node:crypto";
+import { homedir as homedir3 } from "node:os";
 import { basename, dirname as dirname2, join as join5, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19397,6 +19399,18 @@ var Daemon = class {
     const address = typeof msg.address === "string" ? msg.address : "";
     if (!this.agent(address) || serverOf(this.config, this.agent(address)) !== link.server) return;
     const session = msg.session ?? {};
+    if (msg.kind === "auto_reply" && session.id) {
+      if (this.config.web_controls === false) {
+        this.log(`ignored a website request to change auto-reply for ${address} (web_controls: false)`);
+        this.reportListening(link);
+        return;
+      }
+      void this.setAutoReply({ action: msg.on === true ? "on" : "off", session: session.id, agents: [address] }).then(() => this.log(`auto-reply ${msg.on === true ? "on" : "off"} for ${address} in "${session.name ?? session.id}" (from your website)`)).catch((err) => {
+        this.log(`could not change auto-reply for ${address}: ${err.message}`);
+        this.reportListening(link);
+      });
+      return;
+    }
     const text2 = msg.kind === "session_deleted" ? `The session "${session.name ?? session.id}" was deleted by its owner. You can no longer reach the people in it.` : msg.kind === "session_removed" ? `You were removed from the session "${session.name ?? session.id}".` : `Notice from the relay: ${String(msg.kind)}`;
     this.state.prepare("INSERT INTO notices (address, kind, text, created_at) VALUES (?, ?, ?, ?)").run(address, String(msg.kind), text2, iso());
     this.directoryCache.clear();
@@ -19526,7 +19540,9 @@ var Daemon = class {
       address: a.address,
       sessions: a.runtime === "none" ? [] : (a.auto_reply ?? []).map((r) => r.session).filter((s) => s !== "workspace"),
       runtime: a.runtime === "none" ? null : a.runtime,
-      tasks: a.runtime !== "none" && !!a.autopilot
+      tasks: a.runtime !== "none" && !!a.autopilot,
+      capable: a.runtime !== "none" || !!(a.tool && APP_RUNTIME[a.tool]),
+      ready: this.runtimeReady(a.runtime === "none" && a.tool && APP_RUNTIME[a.tool] ? { ...a, runtime: APP_RUNTIME[a.tool] } : a)
     }));
     if (agents.length && link.ws && link.ws.readyState === link.ws.OPEN) link.ws.send(JSON.stringify({ type: "listening", agents }));
   }
@@ -19612,6 +19628,7 @@ var Daemon = class {
           a.runtime = runtime;
         }
         if (typeof body.workdir === "string" && body.workdir) a.workdir = body.workdir;
+        else a.workdir ??= homedir3();
         if (Array.isArray(body.tools) && body.tools.length) a.allowed_tools = body.tools.filter((t) => typeof t === "string");
         else a.allowed_tools = a.allowed_tools?.length ? a.allowed_tools : ["Read", "Grep", "Glob"];
         if (typeof body.model === "string" && body.model) a.model = body.model;
@@ -35556,7 +35573,7 @@ ${m.text}${notes.join("")}`);
 // packages/client/src/install.ts
 import { execFileSync } from "node:child_process";
 import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync5 } from "node:fs";
-import { homedir as homedir3, platform } from "node:os";
+import { homedir as homedir4, platform } from "node:os";
 import { dirname as dirname4, join as join9 } from "node:path";
 var xml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 function installService(home2, name, load) {
@@ -35565,7 +35582,7 @@ function installService(home2, name, load) {
   const logDir = join9(home2, "logs");
   mkdirSync7(logDir, { recursive: true });
   if (platform() === "darwin") {
-    const file2 = join9(homedir3(), "Library", "LaunchAgents", `${label}.plist`);
+    const file2 = join9(homedir4(), "Library", "LaunchAgents", `${label}.plist`);
     mkdirSync7(dirname4(file2), { recursive: true });
     writeFileSync5(
       file2,
@@ -35603,7 +35620,7 @@ Start it with:
   launchctl bootstrap gui/${uid} ${file2}`;
   }
   const unit = `a2a-client-${name.replace(/[^a-zA-Z0-9-]/g, "-")}.service`;
-  const file = join9(homedir3(), ".config", "systemd", "user", unit);
+  const file = join9(homedir4(), ".config", "systemd", "user", unit);
   mkdirSync7(dirname4(file), { recursive: true });
   writeFileSync5(
     file,

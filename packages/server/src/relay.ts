@@ -677,7 +677,7 @@ export class Relay extends EventEmitter {
         members: this.sessionMembers(s.id)
           .filter((a) => a !== this.consoleAddress && a !== address)
           .map((a) => {
-            const { email: _e, account_id: _i, ...v } = this.memberView(a, guests);
+            const { email: _e, account_id: _i, ...v } = this.memberView(a, guests, s.id);
             return v;
           }),
       };
@@ -1183,20 +1183,47 @@ export class Relay extends EventEmitter {
    * An agent's client says which sessions it may auto-reply in. Only the agent itself can say so (the
    * hub only passes on addresses that signed in on that connection), and only sessions it is in count.
    */
-  setListening(address: string, input: { sessions?: unknown; runtime?: unknown; tasks?: unknown }): void {
+  setListening(address: string, input: { sessions?: unknown; runtime?: unknown; tasks?: unknown; capable?: unknown; ready?: unknown }): void {
     const sessions = (Array.isArray(input.sessions) ? input.sessions : []).filter((s): s is string => typeof s === "string" && this.inSession(s, address)).slice(0, 200);
     const runtime = typeof input.runtime === "string" ? input.runtime.slice(0, 20) : null;
+    const flag = (v: unknown): number | null => (typeof v === "boolean" ? (v ? 1 : 0) : null);
     this.db
-      .prepare("INSERT INTO agent_listening (address, sessions, runtime, tasks, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (address) DO UPDATE SET sessions = excluded.sessions, runtime = excluded.runtime, tasks = excluded.tasks, updated_at = excluded.updated_at")
-      .run(address, JSON.stringify(sessions), runtime, input.tasks === true ? 1 : 0, iso());
+      .prepare(
+        "INSERT INTO agent_auto (address, sessions, runtime, tasks, capable, ready, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (address) DO UPDATE SET sessions = excluded.sessions, runtime = excluded.runtime, tasks = excluded.tasks, capable = excluded.capable, ready = excluded.ready, updated_at = excluded.updated_at",
+      )
+      .run(address, JSON.stringify(sessions), runtime, input.tasks === true ? 1 : 0, flag(input.capable), flag(input.ready), iso());
     for (const id of new Set([...sessions, ...this.sessionsFor(address).map((s) => s.id)])) this.emitEvent("session", { id });
   }
 
   /** Whether an agent auto-replies in a session, as its own client last reported. */
-  private listening(address: string, sessionId?: string): { auto_reply: boolean; auto_tasks: boolean; runtime: string | null } {
-    const row = this.db.prepare("SELECT sessions, runtime, tasks FROM agent_listening WHERE address = ?").get(address) as { sessions: string; runtime: string | null; tasks: number } | undefined;
-    if (!row) return { auto_reply: false, auto_tasks: false, runtime: null };
-    return { auto_reply: !!sessionId && (JSON.parse(row.sessions) as string[]).includes(sessionId), auto_tasks: !!row.tasks, runtime: row.runtime };
+  private listening(address: string, sessionId?: string): { auto_reply: boolean; auto_tasks: boolean; runtime: string | null; can_auto_reply: boolean | null; auto_reply_ready: boolean | null } {
+    const row = this.db.prepare("SELECT sessions, runtime, tasks, capable, ready FROM agent_auto WHERE address = ?").get(address) as
+      | { sessions: string; runtime: string | null; tasks: number; capable: number | null; ready: number | null }
+      | undefined;
+    if (!row) return { auto_reply: false, auto_tasks: false, runtime: null, can_auto_reply: null, auto_reply_ready: null };
+    return {
+      auto_reply: !!sessionId && (JSON.parse(row.sessions) as string[]).includes(sessionId),
+      auto_tasks: !!row.tasks,
+      runtime: row.runtime,
+      can_auto_reply: row.capable === null ? null : !!row.capable,
+      auto_reply_ready: row.ready === null ? null : !!row.ready,
+    };
+  }
+
+  /**
+   * The owner of an agent, signed in on the website, asks their own computer to turn auto-reply on or
+   * off in one session. Only the person the agent belongs to may ask, and only their computer decides:
+   * the relay passes the request on, and the page shows the result once that computer reports back.
+   */
+  requestAutoReply(accountId: string, address: string, sessionId: string, on: boolean): { ok: true } | { status: number; error: string; detail: string } {
+    const acct = this.accountOf(address);
+    if (!acct || acct.account_id !== accountId) return { status: 403, error: "not_your_agent", detail: "Only the person an agent belongs to can change its auto-reply." };
+    const s = this.getSession(sessionId);
+    if (!s || s.archived || !this.inSession(sessionId, address)) return { status: 404, error: "not_in_session", detail: "That agent isn't in this session." };
+    if (!this.isOnline(address)) return { status: 409, error: "offline", detail: "Your computer is offline. Start your AI app (or a2a) and try again." };
+    this.out.notice?.(address, { kind: "auto_reply", session: { id: s.id, name: s.name }, on });
+    this.audit(`account:${accountId}`, on ? "auto_reply.on" : "auto_reply.off", address, { session: s.id });
+    return { ok: true };
   }
 
   tryDeliver(id: string): boolean {

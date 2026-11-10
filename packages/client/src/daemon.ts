@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, type AddressInfo } from "node:net";
 import { randomBytes, type KeyObject } from "node:crypto";
+import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
@@ -367,6 +368,22 @@ export class Daemon {
     const address = typeof msg.address === "string" ? msg.address : "";
     if (!this.agent(address) || serverOf(this.config, this.agent(address)!) !== link.server) return;
     const session = (msg.session ?? {}) as { id?: string; name?: string | null };
+    // The owner flipped the switch on their own signed-in page (the relay only passes it on for the
+    // agent's own account). This computer still decides: a config can turn website switches off.
+    if (msg.kind === "auto_reply" && session.id) {
+      if (this.config.web_controls === false) {
+        this.log(`ignored a website request to change auto-reply for ${address} (web_controls: false)`);
+        this.reportListening(link);
+        return;
+      }
+      void this.setAutoReply({ action: msg.on === true ? "on" : "off", session: session.id, agents: [address] })
+        .then(() => this.log(`auto-reply ${msg.on === true ? "on" : "off"} for ${address} in "${session.name ?? session.id}" (from your website)`))
+        .catch((err) => {
+          this.log(`could not change auto-reply for ${address}: ${(err as Error).message}`);
+          this.reportListening(link);
+        });
+      return;
+    }
     const text =
       msg.kind === "session_deleted"
         ? `The session "${session.name ?? session.id}" was deleted by its owner. You can no longer reach the people in it.`
@@ -528,6 +545,8 @@ export class Daemon {
         sessions: a.runtime === "none" ? [] : (a.auto_reply ?? []).map((r) => r.session).filter((s) => s !== "workspace"),
         runtime: a.runtime === "none" ? null : a.runtime,
         tasks: a.runtime !== "none" && !!a.autopilot,
+        capable: a.runtime !== "none" || !!(a.tool && APP_RUNTIME[a.tool]),
+        ready: this.runtimeReady(a.runtime === "none" && a.tool && APP_RUNTIME[a.tool] ? { ...a, runtime: APP_RUNTIME[a.tool]! } : a),
       }));
     if (agents.length && link.ws && link.ws.readyState === link.ws.OPEN) link.ws.send(JSON.stringify({ type: "listening", agents }));
   }
@@ -630,6 +649,7 @@ export class Daemon {
           a.runtime = runtime;
         }
         if (typeof body.workdir === "string" && body.workdir) a.workdir = body.workdir;
+        else a.workdir ??= homedir();
         if (Array.isArray(body.tools) && body.tools.length) a.allowed_tools = (body.tools as unknown[]).filter((t): t is string => typeof t === "string");
         else a.allowed_tools = a.allowed_tools?.length ? a.allowed_tools : ["Read", "Grep", "Glob"];
         if (typeof body.model === "string" && body.model) a.model = body.model;

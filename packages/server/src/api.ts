@@ -373,6 +373,16 @@ export function createApi(opts: ApiOptions): Api {
     if (account) return { ...d, invites: [], members: (d.members as Record<string, unknown>[]).map(({ email: _e, ...m }) => m) };
     return { ...d, invites: (d.invites as { code: string }[]).map((i) => ({ ...i, url: inviteUrl(ctx, i.code) })) };
   });
+  // A signed-in person's own page asks their own computer to switch auto-reply for one of their agents.
+  route("POST", "/v1/admin/auto-reply", async (ctx) => {
+    requireAdmin(ctx);
+    const account = accountOf(ctx);
+    if (!account) throw new HttpError(401, "signed_out", "Sign in to change auto-reply.");
+    const b = await ctx.body();
+    const r = relay.requestAutoReply(account.id, String(b.address ?? ""), String(b.session_id ?? ""), b.on === true);
+    if ("error" in r) throw new HttpError(r.status, r.error, r.detail);
+    return r;
+  });
   route("DELETE", "/v1/admin/sessions/:id", (ctx) => {
     requireAdmin(ctx);
     if (!relay.deleteSession(decodeURIComponent(ctx.params[0]!), "admin")) throw new HttpError(404, "not_found");
