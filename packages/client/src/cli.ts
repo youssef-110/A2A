@@ -456,7 +456,7 @@ async function main(argv: string[]): Promise<number> {
         args,
         allowPositionals: true,
         options: {
-          from: { type: "string" }, scope: { type: "string" }, thread: { type: "string" }, wait: { type: "string" }, notify: { type: "boolean" }, json: { type: "boolean" },
+          from: { type: "string" }, scope: { type: "string" }, thread: { type: "string" }, wait: { type: "string" }, notify: { type: "boolean" }, json: { type: "boolean" }, session: { type: "string" },
           voice: { type: "boolean" }, language: { type: "string" }, seconds: { type: "string" }, yes: { type: "boolean", short: "y" }, input: { type: "string" },
           attach: { type: "string", multiple: true },
         },
@@ -486,6 +486,7 @@ async function main(argv: string[]): Promise<number> {
         text,
         scope: values.scope,
         thread_id: values.thread,
+        session: values.session,
         kind: values.notify ? "notify" : "request",
         expects_reply: !values.notify,
         wait_seconds: wait,
