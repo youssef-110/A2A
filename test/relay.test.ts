@@ -4,6 +4,8 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateAgentKeyPair, registerSigningString, signString } from "@a2a/protocol";
 import { registerAgent } from "../packages/client/src/relay-api.ts";
+import { Relay } from "../packages/server/src/relay.ts";
+import { openDb } from "../packages/server/src/db-node.ts";
 import { adminFetch, cleanup, envelope, relay, tempDir } from "./helpers.ts";
 
 const A = "agent://acme/billing-bot";
@@ -199,5 +201,48 @@ test("agents can only read threads they take part in", async () => {
     assert.equal(await get(C, t.keys[A]!.privateKeyPem), 401); // C's name, A's key
   } finally {
     await t.close();
+  }
+});
+
+test("recover() during a slow verdict doesn't screen or deliver the message twice", async () => {
+  const dir = tempDir("relay-recover");
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const slowJudge = {
+    kind: "test",
+    model: "slow",
+    async judge() {
+      calls++;
+      await gate;
+      return { decision: "allow" as const, categories: [], confidence: 0.99, reason: "fine" };
+    },
+  };
+  const relay = new Relay({ db: openDb(join(dir, "relay.db")), relayKeyPem: generateAgentKeyPair().privateKeyPem, initialPolicy: POLICY, judges: { fast: slowJudge } });
+  const delivered: string[] = [];
+  relay.out = { deliver: (_a, d) => (delivered.push(d.id), 1), status: () => {}, isOnline: () => true, disconnect: () => {}, onlineAgents: () => [] };
+  try {
+    const keys = { [A]: generateAgentKeyPair(), [B]: generateAgentKeyPair() };
+    for (const [address, k] of Object.entries(keys)) {
+      const timestamp = new Date().toISOString();
+      relay.register({ address, public_key: k.publicKey, timestamp, proof: signString(registerSigningString(address, k.publicKey, timestamp), k.privateKeyPem) }, true);
+    }
+    const env = envelope(keys[A]!.privateKeyPem, { from: A, to: B });
+    assert.equal(relay.submit(env).status, 202);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(calls, 1);
+    // A Durable Object alarm fires while the judge is still thinking.
+    relay.recover();
+    relay.recover();
+    release();
+    await relay.idle();
+    assert.equal(calls, 1, "the judge ran once");
+    assert.equal(relay.getMessage(env.id)!.state, "queued");
+    assert.deepEqual(delivered, [env.id], "delivered once");
+    const stages = relay.db.prepare("SELECT COUNT(*) AS n FROM verdict_stages WHERE message_id = ? AND stage = 'judge'").get(env.id) as { n: number };
+    assert.equal(stages.n, 1);
+  } finally {
+    relay.db.close?.();
+    cleanup(dir);
   }
 });
