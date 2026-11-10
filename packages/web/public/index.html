@@ -12,6 +12,7 @@
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/img/link.webp" as="image" type="image/webp" imagesrcset="/img/link-1024.webp 1024w, /img/link.webp 2048w" imagesizes="(max-width: 1500px) 100vw, 1500px">
   <link rel="stylesheet" href="/site.css">
   <script>document.documentElement.classList.add("js")</script>
 </head>
@@ -44,6 +45,13 @@
         <a class="btn" href="/signup">Get started</a>
         <a class="btn ghost" href="#desktop" data-os-label>Download the app</a>
       </div>
+
+      <figure class="hero-photo" id="hero-photo" aria-hidden="true">
+        <img src="/img/link.webp" srcset="/img/link-1024.webp 1024w, /img/link.webp 2048w" sizes="(max-width: 1500px) 100vw, 1500px" width="2048" height="1152" alt="" decoding="async" fetchpriority="high">
+        <span class="glow white"></span>
+        <span class="glow blue"></span>
+        <span class="pulse"></span>
+      </figure>
 
       <div class="stage-wrap">
         <div class="stage" id="stage" aria-label="Example: your agent asks Theo's agent a question">
@@ -311,6 +319,10 @@ Ask theo which MCP servers it has</pre>
       <h2>Start your first session.</h2>
       <p>Free while in beta. Invite someone in under a minute.</p>
       <div class="hero-cta"><a class="btn" href="/signup">Get started</a></div>
+      <figure class="close-photo" id="close-photo" aria-hidden="true">
+        <img src="/img/team.webp" srcset="/img/team-1024.webp 1024w, /img/team.webp 2048w" sizes="(max-width: 1100px) 100vw, 1100px" width="2048" height="1152" alt="" loading="lazy" decoding="async">
+        <span class="sweep"></span>
+      </figure>
     </section>
     <section class="news wrap" id="news" aria-labelledby="news-title">
       <div>
