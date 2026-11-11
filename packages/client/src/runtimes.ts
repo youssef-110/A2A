@@ -80,7 +80,27 @@ export function taskIdOf(text: string): string | null {
   return /^\[a2a-task (tsk_[A-Za-z0-9_-]+)\]/.exec(text)?.[1] ?? null;
 }
 
-export type AutopilotMax = "read_only" | "standard" | "full";
+/**
+ * What a note from the task board needs from this computer. Only "work" starts a model. A check-in
+ * on a part that is already being worked on is answered by the client itself, and notes that only
+ * inform (final report, stopped, one more part finished) wait in the inbox: no tokens, any runtime.
+ * `part` is the part an assignment or check-in is about.
+ */
+export type BoardNote = { kind: "work"; part?: string } | { kind: "checkin"; part: string } | { kind: "info" };
+
+export function boardNote(text: string): BoardNote {
+  const body = text.replace(/^\[a2a-task \S+\] /, "");
+  // Titles inside a note are other agents' words, so the part id is the last one before the fixed ending.
+  const checkin = /^Check-in \d+ of \d+: .*\(part_id (prt_[A-Za-z0-9_-]+)\) has had no update/s.exec(body);
+  if (checkin) return { kind: "checkin", part: checkin[1]! };
+  const finished = /^\S+ finished ".*" \((\d+) of (\d+) parts done\)\. Report:/s.exec(body);
+  if (finished && Number(finished[1]) < Number(finished[2])) return { kind: "info" }; // the vote request follows the last part
+  if (/^Everyone agreed ".*" is done\. Final report:/s.test(body) || / Stop working on it\.$/.test(body) || /^The coordinator says .* Wait for new parts, or reply/s.test(body)) return { kind: "info" };
+  const part = /^New assignment from .*^Your part \(part_id (prt_[A-Za-z0-9_-]+)\)/ms.exec(body)?.[1];
+  return part ? { kind: "work", part } : { kind: "work" };
+}
+
+export type AutopilotMax ="read_only" | "standard" | "full";
 
 /** What this computer allows at each local ceiling. */
 const CEILING: Record<AutopilotMax, { edit: boolean; shell: boolean; web: boolean }> = {
@@ -270,6 +290,10 @@ async function runClaude(ctx: RunContext): Promise<RunResult> {
   // A task's words come from other people. Whatever the permissions, an autopilot run never reads
   // secrets and never writes files that run code later (hooks, agent config, git hooks).
   if (a.permission_mode !== "bypassPermissions") args.push("--disallowedTools", PROTECTED.join(","));
+  // Lean runs: only the built-in tools this run may use, no skills or slash commands, and none of the
+  // person's own settings, hooks, plugins or CLAUDE.md. About a seventh of the tokens of a default run.
+  const builtins = (a.allowed_tools ?? []).filter((t) => !t.startsWith("mcp__"));
+  args.push("--tools", builtins.length ? builtins.join(",") : "Read", "--disable-slash-commands", "--setting-sources", "");
   if (a.model) args.push("--model", a.model);
   if (a.instructions) args.push("--append-system-prompt", a.instructions);
   if (ctx.sessionId) args.push("--resume", ctx.sessionId);
@@ -292,6 +316,26 @@ async function runCodex(ctx: RunContext): Promise<RunResult> {
   const lastMessage = join(dir, "last.txt");
   const [cmd, ...base] = ctx.agent.command ?? ["codex", "exec", "--skip-git-repo-check"];
   const args = [...base, "--output-last-message", lastMessage, "-"];
+  if (!ctx.agent.command) {
+    // The a2a tools, as an MCP server for this run only, allowed without prompts (a headless run can't
+    // answer one). TOML literal strings keep Windows paths as they are.
+    const mcp = JSON.parse(readFileSync(ctx.mcpConfigPath, "utf8")).mcpServers.a2a as { command: string; args: string[]; env: Record<string, string> };
+    const lit = (s: string): string => `'${s.replace(/'/g, "")}'`;
+    const config = [
+      `mcp_servers.a2a.command=${lit(mcp.command)}`,
+      `mcp_servers.a2a.args=[${mcp.args.map(lit).join(",")}]`,
+      `mcp_servers.a2a.env={${Object.entries(mcp.env).map(([k, v]) => `${k}=${lit(v)}`).join(",")}}`,
+      "mcp_servers.a2a.default_tools_approval_mode='approve'",
+      // The same a2a tools Claude runs get: never connect, join_network or the auto-reply switches.
+      `mcp_servers.a2a.enabled_tools=[${A2A_TOOLS.map((t) => lit(t.replace("mcp__a2a__", ""))).join(",")}]`,
+      // A first start can be slow (antivirus scans); send_message may wait for a reply.
+      "mcp_servers.a2a.startup_timeout_sec=60",
+      "mcp_servers.a2a.tool_timeout_sec=600",
+      // None of the person's own Codex config or AGENTS.md instructions: fewer tokens, nothing private loaded.
+      "project_doc_max_bytes=0",
+    ];
+    args.splice(1, 0, "--ignore-user-config", "--ephemeral", "--json", ...config.flatMap((c) => ["-c", c]));
+  }
   if (ctx.agent.model) args.unshift("--model", ctx.agent.model);
   // Codex's own sandbox matches the tools the run may use: read only, unless it may edit files.
   if (!ctx.agent.command) {
@@ -308,7 +352,18 @@ async function runCodex(ctx: RunContext): Promise<RunResult> {
       output = r.stdout.trim();
     }
     if (r.code !== 0) return { output: "", exitCode: r.code, error: `codex exited ${r.code}: ${r.stderr.trim().slice(0, 400)}` };
-    return { output, exitCode: r.code };
+    // --json prints one event per line; the turn's usage counts toward the daily token cap.
+    let tokens: number | undefined;
+    for (const line of r.stdout.split("\n")) {
+      try {
+        const e = JSON.parse(line) as { type?: string; usage?: Record<string, number> };
+        if (e.type === "turn.completed" && e.usage) tokens = (tokens ?? 0) + (e.usage.input_tokens ?? 0) + (e.usage.output_tokens ?? 0);
+      } catch {
+        /* not an event line */
+      }
+    }
+    if (output.startsWith("{") && tokens !== undefined) output = "";
+    return { output, exitCode: r.code, tokens };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

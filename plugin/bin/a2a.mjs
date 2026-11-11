@@ -18738,6 +18738,16 @@ var A2A_TOOLS = [
 function taskIdOf(text2) {
   return /^\[a2a-task (tsk_[A-Za-z0-9_-]+)\]/.exec(text2)?.[1] ?? null;
 }
+function boardNote(text2) {
+  const body = text2.replace(/^\[a2a-task \S+\] /, "");
+  const checkin = /^Check-in \d+ of \d+: .*\(part_id (prt_[A-Za-z0-9_-]+)\) has had no update/s.exec(body);
+  if (checkin) return { kind: "checkin", part: checkin[1] };
+  const finished = /^\S+ finished ".*" \((\d+) of (\d+) parts done\)\. Report:/s.exec(body);
+  if (finished && Number(finished[1]) < Number(finished[2])) return { kind: "info" };
+  if (/^Everyone agreed ".*" is done\. Final report:/s.test(body) || / Stop working on it\.$/.test(body) || /^The coordinator says .* Wait for new parts, or reply/s.test(body)) return { kind: "info" };
+  const part = /^New assignment from .*^Your part \(part_id (prt_[A-Za-z0-9_-]+)\)/ms.exec(body)?.[1];
+  return part ? { kind: "work", part } : { kind: "work" };
+}
 var CEILING = {
   read_only: { edit: false, shell: false, web: false },
   standard: { edit: true, shell: false, web: true },
@@ -18886,6 +18896,8 @@ async function runClaude(ctx) {
     a.permission_mode ?? "dontAsk"
   ];
   if (a.permission_mode !== "bypassPermissions") args.push("--disallowedTools", PROTECTED.join(","));
+  const builtins = (a.allowed_tools ?? []).filter((t) => !t.startsWith("mcp__"));
+  args.push("--tools", builtins.length ? builtins.join(",") : "Read", "--disable-slash-commands", "--setting-sources", "");
   if (a.model) args.push("--model", a.model);
   if (a.instructions) args.push("--append-system-prompt", a.instructions);
   if (ctx.sessionId) args.push("--resume", ctx.sessionId);
@@ -18906,6 +18918,24 @@ async function runCodex(ctx) {
   const lastMessage = join3(dir, "last.txt");
   const [cmd, ...base] = ctx.agent.command ?? ["codex", "exec", "--skip-git-repo-check"];
   const args = [...base, "--output-last-message", lastMessage, "-"];
+  if (!ctx.agent.command) {
+    const mcp = JSON.parse(readFileSync3(ctx.mcpConfigPath, "utf8")).mcpServers.a2a;
+    const lit = (s) => `'${s.replace(/'/g, "")}'`;
+    const config2 = [
+      `mcp_servers.a2a.command=${lit(mcp.command)}`,
+      `mcp_servers.a2a.args=[${mcp.args.map(lit).join(",")}]`,
+      `mcp_servers.a2a.env={${Object.entries(mcp.env).map(([k, v]) => `${k}=${lit(v)}`).join(",")}}`,
+      "mcp_servers.a2a.default_tools_approval_mode='approve'",
+      // The same a2a tools Claude runs get: never connect, join_network or the auto-reply switches.
+      `mcp_servers.a2a.enabled_tools=[${A2A_TOOLS.map((t) => lit(t.replace("mcp__a2a__", ""))).join(",")}]`,
+      // A first start can be slow (antivirus scans); send_message may wait for a reply.
+      "mcp_servers.a2a.startup_timeout_sec=60",
+      "mcp_servers.a2a.tool_timeout_sec=600",
+      // None of the person's own Codex config or AGENTS.md instructions: fewer tokens, nothing private loaded.
+      "project_doc_max_bytes=0"
+    ];
+    args.splice(1, 0, "--ignore-user-config", "--ephemeral", "--json", ...config2.flatMap((c) => ["-c", c]));
+  }
   if (ctx.agent.model) args.unshift("--model", ctx.agent.model);
   if (!ctx.agent.command) {
     const edits = (ctx.agent.allowed_tools ?? []).some((t) => /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(t));
@@ -18921,7 +18951,16 @@ async function runCodex(ctx) {
       output = r.stdout.trim();
     }
     if (r.code !== 0) return { output: "", exitCode: r.code, error: `codex exited ${r.code}: ${r.stderr.trim().slice(0, 400)}` };
-    return { output, exitCode: r.code };
+    let tokens;
+    for (const line of r.stdout.split("\n")) {
+      try {
+        const e = JSON.parse(line);
+        if (e.type === "turn.completed" && e.usage) tokens = (tokens ?? 0) + (e.usage.input_tokens ?? 0) + (e.usage.output_tokens ?? 0);
+      } catch {
+      }
+    }
+    if (output.startsWith("{") && tokens !== void 0) output = "";
+    return { output, exitCode: r.code, tokens };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -19374,6 +19413,8 @@ var Daemon = class {
   running = /* @__PURE__ */ new Map();
   backlog = /* @__PURE__ */ new Map();
   activeRuns = /* @__PURE__ */ new Set();
+  /** Runs in progress per "<agent> <task id>", so a check-in on that task needs no second run. */
+  taskRuns = /* @__PURE__ */ new Map();
   flushing = false;
   directoryCache = /* @__PURE__ */ new Map();
   onStopRequest;
@@ -19638,6 +19679,15 @@ var Daemon = class {
     }
     const decision = this.autoDecision(agent, m);
     if (!decision.run) {
+      if (decision.checkin) {
+        this.markHandled(m.id);
+        this.log(`\xB7 ${m.id} ${agent.address}: ${decision.why}`);
+        const { taskId, part } = decision.checkin;
+        void this.taskCall([agent.address], taskId, "update", { status: "working", part_id: part, note: "Still working on it (answered by the a2a client: a run for this part is in progress)." }).catch(
+          (err) => this.log(`could not answer the check-in on ${taskId}: ${err.message}`)
+        );
+        return;
+      }
       if (agent.runtime !== "none") this.log(`\xB7 ${m.id} left in the inbox for ${agent.address}: ${decision.why}`);
       const queue = this.inboxWaiters.get(agent.address);
       const next = queue?.shift();
@@ -19660,7 +19710,15 @@ var Daemon = class {
     const no = (why) => ({ run: false, why });
     if (agent.runtime === "none") return no("auto-reply is off");
     const fromBoard = m.from.endsWith("/console") && m.sender_verified !== false && /^\[a2a-(task \S+|mission)\]/.test(m.text);
-    if (fromBoard) return agent.autopilot ? { run: true, board: true } : no("autopilot is off");
+    if (fromBoard) {
+      const listening = m.session ? (agent.auto_reply ?? []).find((r) => r.session === m.session.id) : void 0;
+      if (!agent.autopilot && !listening) return no(`auto-reply is off${m.session ? ` in "${m.session.name}"` : ""} and autopilot is off, so task work waits`);
+      const note = boardNote(m.text);
+      const taskId = taskIdOf(m.text);
+      if (note.kind === "info") return no("this task note needs no answer");
+      if (note.kind === "checkin" && taskId && this.busyWith(agent.address, taskId)) return { run: false, why: "a run for this task is already going; answered the check-in without a model", checkin: { taskId, part: note.part } };
+      return agent.autopilot ? { run: true, board: true } : { run: true, board: true, rule: listening };
+    }
     if (m.session === null) return no("the message isn't tied to one session (the sender shares several with this agent and named none)");
     const key = m.session === void 0 ? "workspace" : m.session.id;
     const rule = (agent.auto_reply ?? []).find((r) => r.session === key);
@@ -19684,6 +19742,27 @@ var Daemon = class {
     if (rule.daily_usd !== void 0 && count("SELECT SUM(cost_usd) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_usd) return no(`daily spend cap of $${rule.daily_usd} reached`);
     if (rule.daily_tokens !== void 0 && count("SELECT SUM(tokens) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_tokens) return no(`daily token cap of ${rule.daily_tokens} reached`);
     return { run: true, rule };
+  }
+  /** Whether this agent has a run for the task going, or waiting its turn. */
+  busyWith(address, taskId) {
+    return (this.taskRuns.get(`${address} ${taskId}`) ?? 0) > 0 || (this.backlog.get(address) ?? []).some((q) => taskIdOf(q.text) === taskId);
+  }
+  /**
+   * A run that did its part but ended without calling task_report (some models do) would be checked in
+   * on every few minutes, a full model run each time. Its final answer is the report, so file it.
+   */
+  async reportLeftOpen(address, taskId, partId, output) {
+    try {
+      const t = await this.taskCall([address], taskId, "detail", {});
+      const part = (t.parts ?? []).find((p) => p.id === partId && p.assignee === address);
+      if (t.status !== "active" || !part || part.status !== "assigned" && part.status !== "working") return;
+      await this.taskCall([address], taskId, "report", { part_id: partId, report: `${output}
+
+(Filed by the a2a client: the run ended without calling task_report, so this is its final answer.)` });
+      this.log(`\xB7 filed the final answer as the report for ${partId} on ${taskId}`);
+    } catch (err) {
+      this.log(`could not file a report on ${taskId}: ${err.message}`);
+    }
   }
   /** Tells a relay which sessions this computer's agents there answer in on their own, so its pages can show it. */
   reportListening(link) {
@@ -20158,6 +20237,8 @@ var Daemon = class {
     const t0 = Date.now();
     const owner = this.config.person ?? this.config.name;
     const app = agent.tool ? toolById(agent.tool)?.label ?? agent.tool : agent.display_name ?? agent.address.split("/").pop();
+    const taskKey = taskId ? `${agent.address} ${taskId}` : null;
+    if (taskKey) this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 0) + 1);
     const result = await runAgent({
       agent,
       message: m,
@@ -20166,7 +20247,7 @@ var Daemon = class {
       env,
       mcpConfigPath,
       timeoutMs: durationMs(rule?.timeout ?? agent.timeout, taskId || mission ? 45 * 6e4 : 15 * 6e4)
-    });
+    }).finally(() => taskKey && this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 1) - 1));
     const startMs = m.received_at ? Math.max(0, t0 - Date.parse(m.received_at)) : null;
     rmSync2(mcpConfigPath, { force: true });
     this.state.prepare("UPDATE runs SET status = ?, ended_at = ?, error = ?, output = ?, cost_usd = ?, tokens = ?, start_ms = ?, model_ms = ? WHERE id = ?").run(result.error ? "failed" : "succeeded", iso(), result.error ?? null, result.output.slice(0, 2e4), result.costUsd ?? null, result.tokens ?? null, startMs, Date.now() - t0, runId);
@@ -20177,6 +20258,9 @@ var Daemon = class {
     if (taskId && result.error) {
       await this.taskCall([agent.address], taskId, "update", { status: "blocked", note: `Autopilot run failed on ${agent.address.split("/").pop()}: ${result.error.slice(0, 300)}` }).catch(() => {
       });
+    } else if (taskId && result.output) {
+      const note = boardNote(m.text);
+      if (note.kind !== "info" && note.part) await this.reportLeftOpen(agent.address, taskId, note.part, result.output);
     }
     this.log(`${result.error ? "\u2715" : "\u2713"} ${runId} ${agent.runtime} finished in ${((Date.now() - t0) / 1e3).toFixed(1)}s${result.error ? `: ${result.error}` : ""}`);
     const { replied } = this.state.prepare("SELECT replied FROM runs WHERE id = ?").get(runId);
@@ -35234,7 +35318,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.5.2" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.4" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);

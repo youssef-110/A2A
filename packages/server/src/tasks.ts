@@ -252,7 +252,7 @@ export class TaskBoard {
   }
 
   private tell(to: string, taskId: string, text: string): void {
-    const r = this.relay.systemNotify(to, `[a2a-task ${taskId}] ${text}`);
+    const r = this.relay.systemNotify(to, `[a2a-task ${taskId}] ${text}`, this.task(taskId)?.session_id ?? null);
     if (r.status >= 300) this.event(taskId, "relay", "undelivered", `Could not reach ${short(to)}: ${String(r.body.error ?? r.status)}`);
   }
 

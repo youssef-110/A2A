@@ -41,7 +41,7 @@ import {
 } from "./config.ts";
 import { openState, type State } from "./state.ts";
 import { RelayError, relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
-import { buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
+import { boardNote, buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
 import { toolById } from "./tools.ts";
 import { installAutostart } from "./install.ts";
 
@@ -64,7 +64,7 @@ function onPath(bin: string): boolean {
   return (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":").some((dir) => dir && exts.some((e) => existsSync(join(dir, bin + e.toLowerCase())) || existsSync(join(dir, bin + e))));
 }
 
-type AutoDecision = { run: true; rule?: AutoReplyRule; board?: boolean } | { run: false; why: string };
+type AutoDecision = { run: true; rule?: AutoReplyRule; board?: boolean } | { run: false; why: string; checkin?: { taskId: string; part: string } };
 
 /** One relay connection. A computer can be in several workspaces (its own, and sessions others invited it into). */
 interface Link {
@@ -169,6 +169,8 @@ export class Daemon {
   private readonly running = new Map<string, number>();
   private readonly backlog = new Map<string, InboundMessage[]>();
   private readonly activeRuns = new Set<Promise<void>>();
+  /** Runs in progress per "<agent> <task id>", so a check-in on that task needs no second run. */
+  private readonly taskRuns = new Map<string, number>();
   private flushing = false;
   private readonly directoryCache = new Map<string, { at: number; agents: DirectoryEntry[] }>();
   private readonly onStopRequest?: () => void;
@@ -484,6 +486,15 @@ export class Daemon {
     }
     const decision = this.autoDecision(agent, m);
     if (!decision.run) {
+      if (decision.checkin) {
+        this.markHandled(m.id);
+        this.log(`· ${m.id} ${agent.address}: ${decision.why}`);
+        const { taskId, part } = decision.checkin;
+        void this.taskCall([agent.address], taskId, "update", { status: "working", part_id: part, note: "Still working on it (answered by the a2a client: a run for this part is in progress)." }).catch((err) =>
+          this.log(`could not answer the check-in on ${taskId}: ${(err as Error).message}`),
+        );
+        return;
+      }
       if (agent.runtime !== "none") this.log(`· ${m.id} left in the inbox for ${agent.address}: ${decision.why}`);
       const queue = this.inboxWaiters.get(agent.address);
       const next = queue?.shift();
@@ -509,7 +520,18 @@ export class Daemon {
     if (agent.runtime === "none") return no("auto-reply is off");
     // The task board's notes are autopilot's, a separate switch the owner turns on with the autopilot tool.
     const fromBoard = m.from.endsWith("/console") && m.sender_verified !== false && /^\[a2a-(task \S+|mission)\]/.test(m.text);
-    if (fromBoard) return agent.autopilot ? { run: true, board: true } : no("autopilot is off");
+    if (fromBoard) {
+      // Auto-reply on in this session covers its task work too (with the agent's own tools), so a job
+      // given from the session page gets done by the agents their owners let listen there.
+      const listening = m.session ? (agent.auto_reply ?? []).find((r) => r.session === m.session!.id) : undefined;
+      if (!agent.autopilot && !listening) return no(`auto-reply is off${m.session ? ` in "${m.session.name}"` : ""} and autopilot is off, so task work waits`);
+      // A model starts only for notes that need thinking. The rest cost no tokens, whatever the runtime.
+      const note = boardNote(m.text);
+      const taskId = taskIdOf(m.text);
+      if (note.kind === "info") return no("this task note needs no answer");
+      if (note.kind === "checkin" && taskId && this.busyWith(agent.address, taskId)) return { run: false, why: "a run for this task is already going; answered the check-in without a model", checkin: { taskId, part: note.part } };
+      return agent.autopilot ? { run: true, board: true } : { run: true, board: true, rule: listening };
+    }
     if (m.session === null) return no("the message isn't tied to one session (the sender shares several with this agent and named none)");
     const key = m.session === undefined ? "workspace" : m.session.id;
     const rule = (agent.auto_reply ?? []).find((r) => r.session === key);
@@ -535,6 +557,28 @@ export class Daemon {
     if (rule.daily_usd !== undefined && count("SELECT SUM(cost_usd) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_usd) return no(`daily spend cap of $${rule.daily_usd} reached`);
     if (rule.daily_tokens !== undefined && count("SELECT SUM(tokens) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_tokens) return no(`daily token cap of ${rule.daily_tokens} reached`);
     return { run: true, rule };
+  }
+
+  /** Whether this agent has a run for the task going, or waiting its turn. */
+  private busyWith(address: string, taskId: string): boolean {
+    return (this.taskRuns.get(`${address} ${taskId}`) ?? 0) > 0 || (this.backlog.get(address) ?? []).some((q) => taskIdOf(q.text) === taskId);
+  }
+
+  /**
+   * A run that did its part but ended without calling task_report (some models do) would be checked in
+   * on every few minutes, a full model run each time. Its final answer is the report, so file it.
+   */
+  private async reportLeftOpen(address: string, taskId: string, partId: string, output: string): Promise<void> {
+    try {
+      const t = await this.taskCall([address], taskId, "detail", {});
+      const part = ((t.parts as { id: string; assignee: string; status: string }[]) ?? []).find((p) => p.id === partId && p.assignee === address);
+      // A part the run marked blocked stays blocked: its answer says why, it isn't a report.
+      if (t.status !== "active" || !part || (part.status !== "assigned" && part.status !== "working")) return;
+      await this.taskCall([address], taskId, "report", { part_id: partId, report: `${output}\n\n(Filed by the a2a client: the run ended without calling task_report, so this is its final answer.)` });
+      this.log(`· filed the final answer as the report for ${partId} on ${taskId}`);
+    } catch (err) {
+      this.log(`could not file a report on ${taskId}: ${(err as Error).message}`);
+    }
   }
 
   /** Tells a relay which sessions this computer's agents there answer in on their own, so its pages can show it. */
@@ -1076,6 +1120,8 @@ export class Daemon {
     const t0 = Date.now();
     const owner = this.config.person ?? this.config.name;
     const app = agent.tool ? (toolById(agent.tool)?.label ?? agent.tool) : (agent.display_name ?? agent.address.split("/").pop()!);
+    const taskKey = taskId ? `${agent.address} ${taskId}` : null;
+    if (taskKey) this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 0) + 1);
     const result = await runAgent({
       agent,
       message: m,
@@ -1087,7 +1133,7 @@ export class Daemon {
       env,
       mcpConfigPath,
       timeoutMs: durationMs(rule?.timeout ?? agent.timeout, taskId || mission ? 45 * 60_000 : 15 * 60_000),
-    });
+    }).finally(() => taskKey && this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 1) - 1));
     const startMs = m.received_at ? Math.max(0, t0 - Date.parse(m.received_at)) : null;
     rmSync(mcpConfigPath, { force: true });
 
@@ -1103,6 +1149,9 @@ export class Daemon {
     // A task run that failed would otherwise leave its part silently stuck until a check-in.
     if (taskId && result.error) {
       await this.taskCall([agent.address], taskId, "update", { status: "blocked", note: `Autopilot run failed on ${agent.address.split("/").pop()}: ${result.error.slice(0, 300)}` }).catch(() => {});
+    } else if (taskId && result.output) {
+      const note = boardNote(m.text);
+      if (note.kind !== "info" && note.part) await this.reportLeftOpen(agent.address, taskId, note.part, result.output);
     }
     this.log(`${result.error ? "✕" : "✓"} ${runId} ${agent.runtime} finished in ${((Date.now() - t0) / 1000).toFixed(1)}s${result.error ? `: ${result.error}` : ""}`);
 

@@ -202,6 +202,21 @@ test("the workspace owner's agents count as members of every session, and anothe
   await ipc(ivy, "POST", "/auto-reply", { action: "off", all: true });
 });
 
+test("a job given from the session page wakes the coordinator only if its owner lets it listen in that session", async () => {
+  await ipc(A, "POST", "/auto-reply", { action: "on", session: "Project X", agents: ["ada-claude"] });
+  const claudeBefore = runs(A, A_CLAUDE).length;
+  const codexBefore = runs(A, A_CODEX).length;
+  // Ada's Claude listens in Project X: the mission note starts a run there, without autopilot.
+  const ok = await adminFetch(r.url, "POST", "/v1/admin/tasks/kickoff", { to: A_CLAUDE, mission: "Write a two-line project summary.", session_id: x.id });
+  assert.equal(ok.status, 202, JSON.stringify(ok.body));
+  await waitFor(() => runs(A, A_CLAUDE).length === claudeBefore + 1, 8000, "coordinator run");
+  // Her Codex doesn't listen anywhere now: the same job waits in its inbox.
+  await adminFetch(r.url, "POST", "/v1/admin/tasks/kickoff", { to: A_CODEX, mission: "Write a two-line project summary.", session_id: x.id });
+  await waitFor(async () => (await unhandled(A, A_CODEX)).some((t) => t.startsWith("[a2a-mission]")), 5000, "mission in the inbox");
+  assert.equal(runs(A, A_CODEX).length, codexBefore);
+  await ipc(A, "POST", "/auto-reply", { action: "off", all: true });
+});
+
 test("idle clients hold one relay connection each, run no timers, and start no model", async () => {
   const runsBefore = runs(A, A_CODEX).length + runs(A, A_CLAUDE).length;
   await new Promise((res) => setTimeout(res, 1500));

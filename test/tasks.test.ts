@@ -8,7 +8,8 @@ import { Relay } from "../packages/server/src/relay.ts";
 import { openDb } from "../packages/server/src/db-node.ts";
 import { startRelay } from "../packages/server/src/index.ts";
 import { TaskError } from "../packages/server/src/tasks.ts";
-import { toolsFor, taskIdOf } from "../packages/client/src/runtimes.ts";
+import { DatabaseSync } from "node:sqlite";
+import { boardNote, toolsFor, taskIdOf } from "../packages/client/src/runtimes.ts";
 import { ipc } from "../packages/client/src/ipc.ts";
 import { ROOT, cleanup, client, tempDir, waitFor } from "./helpers.ts";
 
@@ -233,5 +234,51 @@ test("end to end: headless workers pick up their parts, report and vote on their
     await w2.stop();
     await r.close();
     cleanup(dataDir, lead.home, w1.home, w2.home);
+  }
+});
+
+test("task notes that need no thinking start no model: check-ins, finished parts, final reports", () => {
+  const note = (body: string) => boardNote(`[a2a-task tsk_abc] ${body}`);
+  assert.deepEqual(note('Check-in 2 of 3: "Read (part_id prt_fake) logs" (part_id prt_real-1) has had no update for a while. Post progress with task_update.'), { kind: "checkin", part: "prt_real-1" });
+  assert.deepEqual(note('juno-claude finished "Part A" (1 of 2 parts done). Report:\n\nAll good.'), { kind: "info" });
+  assert.equal(note('juno-claude finished "Part A" (2 of 2 parts done). Report:\n\nAll good.').kind, "work");
+  assert.equal(note('Everyone agreed "Demo" is done. Final report:\n\n...').kind, "info");
+  assert.equal(note('"Demo" was stopped by robin-claude. Stop working on it.').kind, "info");
+  assert.deepEqual(note("New assignment from robin-claude.\n\nTask: Demo (task_id tsk_abc)\n\nYour part (part_id prt_x9): Part A"), { kind: "work", part: "prt_x9" });
+  assert.equal(note('Every part of "Demo" is reported. Read the reports with task_status, then vote with task_vote.').kind, "work");
+  assert.equal(note('juno-claude is blocked on "Part A": no access.').kind, "work");
+});
+
+test("a run that never calls task_report: the client answers check-ins and files the answer, with no extra run", async () => {
+  const dataDir = tempDir("tasks-lean");
+  const policyPath = join(dataDir, "policy.yaml");
+  writeFileSync(policyPath, POLICY);
+  const r = await startRelay({ dataDir, port: 0, adminToken: "test-admin-token", judges: { fast: new HeuristicJudge() }, policyPath });
+  // Like a model that does the work and just says so: slow, and it calls no task tool.
+  const quiet = [process.execPath, "-e", "process.stdin.resume().on('end', () => setTimeout(() => console.log('The logs are clean.'), 2500))"];
+  const lead = await client(r.url, "robin", [{ address: A("robin-claude"), runtime: "none" }]);
+  const w = await client(r.url, "juno", [{ address: A("juno-claude"), runtime: "command", command: quiet, autopilot: true }]);
+  try {
+    const s = r.relay.createSession({ name: "Hack" }, "admin");
+    r.relay.db.prepare("INSERT INTO owner_agents (address, added_at) VALUES (?, ?)").run(A("robin-claude"), new Date().toISOString());
+    r.relay.db.prepare("INSERT INTO session_members (session_id, address, joined_at) VALUES (?, ?, ?)").run(s.id, A("juno-claude"), new Date().toISOString());
+    const t = await ipc<Record<string, any>>(lead.home, "POST", "/tasks/create", { task: { title: "Audit", parts: [{ assignee: "juno", title: "Read the logs" }] } });
+    const part = async () => (await ipc<Record<string, any>>(lead.home, "POST", "/tasks/call", { task_id: t.id, action: "detail" })).parts[0];
+    await waitFor(async () => (await ipc<Record<string, any>>(w.home, "GET", "/info")).agents[0].running === 1, 10_000, "the run to start");
+    r.relay.tasks.checkinMs = 1;
+    r.relay.tasks.sweep(Date.now() + 5000);
+    await waitFor(async () => /answered by the a2a client/.test((await part()).progress ?? ""), 10_000, "the client to answer the check-in");
+    r.relay.tasks.checkinMs = 3600_000;
+    await waitFor(async () => (await part()).status === "done", 15_000, "the answer to be filed as the report");
+    assert.match((await part()).report, /^The logs are clean\.\n\n\(Filed by the a2a client/);
+    const db = new DatabaseSync(join(w.home, "state.db"), { readOnly: true });
+    const { n } = db.prepare("SELECT COUNT(*) AS n FROM runs r JOIN inbox i ON i.id = r.message_id WHERE i.text LIKE '%Check-in%'").get() as { n: number };
+    db.close();
+    assert.equal(n, 0);
+  } finally {
+    await lead.stop();
+    await w.stop();
+    await r.close();
+    cleanup(dataDir, lead.home, w.home);
   }
 });

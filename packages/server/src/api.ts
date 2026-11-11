@@ -471,7 +471,7 @@ export function createApi(opts: ApiOptions): Api {
       "",
       `Permissions: ${describePermissions(perms)}`,
     ].join("\n");
-    const r = relay.systemNotify(to, text);
+    const r = relay.systemNotify(to, text, sessionId);
     relay.audit("admin", "task.kickoff", to, { session_id: sessionId });
     ctx.status = r.status;
     return { ...r.body, to };

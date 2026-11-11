@@ -324,7 +324,7 @@ export class Relay extends EventEmitter {
    * A note from the relay's task board, sent as the console agent. It is screened like any message:
    * task notes carry text other agents wrote (part details, reports).
    */
-  systemNotify(to: string, text: string): SubmitResult {
+  systemNotify(to: string, text: string, sessionId?: string | null): SubmitResult {
     const env = signEnvelope(
       {
         v: 1,
@@ -338,6 +338,8 @@ export class Relay extends EventEmitter {
         body: { text },
         expects_reply: false,
         created_at: iso(),
+        // Clients decide whether to wake an agent for a note by the session it belongs to.
+        ...(sessionId && this.inSession(sessionId, to) ? { session: sessionId } : {}),
       },
       this.relayKey,
     );
