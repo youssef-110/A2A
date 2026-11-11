@@ -898,7 +898,7 @@ async function sendTalk(textOverride) {
   log.push(item);
   renderCallLog();
   try {
-    const r = await api("POST", "/v1/admin/console/send", { to, text, thread_id: S.talk.thread[to] || undefined });
+    const r = await api("POST", "/v1/admin/console/send", { to, text, thread_id: S.talk.thread[to] || undefined, session: S.view === "session" ? S.session : undefined });
     Object.assign(item, { id: r.id, thread_id: r.thread_id, state: r.state, reason_code: r.reason_code });
     S.talk.thread[to] = r.thread_id;
     if (["delivered", "queued", "screening"].includes(r.state)) S.talk.waiting[to] = true;

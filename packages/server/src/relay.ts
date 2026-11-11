@@ -293,9 +293,17 @@ export class Relay extends EventEmitter {
   }
 
   /** Sends a message from the console agent. Goes through the same checks and guard as any other message. */
-  consoleSend(input: { to?: unknown; text?: unknown; thread_id?: unknown; in_reply_to?: unknown; scope?: unknown }, actor: string): SubmitResult {
+  consoleSend(input: { to?: unknown; text?: unknown; thread_id?: unknown; in_reply_to?: unknown; scope?: unknown; session?: unknown }, actor: string): SubmitResult {
     if (typeof input.to !== "string" || !ADDRESS_RE.test(input.to)) return { status: 400, body: { error: "invalid_recipient" } };
     if (typeof input.text !== "string" || !input.text.trim()) return { status: 400, body: { error: "empty_message" } };
+    // An agent answers on its own per session, so the message has to say which one it is for: the
+    // session page it was typed on, else the only session where that agent listens. The console is in
+    // every session, so without this any second session makes the message ambiguous and it just waits.
+    const heard = (JSON.parse((this.db.prepare("SELECT sessions FROM agent_auto WHERE address = ?").get(input.to) as { sessions: string } | undefined)?.sessions ?? "[]") as string[]).filter((id) => {
+      const s = this.getSession(id);
+      return !!s && !s.archived && this.inSession(id, input.to as string);
+    });
+    const session = typeof input.session === "string" && input.session ? input.session : heard.length === 1 ? heard[0] : undefined;
     const threadId = typeof input.thread_id === "string" && input.thread_id ? input.thread_id : newThreadId();
     const thread = this.getThread(threadId);
     const scope = typeof input.scope === "string" && input.scope ? input.scope : (thread?.scope ?? this.defaultScope(this.consoleAddress, input.to));
@@ -313,6 +321,7 @@ export class Relay extends EventEmitter {
         body: { text: input.text.trim() },
         expects_reply: !inReplyTo,
         created_at: iso(),
+        ...(session ? { session } : {}),
       },
       this.relayKey,
     );

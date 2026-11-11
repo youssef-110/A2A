@@ -199,6 +199,15 @@ test("the workspace owner's agents count as members of every session, and anothe
   assert.equal(looped.timed_out, true);
   assert.equal(runs(ivy, IVY).length, 1);
   assert.ok((await unhandled(ivy, IVY)).includes("automated follow-up"));
+
+  // The owner typing in the dashboard ("You") is answered too. The console is in every session, so the
+  // relay names the one Ivy listens in; a message typed on a session page names that session.
+  const typed = await adminFetch(r.url, "POST", "/v1/admin/console/send", { to: IVY, text: "From the dashboard" });
+  assert.equal(typed.status < 300, true, JSON.stringify(typed.body));
+  await waitFor(() => runs(ivy, IVY).length === 2, 8000, "a run for the owner's dashboard message");
+  await adminFetch(r.url, "POST", "/v1/admin/console/send", { to: IVY, text: "From the session page", session: x.id });
+  await waitFor(() => runs(ivy, IVY).length === 3, 8000, "a run for the session page message");
+  assert.equal(runs(ivy, IVY).at(-1)!.session_id, x.id);
   await ipc(ivy, "POST", "/auto-reply", { action: "off", all: true });
 });
 
