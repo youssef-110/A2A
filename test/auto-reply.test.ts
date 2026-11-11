@@ -214,6 +214,11 @@ test("a job given from the session page wakes the coordinator only if its owner 
   await adminFetch(r.url, "POST", "/v1/admin/tasks/kickoff", { to: A_CODEX, mission: "Write a two-line project summary.", session_id: x.id });
   await waitFor(async () => (await unhandled(A, A_CODEX)).some((t) => t.startsWith("[a2a-mission]")), 5000, "mission in the inbox");
   assert.equal(runs(A, A_CODEX).length, codexBefore);
+  // Task work spends the session's auto-reply budget: with the hour's one run used, the next job waits.
+  await ipc(A, "POST", "/auto-reply", { action: "on", session: "Project X", agents: ["ada-claude"], max_per_hour: 1 });
+  await adminFetch(r.url, "POST", "/v1/admin/tasks/kickoff", { to: A_CLAUDE, mission: "Over the budget.", session_id: x.id });
+  await waitFor(async () => (await unhandled(A, A_CLAUDE)).some((t) => t.includes("Over the budget.")), 5000, "the capped mission in the inbox");
+  assert.equal(runs(A, A_CLAUDE).length, claudeBefore + 1);
   await ipc(A, "POST", "/auto-reply", { action: "off", all: true });
 });
 

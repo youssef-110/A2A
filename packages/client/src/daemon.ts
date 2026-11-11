@@ -530,7 +530,11 @@ export class Daemon {
       const taskId = taskIdOf(m.text);
       if (note.kind === "info") return no("this task note needs no answer");
       if (note.kind === "checkin" && taskId && this.busyWith(agent.address, taskId)) return { run: false, why: "a run for this task is already going; answered the check-in without a model", checkin: { taskId, part: note.part } };
-      return agent.autopilot ? { run: true, board: true } : { run: true, board: true, rule: listening };
+      if (agent.autopilot) return { run: true, board: true };
+      // Task work under a session's auto-reply spends that session's budget. The per-sender, thread and
+      // cooldown limits don't fit here: every note comes from the board, and a vote follows its assignment.
+      const over = this.overBudget(agent, m.session!.id, listening!);
+      return over ? no(over) : { run: true, board: true, rule: listening };
     }
     if (m.session === null) return no("the message isn't tied to one session (the sender shares several with this agent and named none)");
     const key = m.session === undefined ? "workspace" : m.session.id;
@@ -543,7 +547,8 @@ export class Daemon {
     const hourAgo = new Date(Date.now() - 3600_000).toISOString();
     if (count("SELECT COUNT(*) AS n FROM runs WHERE auto = 1 AND thread_id = ? AND started_at > ?", m.thread_id, hourAgo) >= THREAD_RUNS_PER_HOUR) return no(`thread limit: ${THREAD_RUNS_PER_HOUR} auto-replies in this thread in the last hour`);
     const inScope = "auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ?";
-    if (count(`SELECT COUNT(*) AS n FROM runs WHERE ${inScope} AND started_at > ?`, agent.address, key, hourAgo) >= (rule.max_per_hour ?? 20)) return no(`rate limit: ${rule.max_per_hour ?? 20} auto-replies per hour`);
+    const over = this.overBudget(agent, key, rule);
+    if (over) return no(over);
     // Even a sender that leaves out the automated mark can't take the whole hourly budget.
     const perSender = Math.max(2, Math.ceil((rule.max_per_hour ?? 20) / 2));
     if (count("SELECT COUNT(*) AS n FROM runs r JOIN inbox i ON i.id = r.message_id WHERE r.auto = 1 AND r.agent = ? AND i.from_addr = ? AND r.started_at > ?", agent.address, m.from, hourAgo) >= perSender) {
@@ -553,10 +558,18 @@ export class Daemon {
       const since = new Date(Date.now() - rule.cooldown_s * 1000).toISOString();
       if (count(`SELECT COUNT(*) AS n FROM runs WHERE ${inScope} AND started_at > ?`, agent.address, key, since) > 0) return no(`cooling down for ${rule.cooldown_s}s after the last auto-reply`);
     }
-    const today = new Date().toISOString().slice(0, 10);
-    if (rule.daily_usd !== undefined && count("SELECT SUM(cost_usd) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_usd) return no(`daily spend cap of $${rule.daily_usd} reached`);
-    if (rule.daily_tokens !== undefined && count("SELECT SUM(tokens) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_tokens) return no(`daily token cap of ${rule.daily_tokens} reached`);
     return { run: true, rule };
+  }
+
+  /** Why an auto-reply rule's hourly or daily budget is used up, if it is. Covers messages and task work alike. */
+  private overBudget(agent: AgentConfig, key: string, rule: AutoReplyRule): string | undefined {
+    const count = (sql: string, ...args: (string | number)[]): number => Number((this.state.prepare(sql).get(...args) as { n: number | null }).n ?? 0);
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+    if (count("SELECT COUNT(*) AS n FROM runs WHERE auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ? AND started_at > ?", agent.address, key, hourAgo) >= (rule.max_per_hour ?? 20)) return `rate limit: ${rule.max_per_hour ?? 20} auto-replies per hour`;
+    const today = new Date().toISOString().slice(0, 10);
+    if (rule.daily_usd !== undefined && count("SELECT SUM(cost_usd) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_usd) return `daily spend cap of $${rule.daily_usd} reached`;
+    if (rule.daily_tokens !== undefined && count("SELECT SUM(tokens) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_tokens) return `daily token cap of ${rule.daily_tokens} reached`;
+    return undefined;
   }
 
   /** Whether this agent has a run for the task going, or waiting its turn. */
