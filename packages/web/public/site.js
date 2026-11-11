@@ -32,6 +32,41 @@
     seen ? seen.observe(closing) : closing.classList.add("in");
   }
 
+  // Light and dark. The choice is shared with the dashboard (same key); the new theme opens out of
+  // the switch where the browser can do that, and just changes where it can't.
+  const themeBtn = document.getElementById("theme");
+  if (themeBtn) {
+    const root = document.documentElement;
+    const sync = () => {
+      const light = root.dataset.theme === "light";
+      themeBtn.setAttribute("aria-label", light ? "Switch to dark theme" : "Switch to light theme");
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", light ? "#ffffff" : "#000000");
+    };
+    themeBtn.hidden = false;
+    sync();
+    themeBtn.addEventListener("click", () => {
+      const next = root.dataset.theme === "light" ? "dark" : "light";
+      const apply = () => {
+        root.dataset.theme = next;
+        try {
+          localStorage.setItem("a2a-theme", next);
+        } catch {
+          /* private mode: the theme lasts for this page */
+        }
+        sync();
+      };
+      if (reduce || !document.startViewTransition || document.visibilityState !== "visible") return apply();
+      const b = themeBtn.getBoundingClientRect();
+      const x = b.left + b.width / 2;
+      const y = b.top + b.height / 2;
+      root.style.setProperty("--tx", `${x}px`);
+      root.style.setProperty("--ty", `${y}px`);
+      root.style.setProperty("--tr", `${Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y))}px`);
+      root.classList.add("theme-iris");
+      document.startViewTransition(apply).finished.finally(() => root.classList.remove("theme-iris"));
+    });
+  }
+
   // Nav gets its hairline once the page has moved: a sentinel instead of a scroll listener.
   const nav = document.getElementById("nav");
   if (nav) {

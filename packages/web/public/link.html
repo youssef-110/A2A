@@ -9,12 +9,13 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
+  <script>try { if (localStorage.getItem("a2a-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
   <style>
     .code-input { text-align: center; font: 600 28px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; min-height: 64px; }
     .origin { display: grid; gap: 4px; padding: 14px 16px; border-radius: 14px; background: var(--card); box-shadow: inset 0 0 0 1px var(--hair); font-size: 14px; color: var(--ink-2); text-align: left; }
     .origin b { color: var(--ink); font-weight: 550; }
-    .warn { padding: 14px 16px; border-radius: 14px; background: rgb(255 159 10 / 0.12); color: #ffb340; font-size: 14px; line-height: 1.5; text-align: left; }
-    .warn.strong { background: rgb(255 69 58 / 0.14); color: #ff8a80; }
+    .warn { padding: 14px 16px; border-radius: 14px; background: rgb(255 159 10 / 0.12); color: var(--held); font-size: 14px; line-height: 1.5; text-align: left; }
+    .warn.strong { background: rgb(255 69 58 / 0.14); color: var(--danger-text); }
   </style>
 </head>
 <body>

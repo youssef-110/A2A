@@ -9,6 +9,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
+  <script>try { if (localStorage.getItem("a2a-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
   <style>
     .join { width: min(760px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0 80px; }
     .join h1 { margin-top: 40px; font-size: clamp(34px, 5.4vw, 56px); line-height: 1.05; }
@@ -16,7 +17,7 @@
     .status { display: flex; align-items: center; gap: 10px; margin: 26px 0; color: var(--ash); font-size: 15px; }
     .status i { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
     .status.ok i { background: var(--ok); box-shadow: 0 0 0 4px rgb(92 207 150 / 0.15); }
-    .status.bad i { background: #ff9a8d; }
+    .status.bad i { background: var(--danger-text); }
     .ways { display: grid; gap: 14px; }
     .way { padding: 26px; border-radius: 20px; background: var(--card); display: grid; gap: 12px; }
     .way h2 { font-size: 21px; }
@@ -25,7 +26,7 @@
     .cmd code { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); font-size: 13px; overflow-x: auto; white-space: nowrap; }
     .cmd button { flex: none; min-height: 40px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--raised); color: var(--ink); font: 500 13.5px var(--text); cursor: pointer; }
     .way.primary { box-shadow: inset 0 0 0 1px var(--hair); }
-    .kicker { color: #2997ff; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+    .kicker { color: var(--signal); font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
     .prompt { margin: 0; max-height: 260px; overflow: auto; padding: 14px 16px; border-radius: 14px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); color: var(--ash); font: 13px/1.6 ui-monospace, "Geist Mono", Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; }
     .btn-main { min-height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--ink); color: var(--canvas); font: 600 15px var(--text); cursor: pointer; }
