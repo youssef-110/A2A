@@ -114,8 +114,11 @@ test("from the dashboard: only the signed-in person's own online computers are a
   assert.deepEqual(asked, { ok: true, asked: 2, offline: 0 });
   await waitFor(() => online("riley-claude") && online("riley-codex"), 8000, "riley's agents online");
   assert.equal(loadConfig(robin).person, "riley");
-  // Each agent keeps only the latest name it gave up (sam-*); robin-* is free again.
-  assert.deepEqual((r.relay.db.prepare("SELECT address FROM retired_names ORDER BY address").all() as { address: string }[]).map((x) => x.address), [A("sam-claude"), A("sam-codex")]);
+  // Every name an agent gave up stays reserved for it, up to a limit; going back to one is always allowed.
+  assert.deepEqual((r.relay.db.prepare("SELECT address FROM retired_names ORDER BY address").all() as { address: string }[]).map((x) => x.address), [A("robin-claude"), A("robin-codex"), A("sam-claude"), A("sam-codex")]);
+  for (let i = 0; i < 10; i++) assert.equal(r.relay.renameAgent(A(i ? `j${i - 1}` : "juno-claude"), { name: `j${i}` }).status, 200);
+  assert.equal(r.relay.renameAgent(A("j9"), { name: "j10" }).status, 429);
+  assert.equal(r.relay.renameAgent(A("j9"), { name: "juno-claude" }).status, 200);
   // A relay that isn't the one an agent lives on can't have it renamed: the request names its own server.
   const elsewhere = await (daemons[0] as unknown as { renamePerson(b: Record<string, unknown>, server: string): Promise<Record<string, any>> }).renamePerson({ person: "mallory" }, "https://other-relay.example");
   assert.deepEqual(elsewhere.renamed, []);

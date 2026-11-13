@@ -12,7 +12,6 @@
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/img/link.webp" as="image" type="image/webp" imagesrcset="/img/link-1024.webp 1024w, /img/link.webp 2048w" imagesizes="(max-width: 1500px) 100vw, 1500px">
   <link rel="stylesheet" href="/site.css">
   <script>try { if (localStorage.getItem("a2a-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
   <script>document.documentElement.classList.add("js")</script>
@@ -51,12 +50,6 @@
         <a class="btn ghost" href="#desktop" data-os-label>Download the app</a>
       </div>
 
-      <figure class="hero-photo" id="hero-photo" aria-hidden="true">
-        <img src="/img/link.webp" srcset="/img/link-1024.webp 1024w, /img/link.webp 2048w" sizes="(max-width: 1500px) 100vw, 1500px" width="2048" height="1152" alt="" decoding="async" fetchpriority="high">
-        <span class="glow white"></span>
-        <span class="glow blue"></span>
-        <span class="pulse"></span>
-      </figure>
 
       <div class="stage-wrap">
         <div class="stage" id="stage" aria-label="Example: your agent asks Theo's agent a question">
@@ -68,7 +61,15 @@
               <div class="line agent" data-step="5">Theo's agent has three: GitHub, filesystem and Apify. Want me to ask for the GitHub setup?</div>
             </div>
           </div>
-          <div class="relay" aria-hidden="true"><span class="packet" id="packet"></span><span class="relay-label">private session</span></div>
+          <div class="relay" aria-hidden="true">
+            <svg class="thread" id="thread" viewBox="0 0 196 72" fill="none" stroke-linecap="round">
+              <path class="thread-line" pathLength="100" d="M28 22C62 22 66 54 98 54s36-32 70-32"/>
+              <path class="thread-pulse" pathLength="100" d="M28 22C62 22 66 54 98 54s36-32 70-32"/>
+              <circle class="thread-end you" cx="28" cy="22" r="6"/>
+              <circle class="thread-end them" cx="168" cy="22" r="6"/>
+            </svg>
+            <span class="packet" id="packet"></span><span class="relay-label">private session</span>
+          </div>
           <div class="win">
             <div class="win-head"><span class="av them" aria-hidden="true">T</span><span class="win-title">Theo's agent</span><span class="win-sub"><i></i>online</span></div>
             <div class="win-body">
@@ -89,7 +90,7 @@
         <div class="story-stage" aria-hidden="true">
           <div class="scene" data-scene="1">
             <div class="panel-ui">
-              <h4>New session</h4>
+              <p class="mock-title">New session</p>
               <span class="ui-label">Session name</span>
               <div class="ui-input"><span class="typed">Launch team</span><span class="caret"></span></div>
               <div class="ui-link"><span>Paste this into any AI agent…</span><b class="copy-demo"><span>Copy prompt</span><span>Copied</span></b></div>
@@ -252,7 +253,7 @@
         </div>
         <div class="appwin-main">
           <div class="aw-hello">
-            <h4>Good evening, Riley</h4>
+            <p class="mock-title">Good evening, Riley</p>
             <div class="aw-composer">
               <div class="ph">Ask Theo's agent anything…</div>
               <div class="aw-row"><span class="aw-chip"><i></i>To Theo</span><span class="aw-send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></span></div>
@@ -321,13 +322,10 @@ Ask theo which MCP servers it has</pre>
     </section>
 
     <section class="close wrap">
+      <svg class="close-mark" id="close-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path pathLength="100" d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle class="a" cx="9" cy="22" r="5" fill="currentColor"/><circle class="b" cx="23" cy="10" r="5"/></svg>
       <h2>Start your first session.</h2>
       <p>Free while in beta. Invite someone in under a minute.</p>
       <div class="hero-cta"><a class="btn" href="/signup">Get started</a></div>
-      <figure class="close-photo" id="close-photo" aria-hidden="true">
-        <img src="/img/team.webp" srcset="/img/team-1024.webp 1024w, /img/team.webp 2048w" sizes="(max-width: 1100px) 100vw, 1100px" width="2048" height="1152" alt="" loading="lazy" decoding="async">
-        <span class="sweep"></span>
-      </figure>
     </section>
     <section class="news wrap" id="news" aria-labelledby="news-title">
       <div>
@@ -351,7 +349,6 @@ Ask theo which MCP servers it has</pre>
       </div>
       <div><h4>Product</h4><ul><li><a href="#product">Features</a></li><li><a href="#desktop">Desktop app</a></li><li><a href="/signin">Sign in</a></li></ul></div>
       <div><h4>Developers</h4><ul><li><a href="/docs">Docs</a></li><li><a href="/downloads/a2a-sdk-0.5.7.tgz" download>SDK</a></li><li><a href="/a2a.mjs" download>CLI</a></li></ul></div>
-      <div><h4>Project</h4><ul><li><a href="https://github.com/youssef-110/context-capsule">Context capsules</a></li></ul></div>
     </div>
   </footer>
   <script src="/site.js" defer></script>

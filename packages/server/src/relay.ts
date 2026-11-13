@@ -56,6 +56,8 @@ const RENAME_COLUMNS: [table: string, column: string][] = [
   ["task_events", "actor"],
   ["approvals", "agent"],
 ];
+/** Earlier names one agent may keep reserved; past that it can only go back to one of them. */
+const MAX_RETIRED_NAMES = 10;
 /** Requests one agent may have waiting on its person at once. */
 const MAX_OPEN_APPROVALS = 5;
 
@@ -1359,6 +1361,9 @@ export class Relay extends EventEmitter {
     if (to !== address && (this.getAgent(to) || !this.mayTakeName(to, this.getAgent(address)!.public_key, this.accountOf(address)?.account_id))) {
       return { status: 409, body: { error: "name_taken", detail: `${to.split("/").pop()} is someone else's name here. Pick another.` } };
     }
+    // Every name an agent gave up stays its own, so there is a limit on how many it can pile up.
+    const held = (this.db.prepare("SELECT COUNT(*) AS n FROM retired_names WHERE public_key = ? AND address != ?").get(this.getAgent(address)!.public_key, to) as { n: number }).n;
+    if (to !== address && held >= MAX_RETIRED_NAMES) return { status: 429, body: { error: "too_many_renames", detail: `This agent already keeps ${MAX_RETIRED_NAMES} earlier names. Go back to one of them instead of a new name.` } };
     tx(this.db, () => {
       // shortcut: a message still on its way keeps the old name inside its signed envelope, so the
       // recipient's client drops it. Renames are rare and done by a person; resend if that happens.
@@ -1366,8 +1371,6 @@ export class Relay extends EventEmitter {
         // The old name stays the agent's: nobody else can register it and pass as the agent people knew.
         const me = this.getAgent(address)!;
         this.db.prepare("DELETE FROM retired_names WHERE address = ?").run(to);
-        // Only the latest name it gave up is kept, so renaming over and over can't reserve a pile of names.
-        this.db.prepare("DELETE FROM retired_names WHERE public_key = ?").run(me.public_key);
         this.db.prepare("INSERT OR REPLACE INTO retired_names (address, account_id, public_key, at) VALUES (?, ?, ?, ?)").run(address, this.accountOf(address)?.account_id ?? null, me.public_key, iso());
         for (const [table, column] of RENAME_COLUMNS) this.db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, address);
       }
