@@ -222,6 +222,14 @@ CREATE TABLE IF NOT EXISTS task_events (
 );
 CREATE INDEX IF NOT EXISTS task_events_task ON task_events (task_id, id);
 
+-- Names agents gave up by renaming. Only the same person, or the same key, can take one again.
+CREATE TABLE IF NOT EXISTS retired_names (
+  address    TEXT PRIMARY KEY,
+  account_id TEXT,
+  public_key TEXT NOT NULL,
+  at         TEXT NOT NULL
+);
+
 -- Approvals: an agent's own run asks its person to OK one sensitive action. Only that person decides.
 CREATE TABLE IF NOT EXISTS approvals (
   id         TEXT PRIMARY KEY,

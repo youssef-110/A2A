@@ -83,6 +83,10 @@ test("a2a rename: every agent takes the new name and keeps its sessions, tasks a
   assert.equal(config.default_agent, A("sam-claude"));
   await waitFor(() => online("sam-claude") && online("sam-codex") && !online("robin-claude"), 8000, "sam's agents online");
 
+  // The name Robin's agent gave up stays his: a stranger can't register it and pass as the agent people knew.
+  await assert.rejects(registerAgent(r.url, A("robin-claude"), generateAgentKeyPair().privateKeyPem, { adminToken: ADMIN }), /name_retired/);
+  assert.equal(r.relay.renameAgent(A("juno-claude"), { name: "robin-claude" }).status, 409);
+
   // A teammate reaches the agent by its new name, and it can still work on its part.
   const sent = await ipc<Record<string, any>>(juno, "POST", "/send", { from: A("juno-claude"), to: "sam-claude", text: "hello Sam", session, wait_seconds: 0 });
   assert.match(String(sent.state), /queued|delivered/);
@@ -109,6 +113,10 @@ test("from the dashboard: only the signed-in person's own online computers are a
   const asked = r.relay.requestRename("acct_robin", "Riley");
   assert.deepEqual(asked, { ok: true, asked: 2, offline: 0 });
   await waitFor(() => online("riley-claude") && online("riley-codex"), 8000, "riley's agents online");
+  assert.equal(loadConfig(robin).person, "riley");
+  // A relay that isn't the one an agent lives on can't have it renamed: the request names its own server.
+  const elsewhere = await (daemons[0] as unknown as { renamePerson(b: Record<string, unknown>, server: string): Promise<Record<string, any>> }).renamePerson({ person: "mallory" }, "https://other-relay.example");
+  assert.deepEqual(elsewhere.renamed, []);
   assert.equal(loadConfig(robin).person, "riley");
   assert.ok(!members().some((a) => a.includes("sam")) && r.relay.getAgent(A("juno-claude")), "nobody else was renamed");
   // A headless run can't rename anything.

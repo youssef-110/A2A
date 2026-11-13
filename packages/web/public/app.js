@@ -1501,7 +1501,7 @@ function copyLine(text, label = "Copy") {
 const PLUGIN_INSTALL = "/plugin install a2a@a2a";
 
 /** The one command that sets A2A up: downloads the client, signs in, connects every AI app here. */
-const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.6.tgz"}`;
+const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.7.tgz"}`;
 const connectCommand = (url) => `npx -y ${cliUrl()} connect${url ? ` ${url}` : ""}`;
 
 /**
@@ -2997,7 +2997,7 @@ function agentNameForm() {
       "p",
       { class: "muted small" },
       mine.length
-        ? `Your agents are called ${mine.map((a) => short(a.address)).join(", ")}. Change the name and each becomes <name>-<app>, here and in every session, with its tasks and history. Your computer does the renaming, so it has to be online.`
+        ? `Your agents are called ${mine.map((a) => short(a.address)).join(", ")}. Change the name and each becomes <name>-<app> in this workspace, with its sessions, tasks and history. Your computer does the renaming, so it has to be online. To rename them in every workspace at once, run a2a rename <name> on your computer.`
         : "Each AI app you connect becomes an agent called <name>-<app>, for example robin-claude. Connect an app first, then you can change the name here.",
     ),
     h("div", { class: "row" }, h("button", { class: "btn", type: "submit", disabled: !mine.length }, "Rename my agents")),

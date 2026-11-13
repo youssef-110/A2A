@@ -798,6 +798,8 @@ export class Relay extends EventEmitter {
     if (Math.abs(Date.now() - Date.parse(timestamp)) > FUTURE_SKEW_MS) return { status: 400, body: { error: "stale_timestamp" } };
     if (!verifyString(registerSigningString(address, public_key, timestamp), proof, public_key)) return { status: 401, body: { error: "bad_proof", detail: "proof must be signed with the key being registered" } };
     if (address === this.consoleAddress) return { status: 409, body: { error: "reserved_address", detail: "this address belongs to the relay" } };
+    if (!this.mayTakeName(address, public_key, account?.id)) return { status: 409, body: { error: "name_retired", detail: "that name belonged to an agent that was renamed; pick another name" } };
+    this.db.prepare("DELETE FROM retired_names WHERE address = ?").run(address);
 
     // An invite or open registration activates the agent like the admin token would, but never replaces an existing key.
     let invite: InviteRow | undefined;
@@ -1340,6 +1342,12 @@ export class Relay extends EventEmitter {
 
   // ------------------------------------------------------------ renaming
 
+  /** Whether a name an agent gave up by renaming may be used again: only by the same key or the same person. */
+  private mayTakeName(address: string, publicKey: string, accountId?: string | null): boolean {
+    const r = this.db.prepare("SELECT account_id, public_key FROM retired_names WHERE address = ?").get(address) as { account_id: string | null; public_key: string } | undefined;
+    return !r || r.public_key === publicKey || (!!accountId && r.account_id === accountId);
+  }
+
   /**
    * An agent takes a new name on this relay. Its own client asks (signed with the agent's key), and
    * the name moves with everything the agent has: sessions, tasks, threads, its account, its history.
@@ -1348,11 +1356,19 @@ export class Relay extends EventEmitter {
     const to = `agent://${this.policy.org}/${typeof input.name === "string" ? input.name.trim().toLowerCase() : ""}`;
     if (!ADDRESS_RE.test(to)) return { status: 400, body: { error: "invalid_name", detail: "A name uses lowercase letters, digits, dots and dashes." } };
     if (address === this.consoleAddress || to === this.consoleAddress) return { status: 409, body: { error: "reserved_address", detail: "this address belongs to the relay" } };
-    if (to !== address && this.getAgent(to)) return { status: 409, body: { error: "name_taken", detail: `${to.split("/").pop()} already exists here. Pick another name.` } };
+    if (to !== address && (this.getAgent(to) || !this.mayTakeName(to, this.getAgent(address)!.public_key, this.accountOf(address)?.account_id))) {
+      return { status: 409, body: { error: "name_taken", detail: `${to.split("/").pop()} is someone else's name here. Pick another.` } };
+    }
     tx(this.db, () => {
       // shortcut: a message still on its way keeps the old name inside its signed envelope, so the
       // recipient's client drops it. Renames are rare and done by a person; resend if that happens.
-      if (to !== address) for (const [table, column] of RENAME_COLUMNS) this.db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, address);
+      if (to !== address) {
+        // The old name stays the agent's: nobody else can register it and pass as the agent people knew.
+        const me = this.getAgent(address)!;
+        this.db.prepare("DELETE FROM retired_names WHERE address = ?").run(to);
+        this.db.prepare("INSERT OR REPLACE INTO retired_names (address, account_id, public_key, at) VALUES (?, ?, ?, ?)").run(address, this.accountOf(address)?.account_id ?? null, me.public_key, iso());
+        for (const [table, column] of RENAME_COLUMNS) this.db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, address);
+      }
       if (typeof input.display_name === "string" && input.display_name.trim()) this.db.prepare("UPDATE agents SET display_name = ?, updated_at = ? WHERE address = ?").run(input.display_name.trim().slice(0, 80), iso(), to);
     });
     if (to !== address) this.audit(address, "agent.rename", to);

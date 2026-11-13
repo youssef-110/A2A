@@ -407,7 +407,8 @@ export class Daemon {
     // auto-reply switch, this computer does it itself, and a config can turn website requests off.
     if (msg.kind === "rename" && typeof msg.person === "string") {
       if (this.config.web_controls === false) return this.log(`ignored a website request to rename agents (web_controls: false)`);
-      void this.renamePerson({ person: msg.person }).catch((err) => this.log(`could not rename agents: ${(err as Error).message}`));
+      // A relay can only ask about the agents that live on it: another workspace's relay never renames yours.
+      void this.renamePerson({ person: msg.person }, link.server).catch((err) => this.log(`could not rename agents: ${(err as Error).message}`));
       return;
     }
     // The owner flipped the switch on their own signed-in page (the relay only passes it on for the
@@ -634,33 +635,38 @@ export class Daemon {
    * agent asks its relay itself, signed with its own key, so its sessions, tasks and threads move
    * with it. Agents on relays that don't answer keep their name and are listed in the result.
    */
-  renamePerson(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  renamePerson(body: Record<string, unknown>, onlyServer?: string): Promise<Record<string, unknown>> {
     if (body.run_id) return Promise.reject(new ClientError(403, "A headless run can't rename agents. Only the owner can."));
     const raw = typeof body.person === "string" ? body.person.trim() : "";
     if (!raw) return Promise.reject(new ClientError(400, "Give the name your agents should carry, for example robin."));
     // One rename at a time: the website sends the request once per agent that is online.
-    const next = (this.renaming ?? Promise.resolve()).catch(() => {}).then(() => this.doRename(personSlug(raw, "")));
+    const next = (this.renaming ?? Promise.resolve()).catch(() => {}).then(() => this.doRename(personSlug(raw, ""), onlyServer));
     this.renaming = next;
     return next;
   }
 
-  private async doRename(person: string): Promise<Record<string, unknown>> {
+  private async doRename(person: string, onlyServer?: string): Promise<Record<string, unknown>> {
     // A copy from disk: reload() compares it with the running config to see which relays to say hello to again.
     const config = loadConfig(this.home);
     const old = config.person;
     const renamed: { from: string; to: string }[] = [];
     const failed: { agent: string; why: string }[] = [];
     for (const a of config.agents) {
+      if (onlyServer && serverOf(config, a) !== onlyServer) continue;
       const short = a.address.split("/").pop()!;
-      if (!old || old === person || (short !== old && !short.startsWith(`${old}-`))) continue;
+      // An app's agent is <person>-<app>; one without an app is renamed only if it is the old name itself.
+      const suffix = a.tool ? (toolById(a.tool)?.suffix ?? a.tool).toLowerCase().replace(/[^a-z0-9._-]+/g, "-") : null;
+      const next = suffix ? `${person}-${suffix}` : old && short === old ? person : null;
+      if (!next || next === short) continue;
       const label = a.tool ? (toolById(a.tool)?.label ?? a.tool) : null;
       const from = a.address;
       try {
         const r = await signedSend(serverOf(config, a), from, this.keys.get(from)!, "POST", "/v1/agents/rename", {
-          name: `${person}${short.slice(old.length)}`,
+          name: next,
           display_name: `${person[0]!.toUpperCase()}${person.slice(1)}${label ? ` (${label})` : ""}`,
         });
         const to = String(r.address);
+        if (to !== `${from.slice(0, from.lastIndexOf("/"))}/${next}`) throw new Error("the relay answered with a different name");
         for (const [table, column] of [["inbox", "to_addr"], ["sent", "from_addr"], ["sessions", "agent"], ["runs", "agent"], ["approvals", "agent"], ["notices", "address"]]) {
           this.state.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, from);
         }
@@ -673,7 +679,8 @@ export class Daemon {
       }
     }
     // New agents (another app connected later) take the new name too, unless every relay refused it.
-    if (renamed.length || !failed.length) config.person = person;
+    // A rename one relay asked for only changes the person's name when that relay is their own workspace.
+    if ((renamed.length || !failed.length) && (!onlyServer || onlyServer === config.server)) config.person = person;
     saveConfig(this.home, config);
     await this.reload();
     this.log(`agents renamed to ${person}-*: ${renamed.length} done${failed.length ? `, ${failed.length} not (${failed.map((f) => `${f.agent}: ${f.why}`).join("; ")})` : ""}`);
