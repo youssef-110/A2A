@@ -18647,11 +18647,11 @@ function ipc(home2, method, path, body, timeoutMs = 37e5) {
 
 // packages/client/src/daemon.ts
 import { createServer } from "node:http";
-import { existsSync as existsSync4, mkdirSync as mkdirSync4, readFileSync as readFileSync5, rmSync as rmSync2, unlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync5, readFileSync as readFileSync6, rmSync as rmSync3, unlinkSync, writeFileSync as writeFileSync5 } from "node:fs";
 import { connect } from "node:net";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname4, join as join6, resolve as resolve2 } from "node:path";
+import { basename, dirname as dirname4, join as join7, resolve as resolve2 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // node_modules/.pnpm/ws@8.22.0/node_modules/ws/wrapper.mjs
@@ -19303,29 +19303,156 @@ tool_timeout_sec = 600
   }
 }
 
+// packages/client/src/account.ts
+import { spawn as spawn2 } from "node:child_process";
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { hostname as hostname2 } from "node:os";
+import { join as join5 } from "node:path";
+var DEFAULT_ORIGIN = process.env.A2A_ORIGIN ?? "https://a2a-relay.a2a-cloud.workers.dev";
+var accountPath = (home2) => join5(home2, "account.json");
+var pendingPath = (home2) => join5(home2, "run", "login.json");
+function loadAccount(home2, origin) {
+  try {
+    const a = JSON.parse(readFileSync5(accountPath(home2), "utf8"));
+    return !origin || a.origin === origin ? a : null;
+  } catch {
+    return null;
+  }
+}
+function saveAccount(home2, account) {
+  mkdirSync3(home2, { recursive: true, mode: 448 });
+  writeFileSync3(accountPath(home2), JSON.stringify(account, null, 2), { mode: 384 });
+}
+async function signOut(home2) {
+  const a = loadAccount(home2);
+  if (!a) return false;
+  await accountApi(a.origin, a.token, "POST", "/auth/signout").catch(() => {
+  });
+  rmSync2(accountPath(home2), { force: true });
+  return true;
+}
+async function validAccount(home2, origin) {
+  const a = loadAccount(home2, origin);
+  if (!a) return null;
+  const r = await accountApi(origin, a.token, "GET", "/api/me").catch(() => null);
+  if (!r || r.status === 401) return null;
+  if (r.status !== 200) return a;
+  const ws = r.body.workspaces ?? [];
+  if (!ws.some((w) => w.slug === a.workspace) && ws[0]) a.workspace = ws[0].slug;
+  return a;
+}
+function openBrowser(url) {
+  if (process.env.A2A_NO_BROWSER) return;
+  const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+  try {
+    spawn2(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {
+    }).unref();
+  } catch {
+  }
+}
+async function startLogin(home2, origin) {
+  const r = await publicApi(origin, "POST", "/auth/device/start", { host: `${hostname2()} (a2a)` });
+  if (r.status !== 200) throw new Error(String(r.body.error ?? `Sign-in failed to start (${r.status}).`));
+  const b = r.body;
+  const complete = b.verify_url_complete ?? `${b.verify_url}?code=${encodeURIComponent(b.user_code)}`;
+  mkdirSync3(join5(home2, "run"), { recursive: true, mode: 448 });
+  writeFileSync3(pendingPath(home2), JSON.stringify({ origin, device_code: b.device_code, user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_at: Date.now() + b.expires_in * 1e3 }), { mode: 384 });
+  return { user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_in: b.expires_in };
+}
+function pendingLogin(home2, origin) {
+  try {
+    const p = JSON.parse(readFileSync5(pendingPath(home2), "utf8"));
+    if (p.origin !== origin || p.expires_at < Date.now() + 6e4) return null;
+    return { user_code: p.user_code, verify_url: p.verify_url, verify_url_complete: p.verify_url_complete ?? `${p.verify_url}?code=${p.user_code}`, expires_in: Math.round((p.expires_at - Date.now()) / 1e3) };
+  } catch {
+    return null;
+  }
+}
+async function finishLogin(home2, origin, waitMs) {
+  const p = JSON.parse(readFileSync5(pendingPath(home2), "utf8"));
+  const until = Date.now() + waitMs;
+  for (; ; ) {
+    const r = await publicApi(origin, "POST", "/auth/device/poll", { device_code: p.device_code }).catch(() => ({ status: 503, body: {} }));
+    const transient = r.status === 429 || r.status >= 500;
+    const status = transient ? void 0 : r.body.status;
+    if (status === "approved") {
+      const b = r.body;
+      const account = { origin, token: b.session_token, user: { id: b.user.id, email: b.user.email, name: b.user.name }, workspace: b.workspace };
+      saveAccount(home2, account);
+      rmSync2(pendingPath(home2), { force: true });
+      return account;
+    }
+    if (status === "denied") {
+      rmSync2(pendingPath(home2), { force: true });
+      throw new Error("The sign-in was denied in the browser.");
+    }
+    if (status === "expired" || !transient && r.status >= 400) {
+      rmSync2(pendingPath(home2), { force: true });
+      throw new Error("The sign-in code expired. Start again.");
+    }
+    if (Date.now() >= until) return null;
+    await new Promise((res) => setTimeout(res, 2e3));
+  }
+}
+var LoginPendingError = class extends Error {
+};
+async function login(home2, origin, say, maxWaitMs = Infinity) {
+  const existing = await validAccount(home2, origin);
+  if (existing) return existing;
+  const until = Date.now() + maxWaitMs;
+  for (let attempt = 0; ; attempt++) {
+    const resumed = pendingLogin(home2, origin);
+    const start = resumed ?? await startLogin(home2, origin);
+    say(`
+  Sign in to A2A: open ${start.verify_url_complete}
+  (or open ${start.verify_url} and enter the code  ${start.user_code} )
+  Sign in with Google or email, check the code matches, then click Connect.
+`);
+    if (!resumed) openBrowser(start.verify_url_complete);
+    try {
+      for (; ; ) {
+        const a = await finishLogin(home2, origin, Math.max(0, Math.min(6e4, until - Date.now())));
+        if (a) {
+          say(`  Signed in as ${a.user.email}.`);
+          return a;
+        }
+        if (Date.now() >= until) throw new LoginPendingError(`Not approved yet. Open ${start.verify_url_complete} (code ${start.user_code}), click Connect, then run the same command again to finish.`);
+        say("  Still waiting for you to click Connect in the browser...");
+      }
+    } catch (err) {
+      if (err instanceof LoginPendingError || attempt > 0 || /denied/.test(err.message)) throw err;
+      say("  That code expired. Here is a new one.");
+    }
+  }
+}
+function personSlug(name, email2) {
+  const base = (name?.trim().split(/\s+/)[0] || email2.split("@")[0] || "agent").toLowerCase();
+  return base.normalize("NFKD").replace(/[^a-z0-9._-]+/g, "").replace(/^[^a-z0-9]+/, "").slice(0, 24) || "agent";
+}
+
 // packages/client/src/install.ts
 import { execFileSync } from "node:child_process";
-import { mkdirSync as mkdirSync3, writeFileSync as writeFileSync3 } from "node:fs";
+import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir3, platform } from "node:os";
-import { dirname as dirname3, join as join5 } from "node:path";
+import { dirname as dirname3, join as join6 } from "node:path";
 var xml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 function installAutostart(home2) {
   if (process.env.NODE_TEST_CONTEXT || process.env.A2A_NO_AUTOSTART || !/a2a\.mjs$/.test(CLI_PATH)) return null;
   const args = [process.execPath, "--disable-warning=ExperimentalWarning", CLI_PATH, "--home", home2, "start"];
   try {
     if (platform() === "win32") {
-      const dir = join5(process.env.APPDATA ?? join5(homedir3(), "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
-      mkdirSync3(dir, { recursive: true });
-      const file2 = join5(dir, "a2a-client.vbs");
-      writeFileSync3(file2, `' Starts the a2a client at sign-in, hidden, so agents with auto-reply on keep listening.\r
+      const dir = join6(process.env.APPDATA ?? join6(homedir3(), "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+      mkdirSync4(dir, { recursive: true });
+      const file2 = join6(dir, "a2a-client.vbs");
+      writeFileSync4(file2, `' Starts the a2a client at sign-in, hidden, so agents with auto-reply on keep listening.\r
 CreateObject("WScript.Shell").Run "${args.map((a) => `""${a}""`).join(" ")}", 0, False\r
 `);
       return file2;
     }
     if (platform() === "darwin") {
-      const file2 = join5(homedir3(), "Library", "LaunchAgents", "dev.a2a.autostart.plist");
-      mkdirSync3(dirname3(file2), { recursive: true });
-      writeFileSync3(
+      const file2 = join6(homedir3(), "Library", "LaunchAgents", "dev.a2a.autostart.plist");
+      mkdirSync4(dirname3(file2), { recursive: true });
+      writeFileSync4(
         file2,
         `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19343,9 +19470,9 @@ CreateObject("WScript.Shell").Run "${args.map((a) => `""${a}""`).join(" ")}", 0,
       );
       return file2;
     }
-    const file = join5(process.env.XDG_CONFIG_HOME ?? join5(homedir3(), ".config"), "autostart", "a2a-client.desktop");
-    mkdirSync3(dirname3(file), { recursive: true });
-    writeFileSync3(file, `[Desktop Entry]
+    const file = join6(process.env.XDG_CONFIG_HOME ?? join6(homedir3(), ".config"), "autostart", "a2a-client.desktop");
+    mkdirSync4(dirname3(file), { recursive: true });
+    writeFileSync4(file, `[Desktop Entry]
 Type=Application
 Name=a2a client
 Comment=Keeps agents with auto-reply on listening
@@ -19361,12 +19488,12 @@ NoDisplay=true
 function installService(home2, name, load) {
   const label = `dev.a2a.client.${name.replace(/[^a-zA-Z0-9.-]/g, "-")}`;
   const args = [process.execPath, "--disable-warning=ExperimentalWarning", CLI_PATH, "--home", home2, "run"];
-  const logDir = join5(home2, "logs");
-  mkdirSync3(logDir, { recursive: true });
+  const logDir = join6(home2, "logs");
+  mkdirSync4(logDir, { recursive: true });
   if (platform() === "darwin") {
-    const file2 = join5(homedir3(), "Library", "LaunchAgents", `${label}.plist`);
-    mkdirSync3(dirname3(file2), { recursive: true });
-    writeFileSync3(
+    const file2 = join6(homedir3(), "Library", "LaunchAgents", `${label}.plist`);
+    mkdirSync4(dirname3(file2), { recursive: true });
+    writeFileSync4(
       file2,
       `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19382,8 +19509,8 @@ function installService(home2, name, load) {
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${xml(join5(logDir, "client.log"))}</string>
-  <key>StandardErrorPath</key><string>${xml(join5(logDir, "client.log"))}</string>
+  <key>StandardOutPath</key><string>${xml(join6(logDir, "client.log"))}</string>
+  <key>StandardErrorPath</key><string>${xml(join6(logDir, "client.log"))}</string>
 </dict>
 </plist>
 `
@@ -19395,16 +19522,16 @@ function installService(home2, name, load) {
       } catch {
       }
       execFileSync("launchctl", ["bootstrap", `gui/${uid}`, file2], { stdio: "inherit" });
-      return `Installed and started ${label}. Logs: ${join5(logDir, "client.log")}`;
+      return `Installed and started ${label}. Logs: ${join6(logDir, "client.log")}`;
     }
     return `Wrote ${file2}
 Start it with:
   launchctl bootstrap gui/${uid} ${file2}`;
   }
   const unit = `a2a-client-${name.replace(/[^a-zA-Z0-9-]/g, "-")}.service`;
-  const file = join5(homedir3(), ".config", "systemd", "user", unit);
-  mkdirSync3(dirname3(file), { recursive: true });
-  writeFileSync3(
+  const file = join6(homedir3(), ".config", "systemd", "user", unit);
+  mkdirSync4(dirname3(file), { recursive: true });
+  writeFileSync4(
     file,
     `[Unit]
 Description=A2A client (${name})
@@ -19440,9 +19567,9 @@ var APP_RUNTIME = { "claude-code": "claude", codex: "codex", opencode: "opencode
 var RUNTIME_BIN = { claude: "claude", codex: "codex", opencode: "opencode" };
 var THREAD_RUNS_PER_HOUR = 6;
 function onPath2(bin) {
-  if (/[\\/]/.test(bin)) return existsSync4(bin);
+  if (/[\\/]/.test(bin)) return existsSync5(bin);
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").concat("") : [""];
-  return (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":").some((dir) => dir && exts.some((e) => existsSync4(join6(dir, bin + e.toLowerCase())) || existsSync4(join6(dir, bin + e))));
+  return (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":").some((dir) => dir && exts.some((e) => existsSync5(join7(dir, bin + e.toLowerCase())) || existsSync5(join7(dir, bin + e))));
 }
 var decisionNote = (d, owner) => [
   `[a2a] ${owner} answered the approval you asked for.`,
@@ -19479,6 +19606,7 @@ var Daemon = class {
   activeRuns = /* @__PURE__ */ new Set();
   /** Runs in progress per "<agent> <task id>", so a check-in on that task needs no second run. */
   taskRuns = /* @__PURE__ */ new Map();
+  renaming;
   /** Message id -> the owner's answer its next run starts with. Used once. */
   decided = /* @__PURE__ */ new Map();
   flushing = false;
@@ -19492,7 +19620,7 @@ var Daemon = class {
   async start() {
     this.config = loadConfig(this.home);
     if (this.config.agents.length === 0) throw new Error("No agents configured. Add one with `a2a agents add agent://<org>/<name>`.");
-    mkdirSync4(join6(this.home, "run"), { recursive: true, mode: 448 });
+    mkdirSync5(join7(this.home, "run"), { recursive: true, mode: 448 });
     for (const a of this.config.agents) this.keys.set(a.address, loadAgentKey(this.home, a));
     this.state = openState(this.home);
     await this.pinKeys();
@@ -19662,6 +19790,11 @@ var Daemon = class {
     const session = msg.session ?? {};
     if (msg.kind === "approval") {
       if (typeof msg.id === "string") void this.approvalAnswered(address, msg.id);
+      return;
+    }
+    if (msg.kind === "rename" && typeof msg.person === "string") {
+      if (this.config.web_controls === false) return this.log(`ignored a website request to rename agents (web_controls: false)`);
+      void this.renamePerson({ person: msg.person }).catch((err) => this.log(`could not rename agents: ${err.message}`));
       return;
     }
     if (msg.kind === "auto_reply" && session.id) {
@@ -19837,6 +19970,54 @@ var Daemon = class {
   /** Whether this agent has a run for the task going, or waiting its turn. */
   busyWith(address, taskId) {
     return (this.taskRuns.get(`${address} ${taskId}`) ?? 0) > 0 || (this.backlog.get(address) ?? []).some((q) => taskIdOf(q.text) === taskId);
+  }
+  // ------------------------------------------------------------ names
+  /**
+   * Renames this computer's agents from <old>-<app> to <new>-<app> on every relay that answers. Each
+   * agent asks its relay itself, signed with its own key, so its sessions, tasks and threads move
+   * with it. Agents on relays that don't answer keep their name and are listed in the result.
+   */
+  renamePerson(body) {
+    if (body.run_id) return Promise.reject(new ClientError(403, "A headless run can't rename agents. Only the owner can."));
+    const raw = typeof body.person === "string" ? body.person.trim() : "";
+    if (!raw) return Promise.reject(new ClientError(400, "Give the name your agents should carry, for example robin."));
+    const next = (this.renaming ?? Promise.resolve()).catch(() => {
+    }).then(() => this.doRename(personSlug(raw, "")));
+    this.renaming = next;
+    return next;
+  }
+  async doRename(person) {
+    const config2 = loadConfig(this.home);
+    const old = config2.person;
+    const renamed = [];
+    const failed = [];
+    for (const a of config2.agents) {
+      const short = a.address.split("/").pop();
+      if (!old || old === person || short !== old && !short.startsWith(`${old}-`)) continue;
+      const label = a.tool ? toolById(a.tool)?.label ?? a.tool : null;
+      const from = a.address;
+      try {
+        const r = await signedSend(serverOf(config2, a), from, this.keys.get(from), "POST", "/v1/agents/rename", {
+          name: `${person}${short.slice(old.length)}`,
+          display_name: `${person[0].toUpperCase()}${person.slice(1)}${label ? ` (${label})` : ""}`
+        });
+        const to = String(r.address);
+        for (const [table, column] of [["inbox", "to_addr"], ["sent", "from_addr"], ["sessions", "agent"], ["runs", "agent"], ["approvals", "agent"], ["notices", "address"]]) {
+          this.state.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, from);
+        }
+        if (config2.default_agent === from) config2.default_agent = to;
+        a.address = to;
+        if (a.display_name) a.display_name = `${person[0].toUpperCase()}${person.slice(1)}${label ? ` (${label})` : ""}`;
+        renamed.push({ from, to });
+      } catch (err) {
+        failed.push({ agent: from, why: err.message });
+      }
+    }
+    if (renamed.length || !failed.length) config2.person = person;
+    saveConfig(this.home, config2);
+    await this.reload();
+    this.log(`agents renamed to ${person}-*: ${renamed.length} done${failed.length ? `, ${failed.length} not (${failed.map((f) => `${f.agent}: ${f.why}`).join("; ")})` : ""}`);
+    return { person, renamed, failed };
   }
   // ------------------------------------------------------------ teams and approvals
   /**
@@ -20118,13 +20299,13 @@ var Daemon = class {
   /** Writes a message's attachments under <home>/files/<id>/, so agents get paths instead of megabytes of base64. */
   saveAttachments(id, attachments) {
     if (!attachments?.length) return void 0;
-    const dir = join6(this.home, "files", id.replace(/[^A-Za-z0-9_]/g, ""));
-    mkdirSync4(dir, { recursive: true, mode: 448 });
+    const dir = join7(this.home, "files", id.replace(/[^A-Za-z0-9_]/g, ""));
+    mkdirSync5(dir, { recursive: true, mode: 448 });
     return attachments.map((a, i) => {
       const name = basename(a.name).replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 120) || `file-${i + 1}`;
       const data = Buffer.from(a.data, "base64");
-      const path = join6(dir, name);
-      writeFileSync4(path, data, { mode: 384 });
+      const path = join7(dir, name);
+      writeFileSync5(path, data, { mode: 384 });
       return { name, path, bytes: data.length, mime: a.mime };
     });
   }
@@ -20420,8 +20601,8 @@ var Daemon = class {
       A2A_SOCKET: socketPath(this.home),
       ...rule?.max_tokens && agent.runtime === "claude" ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(rule.max_tokens) } : {}
     };
-    const mcpConfigPath = join6(this.home, "run", `${runId}.mcp.json`);
-    writeFileSync4(
+    const mcpConfigPath = join7(this.home, "run", `${runId}.mcp.json`);
+    writeFileSync5(
       mcpConfigPath,
       JSON.stringify({ mcpServers: { a2a: { type: "stdio", command: process.execPath, args: ["--disable-warning=ExperimentalWarning", CLI_PATH, "mcp"], env } } }, null, 2),
       { mode: 384 }
@@ -20445,7 +20626,7 @@ var Daemon = class {
       timeoutMs: durationMs(rule?.timeout ?? agent.timeout, board || team ? 45 * 6e4 : 15 * 6e4)
     }).finally(() => taskKey && this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 1) - 1));
     const startMs = m.received_at ? Math.max(0, t0 - Date.parse(m.received_at)) : null;
-    rmSync2(mcpConfigPath, { force: true });
+    rmSync3(mcpConfigPath, { force: true });
     this.state.prepare("UPDATE runs SET status = ?, ended_at = ?, error = ?, output = ?, cost_usd = ?, tokens = ?, start_ms = ?, model_ms = ? WHERE id = ?").run(result.error ? "failed" : "succeeded", iso(), result.error ?? null, result.output.slice(0, 2e4), result.costUsd ?? null, result.tokens ?? null, startMs, Date.now() - t0, runId);
     if (useSessions && result.sessionId) {
       this.state.prepare("INSERT INTO sessions (agent, thread_id, runtime, session_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (agent, thread_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at").run(agent.address, sessionKey, agent.runtime, result.sessionId, iso());
@@ -20586,7 +20767,7 @@ var Daemon = class {
   async startIpc() {
     if (useTcpIpc) return this.startTcpIpc();
     const path = socketPath(this.home);
-    if (existsSync4(path)) {
+    if (existsSync5(path)) {
       const alive = await new Promise((res) => {
         const s = connect(path);
         s.once("connect", () => {
@@ -20607,8 +20788,8 @@ var Daemon = class {
   /** Windows: loopback TCP on a random port. The token in run/ipc.json stops other local pages and processes from calling it. */
   async startTcpIpc() {
     const info = ipcInfoPath(this.home);
-    if (existsSync4(info)) {
-      const { port: port2 } = JSON.parse(readFileSync5(info, "utf8"));
+    if (existsSync5(info)) {
+      const { port: port2 } = JSON.parse(readFileSync6(info, "utf8"));
       const alive = await new Promise((res) => {
         const s = connect({ host: "127.0.0.1", port: port2 });
         s.once("connect", () => {
@@ -20627,7 +20808,7 @@ var Daemon = class {
       this.ipc.listen(0, "127.0.0.1", () => res());
     });
     const { port } = this.ipc.address();
-    writeFileSync4(info, JSON.stringify({ port, token: this.ipcToken }), { mode: 384 });
+    writeFileSync5(info, JSON.stringify({ port, token: this.ipcToken }), { mode: 384 });
   }
   async handleIpc(req, res) {
     const url = new URL(req.url ?? "/", "http://a2a.local");
@@ -20664,6 +20845,8 @@ var Daemon = class {
           return reply(200, { matrix: await this.autoReplyMatrix() });
         case "POST /auto-reply":
           return reply(200, await this.setAutoReply(body));
+        case "POST /rename":
+          return reply(200, await this.renamePerson(body));
         case "POST /approvals/request":
           if (typeof body.run_id !== "string" || typeof body.action !== "string" || !body.action.trim()) throw new ClientError(400, "run_id and action are required");
           return reply(200, await this.requestApproval(body.run_id, body.action.trim().slice(0, 500), (str(body.why) ?? "").slice(0, 1e3)));
@@ -25523,7 +25706,7 @@ var cidrv4 = /^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(25[0-5]
 var cidrv6 = /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::|([0-9a-fA-F]{1,4})?::([0-9a-fA-F]{1,4}:?){0,6})\/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$/;
 var base64 = /^$|^(?:[0-9a-zA-Z+/]{4})*(?:(?:[0-9a-zA-Z+/]{2}==)|(?:[0-9a-zA-Z+/]{3}=))?$/;
 var base64url = /^[A-Za-z0-9_-]*$/;
-var hostname2 = /^([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+$/;
+var hostname3 = /^([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+$/;
 var e164 = /^\+(?:[0-9]){6,14}[0-9]$/;
 var dateSource = `(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))`;
 var date = /* @__PURE__ */ new RegExp(`^${dateSource}$`);
@@ -26135,7 +26318,7 @@ var $ZodURL = /* @__PURE__ */ $constructor("$ZodURL", (inst, def) => {
             code: "invalid_format",
             format: "url",
             note: "Invalid hostname",
-            pattern: hostname2.source,
+            pattern: hostname3.source,
             input: payload.value,
             inst,
             continue: !def.abort
@@ -35057,7 +35240,7 @@ var StdioServerTransport = class {
 };
 
 // packages/client/src/attachments.ts
-import { existsSync as existsSync5, readFileSync as readFileSync6, realpathSync, statSync } from "node:fs";
+import { existsSync as existsSync6, readFileSync as readFileSync7, realpathSync, statSync } from "node:fs";
 import { basename as basename2, extname, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
 var MAX_ATTACHMENT_BYTES = 180 * 1024;
 var MIME = {
@@ -35080,17 +35263,17 @@ function readAttachments(paths) {
     if (total > MAX_ATTACHMENT_BYTES) {
       throw new Error(`Attachments are ${Math.round(total / 1024)} KiB; the limit is ${MAX_ATTACHMENT_BYTES / 1024} KiB. For a capsule, export it again with a smaller --budget.`);
     }
-    return { name: basename2(file), mime: MIME[extname(file).toLowerCase()] ?? "application/octet-stream", data: readFileSync6(file).toString("base64") };
+    return { name: basename2(file), mime: MIME[extname(file).toLowerCase()] ?? "application/octet-stream", data: readFileSync7(file).toString("base64") };
   });
 }
 function readCapsuleAttachments(paths, home2) {
-  const homeReal = existsSync5(home2) ? realpathSync(home2) : resolve3(home2);
+  const homeReal = existsSync6(home2) ? realpathSync(home2) : resolve3(home2);
   for (const p of paths) {
     const real = realpathSync(resolve3(p));
     if (!/\.capsule\.md$/i.test(real)) throw new Error(`Only context capsules (*.capsule.md) can be attached from here; ${basename2(real)} isn't one. A person can attach other files with \`a2a send --attach\`.`);
     const rel = relative(homeReal, real);
     if (!rel.startsWith("..") && !isAbsolute2(rel)) throw new Error("Files inside the a2a folder can't be attached.");
-    const head = readFileSync6(real, "utf8").slice(0, 32);
+    const head = readFileSync7(real, "utf8").slice(0, 32);
     if (!head.startsWith("<!-- capsule ")) throw new Error(`${basename2(real)} isn't a sealed capsule. Export and seal it with the capsule skill first.`);
   }
   return readAttachments(paths.map((p) => realpathSync(resolve3(p))));
@@ -35102,14 +35285,14 @@ function capsuleBrief(text2) {
 }
 
 // packages/client/src/launcher.ts
-import { spawn as spawn2 } from "node:child_process";
-import { mkdirSync as mkdirSync5, openSync } from "node:fs";
-import { dirname as dirname5, join as join7 } from "node:path";
+import { spawn as spawn3 } from "node:child_process";
+import { mkdirSync as mkdirSync6, openSync } from "node:fs";
+import { dirname as dirname5, join as join8 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function cliPath() {
   if (process.env.A2A_CLI) return process.env.A2A_CLI;
   const self = fileURLToPath2(import.meta.url);
-  return self.endsWith("launcher.ts") ? join7(dirname5(self), "cli.ts") : self;
+  return self.endsWith("launcher.ts") ? join8(dirname5(self), "cli.ts") : self;
 }
 async function daemonRunning(home2) {
   try {
@@ -35137,9 +35320,9 @@ async function ensureDaemon(home2, opts = {}) {
     }
     await waitUntil(async () => !await daemonRunning(home2), 1e4);
   }
-  mkdirSync5(join7(home2, "run"), { recursive: true, mode: 448 });
-  const log = openSync(join7(home2, "run", "daemon.log"), "a");
-  const child = spawn2(process.execPath, ["--disable-warning=ExperimentalWarning", cliPath(), "--home", home2, "run"], {
+  mkdirSync6(join8(home2, "run"), { recursive: true, mode: 448 });
+  const log = openSync(join8(home2, "run", "daemon.log"), "a");
+  const child = spawn3(process.execPath, ["--disable-warning=ExperimentalWarning", cliPath(), "--home", home2, "run"], {
     detached: true,
     stdio: ["ignore", log, log],
     windowsHide: true,
@@ -35147,136 +35330,9 @@ async function ensureDaemon(home2, opts = {}) {
   });
   child.unref();
   if (!await waitUntil(() => daemonRunning(home2), 15e3)) {
-    throw new Error(`a2a run did not start; see ${join7(home2, "run", "daemon.log")}`);
+    throw new Error(`a2a run did not start; see ${join8(home2, "run", "daemon.log")}`);
   }
   return running ? "restarted" : "started";
-}
-
-// packages/client/src/account.ts
-import { spawn as spawn3 } from "node:child_process";
-import { mkdirSync as mkdirSync6, readFileSync as readFileSync7, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { hostname as hostname3 } from "node:os";
-import { join as join8 } from "node:path";
-var DEFAULT_ORIGIN = process.env.A2A_ORIGIN ?? "https://a2a-relay.a2a-cloud.workers.dev";
-var accountPath = (home2) => join8(home2, "account.json");
-var pendingPath = (home2) => join8(home2, "run", "login.json");
-function loadAccount(home2, origin) {
-  try {
-    const a = JSON.parse(readFileSync7(accountPath(home2), "utf8"));
-    return !origin || a.origin === origin ? a : null;
-  } catch {
-    return null;
-  }
-}
-function saveAccount(home2, account) {
-  mkdirSync6(home2, { recursive: true, mode: 448 });
-  writeFileSync5(accountPath(home2), JSON.stringify(account, null, 2), { mode: 384 });
-}
-async function signOut(home2) {
-  const a = loadAccount(home2);
-  if (!a) return false;
-  await accountApi(a.origin, a.token, "POST", "/auth/signout").catch(() => {
-  });
-  rmSync3(accountPath(home2), { force: true });
-  return true;
-}
-async function validAccount(home2, origin) {
-  const a = loadAccount(home2, origin);
-  if (!a) return null;
-  const r = await accountApi(origin, a.token, "GET", "/api/me").catch(() => null);
-  if (!r || r.status === 401) return null;
-  if (r.status !== 200) return a;
-  const ws = r.body.workspaces ?? [];
-  if (!ws.some((w) => w.slug === a.workspace) && ws[0]) a.workspace = ws[0].slug;
-  return a;
-}
-function openBrowser(url) {
-  if (process.env.A2A_NO_BROWSER) return;
-  const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-  try {
-    spawn3(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {
-    }).unref();
-  } catch {
-  }
-}
-async function startLogin(home2, origin) {
-  const r = await publicApi(origin, "POST", "/auth/device/start", { host: `${hostname3()} (a2a)` });
-  if (r.status !== 200) throw new Error(String(r.body.error ?? `Sign-in failed to start (${r.status}).`));
-  const b = r.body;
-  const complete = b.verify_url_complete ?? `${b.verify_url}?code=${encodeURIComponent(b.user_code)}`;
-  mkdirSync6(join8(home2, "run"), { recursive: true, mode: 448 });
-  writeFileSync5(pendingPath(home2), JSON.stringify({ origin, device_code: b.device_code, user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_at: Date.now() + b.expires_in * 1e3 }), { mode: 384 });
-  return { user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_in: b.expires_in };
-}
-function pendingLogin(home2, origin) {
-  try {
-    const p = JSON.parse(readFileSync7(pendingPath(home2), "utf8"));
-    if (p.origin !== origin || p.expires_at < Date.now() + 6e4) return null;
-    return { user_code: p.user_code, verify_url: p.verify_url, verify_url_complete: p.verify_url_complete ?? `${p.verify_url}?code=${p.user_code}`, expires_in: Math.round((p.expires_at - Date.now()) / 1e3) };
-  } catch {
-    return null;
-  }
-}
-async function finishLogin(home2, origin, waitMs) {
-  const p = JSON.parse(readFileSync7(pendingPath(home2), "utf8"));
-  const until = Date.now() + waitMs;
-  for (; ; ) {
-    const r = await publicApi(origin, "POST", "/auth/device/poll", { device_code: p.device_code }).catch(() => ({ status: 503, body: {} }));
-    const transient = r.status === 429 || r.status >= 500;
-    const status = transient ? void 0 : r.body.status;
-    if (status === "approved") {
-      const b = r.body;
-      const account = { origin, token: b.session_token, user: { id: b.user.id, email: b.user.email, name: b.user.name }, workspace: b.workspace };
-      saveAccount(home2, account);
-      rmSync3(pendingPath(home2), { force: true });
-      return account;
-    }
-    if (status === "denied") {
-      rmSync3(pendingPath(home2), { force: true });
-      throw new Error("The sign-in was denied in the browser.");
-    }
-    if (status === "expired" || !transient && r.status >= 400) {
-      rmSync3(pendingPath(home2), { force: true });
-      throw new Error("The sign-in code expired. Start again.");
-    }
-    if (Date.now() >= until) return null;
-    await new Promise((res) => setTimeout(res, 2e3));
-  }
-}
-var LoginPendingError = class extends Error {
-};
-async function login(home2, origin, say, maxWaitMs = Infinity) {
-  const existing = await validAccount(home2, origin);
-  if (existing) return existing;
-  const until = Date.now() + maxWaitMs;
-  for (let attempt = 0; ; attempt++) {
-    const resumed = pendingLogin(home2, origin);
-    const start = resumed ?? await startLogin(home2, origin);
-    say(`
-  Sign in to A2A: open ${start.verify_url_complete}
-  (or open ${start.verify_url} and enter the code  ${start.user_code} )
-  Sign in with Google or email, check the code matches, then click Connect.
-`);
-    if (!resumed) openBrowser(start.verify_url_complete);
-    try {
-      for (; ; ) {
-        const a = await finishLogin(home2, origin, Math.max(0, Math.min(6e4, until - Date.now())));
-        if (a) {
-          say(`  Signed in as ${a.user.email}.`);
-          return a;
-        }
-        if (Date.now() >= until) throw new LoginPendingError(`Not approved yet. Open ${start.verify_url_complete} (code ${start.user_code}), click Connect, then run the same command again to finish.`);
-        say("  Still waiting for you to click Connect in the browser...");
-      }
-    } catch (err) {
-      if (err instanceof LoginPendingError || attempt > 0 || /denied/.test(err.message)) throw err;
-      say("  That code expired. Here is a new one.");
-    }
-  }
-}
-function personSlug(name, email2) {
-  const base = (name?.trim().split(/\s+/)[0] || email2.split("@")[0] || "agent").toLowerCase();
-  return base.normalize("NFKD").replace(/[^a-z0-9._-]+/g, "").replace(/^[^a-z0-9]+/, "").slice(0, 24) || "agent";
 }
 
 // packages/client/src/connect.ts
@@ -35522,7 +35578,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.5.5" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.6" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);
@@ -36210,6 +36266,7 @@ Setup by hand
       [--runtime none|claude|codex|opencode] [--workdir DIR] [--display-name NAME] [--no-start] [--force]
   init --server URL [--name NAME]         Create the client config and pin the relay's key
   agents add <address> [options]          Create a key for an agent on this machine and register it
+  rename <name>                           Call your agents <name>-claude, <name>-codex, ... everywhere they are
   auto-reply [status]                     Which of your agents work on their own, per session
   auto-reply on --session S --agent A     Put agent A on session S's team: it answers, and does task work
                                           and what the session's leader asks, in this folder
@@ -36351,7 +36408,7 @@ async function main(argv) {
   }
   const H = resolveHome(home2);
   const [cmd, ...args] = rest;
-  if (process.env.A2A_RUN_ID && ["join", "connect", "login", "logout", "apps", "init", "agents", "install", "start", "stop", "run"].includes(cmd ?? "")) {
+  if (process.env.A2A_RUN_ID && ["join", "connect", "login", "logout", "apps", "init", "agents", "install", "start", "stop", "run", "rename"].includes(cmd ?? "")) {
     console.error("A headless run can't change how A2A is set up on this computer. Only the owner can.");
     return 1;
   }
@@ -36820,6 +36877,21 @@ ${formatMatrix(r.matrix)}`);
         () => r.sessions.length ? r.sessions.map((s) => `${s.name}  (${s.workspace}, ${s.id})
   people: ${s.members.map((m) => `${m.online ? "\u25CF" : "\u25CB"} ${m.person ?? m.address.split("/").pop()}`).join(", ") || "just you"}
   brief: ${s.brief?.replace(/\s+/g, " ").slice(0, 300) ?? "(none)"}`).join("\n\n") : "You aren't in any sessions yet."
+      );
+      return 0;
+    }
+    case "rename": {
+      const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { json: { type: "boolean" } } });
+      if (!positionals[0]) throw new Error("usage: a2a rename <name>   (your agents become <name>-claude, <name>-codex, ...)");
+      const r = await ipc(H, "POST", "/rename", { person: positionals[0] }, 12e4);
+      print(
+        !!values.json,
+        r,
+        () => [
+          r.renamed.length ? `Renamed ${r.renamed.length} agent${r.renamed.length > 1 ? "s" : ""}:` : `Nothing to rename: your agents already carry "${r.person}", or none start with the old name.`,
+          ...r.renamed.map((x) => `  ${x.from.split("/").pop()} -> ${x.to}`),
+          ...r.failed.length ? ["Not renamed (the relay didn't accept it):", ...r.failed.map((x) => `  ${x.agent}: ${x.why}`)] : []
+        ].join("\n")
       );
       return 0;
     }
