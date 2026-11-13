@@ -53,7 +53,7 @@
   --dots: rgb(0 0 0 / 0.07);
   color-scheme: light;
 }
-:root[data-theme="light"] :is(.term, .code-card, .appwin, .tile.signal, .tile.light, .close-photo) {
+:root[data-theme="light"] :is(.term, .code-card, .appwin, .tile.signal, .tile.light) {
   --bg: #000; --bg-2: #0a0a0b; --card: #111112; --card-2: #18181a; --raised: #222225;
   --ink: #f5f5f7; --ink-2: #a1a1a6; --ink-3: #8e8e93;
   --hair: rgb(255 255 255 / 0.08); --hair-2: rgb(255 255 255 / 0.14);
@@ -183,7 +183,7 @@ html { scrollbar-color: var(--scroll) transparent; }
 
 /* Scene parts */
 .panel-ui { width: min(420px, 100%); border-radius: 20px; background: var(--card-2); box-shadow: inset 0 0 0 1px var(--hair), 0 30px 60px -24px var(--drop); padding: 22px; display: grid; gap: 14px; text-align: left; }
-.panel-ui h4 { font-size: 17px; letter-spacing: -0.02em; }
+.panel-ui .mock-title { font-weight: 600; font-size: 17px; letter-spacing: -0.02em; }
 .ui-label { color: var(--ink-3); font-size: 13px; }
 .ui-input { display: flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 12px; background: var(--well); box-shadow: inset 0 0 0 1px var(--hair-2); font-size: 15px; }
 .ui-input .caret { width: 1.5px; height: 18px; margin-left: 2px; background: var(--signal); animation: blink 1s steps(1) infinite; }
@@ -270,7 +270,7 @@ html { scrollbar-color: var(--scroll) transparent; }
 .aw-foot .av { width: 26px; height: 26px; font-size: 11px; }
 .appwin-main { display: grid; place-items: center; padding: 40px; }
 .aw-hello { width: min(560px, 100%); text-align: center; }
-.aw-hello h4 { font-size: clamp(22px, 2.6vw, 32px); letter-spacing: -0.035em; font-weight: 550; }
+.aw-hello .mock-title { text-wrap: balance; font-size: clamp(22px, 2.6vw, 32px); letter-spacing: -0.035em; font-weight: 550; }
 .aw-composer { margin-top: 26px; text-align: left; border-radius: 22px; background: #141415; box-shadow: inset 0 0 0 1px var(--hair-2); padding: 16px 16px 12px; }
 .aw-composer .ph { color: var(--ink-3); font-size: 15px; min-height: 44px; }
 .aw-row { display: flex; align-items: center; gap: 8px; }
@@ -317,7 +317,7 @@ html { scrollbar-color: var(--scroll) transparent; }
 .close p { margin: 22px auto 0; max-width: 36ch; color: var(--ink-2); font-size: 20px; }
 
 .footer { padding: 72px 0 56px; color: var(--ink-3); font-size: 13px; }
-.footer-inner { display: grid; grid-template-columns: 2fr repeat(3, 1fr); gap: 32px; padding-top: 32px; border-top: 1px solid var(--hair); }
+.footer-inner { display: grid; grid-template-columns: 2fr repeat(2, 1fr); gap: 32px; padding-top: 32px; border-top: 1px solid var(--hair); }
 .footer h4 { margin: 0 0 12px; color: var(--ink); font: 550 13px var(--sans); letter-spacing: -0.01em; }
 .footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
 .footer a { color: var(--ink-3); text-decoration: none; transition: color 0.2s; }
@@ -536,46 +536,6 @@ html { scrollbar-color: var(--scroll) transparent; }
 }
 @keyframes press { 40% { transform: scale(0.9); } }
 
-/* ---------------------------------------------------------------- 0.5: photographs
-   Two studio photographs of the mark as a real object (made with Higgsfield): one thread between
-   two spheres under the headline, and the team around one relay at the close. The light that runs
-   along the thread is timed to the message crossing in the conversation below it. */
-.hero > :not(.hero-photo) { position: relative; z-index: 1; }
-.hero-photo {
-  --w: min(1500px, 100vw);
-  position: relative; z-index: 0; left: 50%; translate: -50% 0; width: var(--w); aspect-ratio: 16 / 9; pointer-events: none;
-  margin: calc(var(--w) * -0.275) 0 calc(var(--w) * -0.105);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 4%, #000 30%, #000 80%, transparent 100%), linear-gradient(to right, transparent 0, #000 14%, #000 86%, transparent 100%);
-  mask-image: linear-gradient(to bottom, transparent 4%, #000 30%, #000 80%, transparent 100%), linear-gradient(to right, transparent 0, #000 14%, #000 86%, transparent 100%);
-  -webkit-mask-composite: source-in; mask-composite: intersect;
-}
-.hero-photo img { width: 100%; height: 100%; object-fit: cover; }
-.hero-photo .glow { position: absolute; top: 63.4%; width: 17%; aspect-ratio: 1; border-radius: 50%; translate: -50% -50%; opacity: 0; mix-blend-mode: screen; }
-.hero-photo .glow.white { left: 19.4%; background: radial-gradient(closest-side, rgb(255 255 255 / 0.5), transparent); }
-.hero-photo .glow.blue { left: 76.8%; background: radial-gradient(closest-side, rgb(41 151 255 / 0.75), transparent); }
-.hero-photo .pulse { position: absolute; left: 0; top: 0; width: 5.4%; height: 7px; margin: -3.5px 0 0 -2.7%; border-radius: 7px; box-shadow: 0 0 22px 5px rgb(41 151 255 / 0.5); opacity: 0; mix-blend-mode: screen; background: radial-gradient(closest-side, #fff, rgb(41 151 255 / 0.9) 55%, transparent); }
-.stage-wrap { margin-top: 0; }
-
-.close-photo { position: relative; width: min(1100px, 100%); margin: 72px auto 0; aspect-ratio: 16 / 8; border-radius: 28px; overflow: hidden; background: var(--card); box-shadow: inset 0 0 0 1px var(--hair); }
-.close-photo img { width: 100%; height: 100%; object-fit: cover; }
-.close-photo::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--hair); }
-.close-photo .sweep { position: absolute; inset: 0; translate: -100% 0; background: linear-gradient(105deg, transparent 38%, rgb(255 255 255 / 0.13) 50%, transparent 62%); }
-
-@media (prefers-reduced-motion: no-preference) {
-  .js .hero-photo { opacity: 0; scale: 1.06; animation: photo-in 1.9s var(--ease) 0.55s forwards; }
-  .close-photo.in .sweep { animation: sweep 1.9s var(--ease-in-out) 0.25s; }
-  @supports (animation-timeline: view()) {
-    .close-photo img { animation: photo-drift linear both; animation-timeline: view(); animation-range: entry 0% exit 100%; }
-  }
-}
-@keyframes photo-in { to { opacity: 1; scale: 1; } }
-@keyframes sweep { to { translate: 100% 0; } }
-@keyframes photo-drift { from { scale: 1.16; translate: 0 -3%; } to { scale: 1.02; translate: 0 3%; } }
-@media (max-width: 760px) {
-  .hero-photo { --w: 100vw; margin-top: calc(var(--w) * -0.2); margin-bottom: calc(var(--w) * -0.08); }
-  .close-photo { margin-top: 48px; border-radius: 22px; aspect-ratio: 4 / 3; }
-}
-
 /* ---------------------------------------------------------------- 0.5.4: day gallery
    What the tokens can't flip on their own, and the switch between the two. */
 :root[data-theme="light"] .tile.light { background: #1d1d1f; color: #f5f5f7; }
@@ -599,11 +559,66 @@ html.theme-iris::view-transition-old(root), html.theme-iris::view-transition-new
 html.theme-iris::view-transition-new(root) { animation: theme-iris 0.7s var(--ease-in-out); }
 @keyframes theme-iris { from { clip-path: circle(0 at var(--tx) var(--ty)); } to { clip-path: circle(var(--tr) at var(--tx) var(--ty)); } }
 
-/* The hero photograph was shot on black. On white it is shown as its negative with the hue turned
-   back, which gives the mark as it is drawn in light mode: a graphite sphere, a blue one, a dark
-   thread. A little brightness lifts the studio floor to paper white. */
-:root[data-theme="light"] .hero-photo img { filter: invert(1) hue-rotate(180deg) brightness(1.045) contrast(1.05); }
-:root[data-theme="light"] .hero-photo :is(.glow, .pulse) { mix-blend-mode: normal; }
-:root[data-theme="light"] .hero-photo .glow.white { background: radial-gradient(closest-side, rgb(0 113 227 / 0.22), transparent); }
-:root[data-theme="light"] .hero-photo .glow.blue { background: radial-gradient(closest-side, rgb(0 113 227 / 0.3), transparent); }
-:root[data-theme="light"] .hero-photo .pulse { box-shadow: 0 0 18px 4px rgb(0 113 227 / 0.35); background: radial-gradient(closest-side, #0071e3, rgb(0 113 227 / 0.85) 55%, transparent); }
+/* ---------------------------------------------------------------- 0.6: the thread
+   The mark is two dots joined by a thread, and so is the page. Under the headline the thread hangs
+   between the two agents' windows and carries each message across as a pulse of light. It runs
+   down the side of the three steps as you read them, and draws the mark itself at the close.
+   Everything is drawn in the page's own ink, so it is the same object in the dark and in the light. */
+.stage-wrap { margin-top: 72px; }
+.thread { display: none; }
+.thread-line { stroke: var(--ink-3); stroke-width: 1.5; }
+.thread-pulse { stroke: var(--signal); stroke-width: 3; stroke-dasharray: 14 100; stroke-dashoffset: 14; opacity: 0; }
+.thread-pulse.go-right { animation: pulse-right 0.95s var(--ease-in-out) forwards; }
+.thread-pulse.go-left { stroke: var(--ink); animation: pulse-left 0.95s var(--ease-in-out) forwards; }
+@keyframes pulse-right { 0% { stroke-dashoffset: 14; opacity: 0; } 12%, 88% { opacity: 1; } 100% { stroke-dashoffset: -100; opacity: 0; } }
+@keyframes pulse-left { 0% { stroke-dashoffset: -100; opacity: 0; } 12%, 88% { opacity: 1; } 100% { stroke-dashoffset: 14; opacity: 0; } }
+.thread-end { transform-box: fill-box; transform-origin: center; }
+.thread-end.you { fill: var(--ink); }
+.thread-end.them { fill: var(--signal); }
+.thread-end.hit { animation: end-hit 0.7s var(--ease); }
+@keyframes end-hit { 30% { transform: scale(1.45); } }
+@media (min-width: 761px) {
+  .stage { grid-template-columns: 1fr clamp(140px, 17vw, 230px) 1fr; }
+  /* The drawing is 196 wide for a 140 gap, so 140% of the gap keeps its two ends on the window edges at any size. */
+  .relay { height: auto; aspect-ratio: 140 / 72; margin: 0; background: none; }
+  .thread { display: block; position: absolute; left: -20%; top: 0; z-index: 2; width: 140%; height: auto; aspect-ratio: 196 / 72; overflow: visible; }
+  .relay-label { top: calc(100% + 6px); }
+  .packet { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .js .thread-line { stroke-dasharray: 100; stroke-dashoffset: 100; animation: thread-draw 1.2s var(--ease-in-out) 1.55s forwards; }
+  .js .thread-end { opacity: 0; transform: scale(0.3); animation: end-in 0.6s var(--ease) 1.45s forwards; }
+  .js .thread-end.them { animation-delay: 2.6s; }
+  .js .relay-label { opacity: 0; animation: lift 0.8s var(--ease) 2.7s forwards; }
+}
+@keyframes thread-draw { to { stroke-dashoffset: 0; } }
+@keyframes end-in { to { opacity: 1; transform: none; } }
+
+/* How it works: the thread runs beside the steps and fills as they pass. */
+@media (min-width: 1001px) {
+  .story-steps { position: relative; padding-left: 40px; }
+  .story-steps::before, .story-steps::after { content: ""; position: absolute; left: 4px; top: 14vh; bottom: 14vh; width: 1px; background: var(--hair-2); }
+  .story-steps::after { background: var(--ink); transform: scaleY(0); transform-origin: top; }
+  .story-step h3 { position: relative; }
+  .story-step h3::before { content: ""; position: absolute; left: -40px; top: 0.42em; width: 9px; height: 9px; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--ink-3); transition: background-color 0.5s var(--ease), box-shadow 0.5s var(--ease), transform 0.5s var(--ease); }
+  .story-step.on h3::before { background: var(--signal); box-shadow: inset 0 0 0 1.5px var(--signal); transform: scale(1.25); }
+  @supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+      .story-steps::after { animation: thread-fill linear both; animation-timeline: view(); animation-range: cover 28% cover 72%; }
+    }
+  }
+}
+@keyframes thread-fill { to { transform: scaleY(1); } }
+
+/* The close: the mark draws itself, then the headline lifts in. */
+.close-mark { width: 84px; height: 84px; margin: 0 auto 40px; color: var(--ink); overflow: visible; }
+.close-mark path { opacity: 0.45; }
+.close-mark .b { fill: var(--signal); }
+.close-mark circle { transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .js .close-mark path { stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset 0.9s var(--ease-in-out) 0.3s; }
+  .js .close-mark circle { transform: scale(0); transition: transform 0.6s var(--ease); }
+  .js .close-mark .b { transition-delay: 1.05s; }
+  .js .close-mark.in path { stroke-dashoffset: 0; }
+  .js .close-mark.in circle { transform: none; }
+}

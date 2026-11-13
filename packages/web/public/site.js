@@ -22,9 +22,9 @@
       }),
     );
   }
-  const closePhoto = document.getElementById("close-photo");
+  const closePhoto = document.getElementById("close-mark");
   if (closePhoto && !reduce) {
-    const seen = io((e) => e[0].isIntersecting && (closePhoto.classList.add("in"), seen.disconnect()), { rootMargin: "0px 0px -25% 0px" });
+    const seen = io((e) => e[0].isIntersecting && (closePhoto.classList.add("in"), seen.disconnect()), { rootMargin: "0px 0px -12% 0px" });
     seen?.observe(closePhoto);
   }
   if (closing) {
@@ -82,19 +82,17 @@
     const lines = [...stage.querySelectorAll(".line")];
     const packet = document.getElementById("packet");
     const show = (step) => lines.filter((l) => Number(l.dataset.step) === step).forEach((l) => l.classList.add("show"));
-    const photo = document.getElementById("hero-photo");
-    // The thread in the photograph, as fractions of its box: white sphere, the sag, blue sphere.
-    const THREAD = [[0.25, 0.668], [0.48, 0.676], [0.714, 0.664]];
+    // The thread between the windows carries the same message: a pulse along it, then the end it reaches lights up.
+    const pulse = stage.querySelector(".thread-pulse");
+    const restart = (el, cls, drop = [cls]) => {
+      if (!el) return;
+      el.classList.remove(...drop);
+      void el.getBoundingClientRect(); // restart the animation
+      el.classList.add(cls);
+    };
     const beam = (dir) => {
-      if (!photo) return;
-      const { clientWidth: w, clientHeight: h } = photo;
-      const pts = dir === "go-left" ? [...THREAD].reverse() : THREAD;
-      const timing = { duration: 950, easing: "cubic-bezier(0.65, 0, 0.35, 1)" };
-      const pulse = photo.querySelector(".pulse");
-      pulse.animate(pts.map(([x, y]) => ({ transform: `translate(${x * w}px, ${y * h}px)` })), timing);
-      pulse.animate([{ opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }], timing);
-      // The sphere it reaches lights up for a moment.
-      photo.querySelector(dir === "go-left" ? ".glow.white" : ".glow.blue").animate([{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: 1500, delay: 800, easing: "ease-out" });
+      restart(pulse, dir, ["go-right", "go-left"]);
+      setTimeout(() => restart(stage.querySelector(dir === "go-left" ? ".thread-end.you" : ".thread-end.them"), "hit"), 800);
     };
     const fly = (dir) => {
       beam(dir);
