@@ -18307,14 +18307,14 @@ function formatMatrix(rows) {
       out.push(`  \u25CF ${r.app.padEnd(14)} ${name}  auto-reply ON via ${r.runtime}${r.runtime_ready ? "" : " (NOT FOUND on this computer: runs will fail)"}${r.model ? `, model ${r.model}` : ""}`);
       out.push(`      tools: ${r.tools.join(", ") || "(none)"}; ${caps.join(", ")}${r.workdir ? `; in ${r.workdir}` : ""}`);
       if (r.team) {
-        const limit = { read_only: "it only reads here: no project folder is set, or the limit is read_only (turn it on from inside the project to let it edit)", standard: "it may edit files in its folder and use the web, no shell", full: "it may edit files in its folder, use the web and run commands" }[r.ceiling ?? "standard"];
+        const limit = { read_only: `it only reads here: it has no project folder (it runs in ${r.workdir ?? "your home folder"}), or its limit is read_only. To let it edit, run on this computer: a2a auto-reply on --session "${r.session}" --agent ${name} --workdir <your project folder>`, standard: "it may edit files in its folder and use the web, no shell", full: "it may edit files in its folder, use the web and run commands" }[r.ceiling ?? "standard"];
         out.push(`      on the team: does task work and what the session's leader asks, as far as the session's permissions go; on this computer ${limit}`);
       }
       if (r.recent) out.push(`      last ${r.recent.runs} runs: delivery ${ms(r.recent.avg_delivery_ms)}, agent start ${ms(r.recent.avg_start_ms)}, model ${ms(r.recent.avg_model_ms)}`);
     }
   }
   if (rows.some((r) => r.autopilot)) out.push("", `Autopilot (task work, any session): ${[...new Set(rows.filter((r) => r.autopilot).map((r) => r.agent.split("/").pop()))].join(", ")}`);
-  out.push("", "Idle cost: one relay connection per workspace; no model runs until an enabled agent gets a new request.");
+  out.push("", "Idle cost: one relay connection per workspace; no model runs until an enabled agent gets a new message.");
   return out.join("\n");
 }
 
@@ -18647,12 +18647,62 @@ function ipc(home2, method, path, body, timeoutMs = 37e5) {
 
 // packages/client/src/daemon.ts
 import { createServer } from "node:http";
-import { existsSync as existsSync5, mkdirSync as mkdirSync5, readFileSync as readFileSync6, rmSync as rmSync3, unlinkSync, writeFileSync as writeFileSync5 } from "node:fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync6, rmSync as rmSync3, unlinkSync, writeFileSync as writeFileSync5 } from "node:fs";
 import { connect } from "node:net";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname4, join as join7, resolve as resolve2 } from "node:path";
+import { basename, dirname as dirname5, join as join8, resolve as resolve2 } from "node:path";
+
+// packages/client/src/launcher.ts
+import { spawn } from "node:child_process";
+import { mkdirSync as mkdirSync2, openSync } from "node:fs";
+import { dirname, join as join2 } from "node:path";
 import { fileURLToPath } from "node:url";
+function cliPath() {
+  if (process.env.A2A_CLI) return process.env.A2A_CLI;
+  const self = fileURLToPath(import.meta.url);
+  return self.endsWith("launcher.ts") ? join2(dirname(self), "cli.ts") : self;
+}
+async function daemonRunning(home2) {
+  try {
+    await ipc(home2, "GET", "/info", void 0, 2e3);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function waitUntil(check2, timeoutMs) {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (await check2()) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+async function ensureDaemon(home2, opts = {}) {
+  const running = await daemonRunning(home2);
+  if (running && !opts.restart) return "running";
+  if (running) {
+    try {
+      await ipc(home2, "POST", "/stop", {}, 5e3);
+    } catch {
+    }
+    await waitUntil(async () => !await daemonRunning(home2), 1e4);
+  }
+  mkdirSync2(join2(home2, "run"), { recursive: true, mode: 448 });
+  const log = openSync(join2(home2, "run", "daemon.log"), "a");
+  const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", cliPath(), "--home", home2, "run"], {
+    detached: true,
+    stdio: ["ignore", log, log],
+    windowsHide: true,
+    env: process.env
+  });
+  child.unref();
+  if (!await waitUntil(() => daemonRunning(home2), 15e3)) {
+    throw new Error(`a2a run did not start; see ${join2(home2, "run", "daemon.log")}`);
+  }
+  return running ? "restarted" : "started";
+}
 
 // node_modules/.pnpm/ws@8.22.0/node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -18666,7 +18716,7 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 
 // packages/client/src/state.ts
 import { DatabaseSync } from "node:sqlite";
-import { join as join2 } from "node:path";
+import { join as join3 } from "node:path";
 var SCHEMA = `
 CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, received_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS outbox (
@@ -18703,7 +18753,7 @@ CREATE TABLE IF NOT EXISTS notices (
 );
 `;
 function openState(home2) {
-  const db = new DatabaseSync(join2(home2, "state.db"));
+  const db = new DatabaseSync(join3(home2, "state.db"));
   db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
   for (const sql of [
@@ -18725,10 +18775,10 @@ function openState(home2) {
 }
 
 // packages/client/src/runtimes.ts
-import { spawn } from "node:child_process";
+import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync2, mkdtempSync, readFileSync as readFileSync3, rmSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname, join as join3 } from "node:path";
+import { dirname as dirname2, join as join4 } from "node:path";
 var A2A_TOOLS = [
   "mcp__a2a__reply",
   "mcp__a2a__get_thread",
@@ -18876,14 +18926,14 @@ function resolveSpawn(cmd, args) {
   let full = cmd;
   if (!/[\\/]/.test(cmd)) {
     const exts = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
-    const hit = (process.env.PATH ?? "").split(";").filter(Boolean).flatMap((dir) => /\.[a-z0-9]+$/i.test(cmd) ? [join3(dir, cmd)] : exts.map((e) => join3(dir, cmd + e.toLowerCase()))).find((p) => existsSync2(p));
+    const hit = (process.env.PATH ?? "").split(";").filter(Boolean).flatMap((dir) => /\.[a-z0-9]+$/i.test(cmd) ? [join4(dir, cmd)] : exts.map((e) => join4(dir, cmd + e.toLowerCase()))).find((p) => existsSync2(p));
     if (!hit) return [cmd, args];
     full = hit;
   }
   if (/\.(cmd|bat)$/i.test(full)) {
     try {
       const entry = /"%~?dp0%?\\([^"%]+\.[cm]?js)"/i.exec(readFileSync3(full, "utf8"))?.[1];
-      if (entry) return [process.execPath, [join3(dirname(full), entry), ...args]];
+      if (entry) return [process.execPath, [join4(dirname2(full), entry), ...args]];
     } catch {
     }
   }
@@ -18892,7 +18942,7 @@ function resolveSpawn(cmd, args) {
 function run(cmd, args, opts) {
   return new Promise((resolve6) => {
     const [bin, argv] = resolveSpawn(cmd, args);
-    const child = spawn(bin, argv, { cwd: opts.cwd, env: childEnv(process.env, opts.env), stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn2(bin, argv, { cwd: opts.cwd, env: childEnv(process.env, opts.env), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let timedOut = false;
@@ -18945,7 +18995,7 @@ function claudeArgs(ctx) {
     "--disallowedTools",
     PROTECTED.join(",")
   ];
-  const attached = [...new Set((ctx.message.files ?? []).map((f) => dirname(f.path)))];
+  const attached = [...new Set((ctx.message.files ?? []).map((f) => dirname2(f.path)))];
   if (attached.length) args.push("--add-dir", ...attached);
   const builtins = tools.filter((t) => !t.startsWith("mcp__"));
   args.push("--tools", builtins.length ? builtins.join(",") : "Read", "--disable-slash-commands", "--setting-sources", "");
@@ -18969,8 +19019,8 @@ async function runClaude(ctx) {
   }
 }
 async function runCodex(ctx) {
-  const dir = mkdtempSync(join3(tmpdir2(), "a2a-codex-"));
-  const lastMessage = join3(dir, "last.txt");
+  const dir = mkdtempSync(join4(tmpdir2(), "a2a-codex-"));
+  const lastMessage = join4(dir, "last.txt");
   const [cmd, ...base] = ctx.agent.command ?? ["codex", "exec", "--skip-git-repo-check"];
   const args = [...base, "--output-last-message", lastMessage, "-"];
   if (!ctx.agent.command) {
@@ -19106,9 +19156,9 @@ function runAgent(ctx) {
 
 // packages/client/src/tools.ts
 import { spawnSync } from "node:child_process";
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { dirname as dirname2, join as join4 } from "node:path";
+import { dirname as dirname3, join as join5 } from "node:path";
 
 // packages/client/src/instructions.ts
 var INSTRUCTIONS = `A2A connects you to other people's AI agents (and the user's other AI apps) through a relay. You are one agent; each app the user runs (Claude Code, Antigravity, Cursor, ...) is its own agent, and teammates join through shared sessions.
@@ -19176,11 +19226,11 @@ var TOOLS = [
 ];
 var toolById = (id) => TOOLS.find((t) => t.id === id);
 var home = () => process.env.A2A_APPS_HOME ?? homedir2();
-var appData = () => process.env.A2A_APPS_HOME ? join4(process.env.A2A_APPS_HOME, "AppData", "Roaming") : process.env.APPDATA ?? join4(homedir2(), "AppData", "Roaming");
+var appData = () => process.env.A2A_APPS_HOME ? join5(process.env.A2A_APPS_HOME, "AppData", "Roaming") : process.env.APPDATA ?? join5(homedir2(), "AppData", "Roaming");
 function appSupport(app) {
-  if (process.platform === "win32") return join4(appData(), app);
-  if (process.platform === "darwin") return join4(home(), "Library", "Application Support", app);
-  return join4(home(), ".config", app);
+  if (process.platform === "win32") return join5(appData(), app);
+  if (process.platform === "darwin") return join5(home(), "Library", "Application Support", app);
+  return join5(home(), ".config", app);
 }
 function findOnPath(cmd) {
   if (process.env.A2A_APPS_HOME) return null;
@@ -19194,23 +19244,23 @@ function target(id) {
   const h = home();
   switch (id) {
     case "claude-code":
-      return { file: join4(h, ".claude.json"), present: () => existsSync3(join4(h, ".claude")), kind: "claude-cli" };
+      return { file: join5(h, ".claude.json"), present: () => existsSync3(join5(h, ".claude")), kind: "claude-cli" };
     case "antigravity":
-      return { file: join4(h, ".gemini", "antigravity", "mcp_config.json"), present: () => existsSync3(join4(h, ".gemini", "antigravity")), kind: "mcpServers", skillDir: join4(h, ".gemini", "antigravity", "skills", "a2a") };
+      return { file: join5(h, ".gemini", "antigravity", "mcp_config.json"), present: () => existsSync3(join5(h, ".gemini", "antigravity")), kind: "mcpServers", skillDir: join5(h, ".gemini", "antigravity", "skills", "a2a") };
     case "gemini-cli":
-      return { file: join4(h, ".gemini", "settings.json"), present: () => existsSync3(join4(h, ".gemini", "settings.json")) || onPath("gemini"), kind: "mcpServers" };
+      return { file: join5(h, ".gemini", "settings.json"), present: () => existsSync3(join5(h, ".gemini", "settings.json")) || onPath("gemini"), kind: "mcpServers" };
     case "codex":
-      return { file: join4(h, ".codex", "config.toml"), present: () => existsSync3(join4(h, ".codex")), kind: "codex" };
+      return { file: join5(h, ".codex", "config.toml"), present: () => existsSync3(join5(h, ".codex")), kind: "codex" };
     case "cursor":
-      return { file: join4(h, ".cursor", "mcp.json"), present: () => existsSync3(join4(h, ".cursor")), kind: "mcpServers" };
+      return { file: join5(h, ".cursor", "mcp.json"), present: () => existsSync3(join5(h, ".cursor")), kind: "mcpServers" };
     case "windsurf":
-      return { file: join4(h, ".codeium", "windsurf", "mcp_config.json"), present: () => existsSync3(join4(h, ".codeium", "windsurf")), kind: "mcpServers" };
+      return { file: join5(h, ".codeium", "windsurf", "mcp_config.json"), present: () => existsSync3(join5(h, ".codeium", "windsurf")), kind: "mcpServers" };
     case "vscode":
-      return { file: join4(appSupport("Code"), "User", "mcp.json"), present: () => existsSync3(join4(appSupport("Code"), "User")), kind: "vscode" };
+      return { file: join5(appSupport("Code"), "User", "mcp.json"), present: () => existsSync3(join5(appSupport("Code"), "User")), kind: "vscode" };
     case "claude-desktop":
-      return { file: join4(appSupport("Claude"), "claude_desktop_config.json"), present: () => existsSync3(appSupport("Claude")), kind: "mcpServers" };
+      return { file: join5(appSupport("Claude"), "claude_desktop_config.json"), present: () => existsSync3(appSupport("Claude")), kind: "mcpServers" };
     case "opencode":
-      return { file: join4(h, ".config", "opencode", "opencode.json"), present: () => existsSync3(join4(h, ".config", "opencode")), kind: "opencode" };
+      return { file: join5(h, ".config", "opencode", "opencode.json"), present: () => existsSync3(join5(h, ".config", "opencode")), kind: "opencode" };
     default:
       throw new Error(`Unknown app "${id}". Known: ${TOOLS.map((t) => t.id).join(", ")}`);
   }
@@ -19220,7 +19270,7 @@ function detectTools() {
 }
 function claudePluginInstalled() {
   try {
-    const j = JSON.parse(readFileSync4(join4(home(), ".claude", "plugins", "installed_plugins.json"), "utf8"));
+    const j = JSON.parse(readFileSync4(join5(home(), ".claude", "plugins", "installed_plugins.json"), "utf8"));
     return Object.keys(j.plugins ?? j).some((k) => k.startsWith("a2a@"));
   } catch {
     return false;
@@ -19240,7 +19290,7 @@ function readJson(file) {
   }
 }
 function writeJson(file, value) {
-  mkdirSync2(dirname2(file), { recursive: true });
+  mkdirSync3(dirname3(file), { recursive: true });
   writeFileSync2(file, `${JSON.stringify(value, null, 2)}
 `);
 }
@@ -19265,8 +19315,8 @@ function installTool(id, mcp) {
       j.mcpServers = { ...j.mcpServers ?? {}, a2a: { command: mcp.command, args } };
       writeJson(t.file, j);
       if (t.skillDir) {
-        mkdirSync2(t.skillDir, { recursive: true });
-        writeFileSync2(join4(t.skillDir, "SKILL.md"), SKILL_MD);
+        mkdirSync3(t.skillDir, { recursive: true });
+        writeFileSync2(join5(t.skillDir, "SKILL.md"), SKILL_MD);
       }
       return { ok: true, where: t.file };
     }
@@ -19294,7 +19344,7 @@ command = ${JSON.stringify(mcp.command)}
 args = [${args.map((a) => JSON.stringify(a)).join(", ")}]
 tool_timeout_sec = 600
 `;
-      mkdirSync2(dirname2(t.file), { recursive: true });
+      mkdirSync3(dirname3(t.file), { recursive: true });
       writeFileSync2(t.file, `${kept ? `${kept}
 
 ` : ""}${toml}`);
@@ -19304,13 +19354,13 @@ tool_timeout_sec = 600
 }
 
 // packages/client/src/account.ts
-import { spawn as spawn2 } from "node:child_process";
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { spawn as spawn3 } from "node:child_process";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { hostname as hostname2 } from "node:os";
-import { join as join5 } from "node:path";
+import { join as join6 } from "node:path";
 var DEFAULT_ORIGIN = process.env.A2A_ORIGIN ?? "https://a2a-relay.a2a-cloud.workers.dev";
-var accountPath = (home2) => join5(home2, "account.json");
-var pendingPath = (home2) => join5(home2, "run", "login.json");
+var accountPath = (home2) => join6(home2, "account.json");
+var pendingPath = (home2) => join6(home2, "run", "login.json");
 function loadAccount(home2, origin) {
   try {
     const a = JSON.parse(readFileSync5(accountPath(home2), "utf8"));
@@ -19320,7 +19370,7 @@ function loadAccount(home2, origin) {
   }
 }
 function saveAccount(home2, account) {
-  mkdirSync3(home2, { recursive: true, mode: 448 });
+  mkdirSync4(home2, { recursive: true, mode: 448 });
   writeFileSync3(accountPath(home2), JSON.stringify(account, null, 2), { mode: 384 });
 }
 async function signOut(home2) {
@@ -19345,7 +19395,7 @@ function openBrowser(url) {
   if (process.env.A2A_NO_BROWSER) return;
   const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
   try {
-    spawn2(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {
+    spawn3(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {
     }).unref();
   } catch {
   }
@@ -19355,7 +19405,7 @@ async function startLogin(home2, origin) {
   if (r.status !== 200) throw new Error(String(r.body.error ?? `Sign-in failed to start (${r.status}).`));
   const b = r.body;
   const complete = b.verify_url_complete ?? `${b.verify_url}?code=${encodeURIComponent(b.user_code)}`;
-  mkdirSync3(join5(home2, "run"), { recursive: true, mode: 448 });
+  mkdirSync4(join6(home2, "run"), { recursive: true, mode: 448 });
   writeFileSync3(pendingPath(home2), JSON.stringify({ origin, device_code: b.device_code, user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_at: Date.now() + b.expires_in * 1e3 }), { mode: 384 });
   return { user_code: b.user_code, verify_url: b.verify_url, verify_url_complete: complete, expires_in: b.expires_in };
 }
@@ -19432,26 +19482,26 @@ function personSlug(name, email2) {
 
 // packages/client/src/install.ts
 import { execFileSync } from "node:child_process";
-import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
+import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir3, platform } from "node:os";
-import { dirname as dirname3, join as join6 } from "node:path";
+import { dirname as dirname4, join as join7 } from "node:path";
 var xml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 function installAutostart(home2) {
   if (process.env.NODE_TEST_CONTEXT || process.env.A2A_NO_AUTOSTART || !/a2a\.mjs$/.test(CLI_PATH)) return null;
   const args = [process.execPath, "--disable-warning=ExperimentalWarning", CLI_PATH, "--home", home2, "start"];
   try {
     if (platform() === "win32") {
-      const dir = join6(process.env.APPDATA ?? join6(homedir3(), "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
-      mkdirSync4(dir, { recursive: true });
-      const file2 = join6(dir, "a2a-client.vbs");
+      const dir = join7(process.env.APPDATA ?? join7(homedir3(), "AppData", "Roaming"), "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+      mkdirSync5(dir, { recursive: true });
+      const file2 = join7(dir, "a2a-client.vbs");
       writeFileSync4(file2, `' Starts the a2a client at sign-in, hidden, so agents with auto-reply on keep listening.\r
 CreateObject("WScript.Shell").Run "${args.map((a) => `""${a}""`).join(" ")}", 0, False\r
 `);
       return file2;
     }
     if (platform() === "darwin") {
-      const file2 = join6(homedir3(), "Library", "LaunchAgents", "dev.a2a.autostart.plist");
-      mkdirSync4(dirname3(file2), { recursive: true });
+      const file2 = join7(homedir3(), "Library", "LaunchAgents", "dev.a2a.autostart.plist");
+      mkdirSync5(dirname4(file2), { recursive: true });
       writeFileSync4(
         file2,
         `<?xml version="1.0" encoding="UTF-8"?>
@@ -19470,8 +19520,8 @@ CreateObject("WScript.Shell").Run "${args.map((a) => `""${a}""`).join(" ")}", 0,
       );
       return file2;
     }
-    const file = join6(process.env.XDG_CONFIG_HOME ?? join6(homedir3(), ".config"), "autostart", "a2a-client.desktop");
-    mkdirSync4(dirname3(file), { recursive: true });
+    const file = join7(process.env.XDG_CONFIG_HOME ?? join7(homedir3(), ".config"), "autostart", "a2a-client.desktop");
+    mkdirSync5(dirname4(file), { recursive: true });
     writeFileSync4(file, `[Desktop Entry]
 Type=Application
 Name=a2a client
@@ -19488,11 +19538,11 @@ NoDisplay=true
 function installService(home2, name, load) {
   const label = `dev.a2a.client.${name.replace(/[^a-zA-Z0-9.-]/g, "-")}`;
   const args = [process.execPath, "--disable-warning=ExperimentalWarning", CLI_PATH, "--home", home2, "run"];
-  const logDir = join6(home2, "logs");
-  mkdirSync4(logDir, { recursive: true });
+  const logDir = join7(home2, "logs");
+  mkdirSync5(logDir, { recursive: true });
   if (platform() === "darwin") {
-    const file2 = join6(homedir3(), "Library", "LaunchAgents", `${label}.plist`);
-    mkdirSync4(dirname3(file2), { recursive: true });
+    const file2 = join7(homedir3(), "Library", "LaunchAgents", `${label}.plist`);
+    mkdirSync5(dirname4(file2), { recursive: true });
     writeFileSync4(
       file2,
       `<?xml version="1.0" encoding="UTF-8"?>
@@ -19509,8 +19559,8 @@ function installService(home2, name, load) {
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${xml(join6(logDir, "client.log"))}</string>
-  <key>StandardErrorPath</key><string>${xml(join6(logDir, "client.log"))}</string>
+  <key>StandardOutPath</key><string>${xml(join7(logDir, "client.log"))}</string>
+  <key>StandardErrorPath</key><string>${xml(join7(logDir, "client.log"))}</string>
 </dict>
 </plist>
 `
@@ -19522,15 +19572,15 @@ function installService(home2, name, load) {
       } catch {
       }
       execFileSync("launchctl", ["bootstrap", `gui/${uid}`, file2], { stdio: "inherit" });
-      return `Installed and started ${label}. Logs: ${join6(logDir, "client.log")}`;
+      return `Installed and started ${label}. Logs: ${join7(logDir, "client.log")}`;
     }
     return `Wrote ${file2}
 Start it with:
   launchctl bootstrap gui/${uid} ${file2}`;
   }
   const unit = `a2a-client-${name.replace(/[^a-zA-Z0-9-]/g, "-")}.service`;
-  const file = join6(homedir3(), ".config", "systemd", "user", unit);
-  mkdirSync4(dirname3(file), { recursive: true });
+  const file = join7(homedir3(), ".config", "systemd", "user", unit);
+  mkdirSync5(dirname4(file), { recursive: true });
   writeFileSync4(
     file,
     `[Unit]
@@ -19559,8 +19609,7 @@ Start it with:
 }
 
 // packages/client/src/daemon.ts
-var here = dirname4(fileURLToPath(import.meta.url));
-var CLI_PATH = resolve2(here, "cli.ts");
+var CLI_PATH = cliPath();
 var iso = () => (/* @__PURE__ */ new Date()).toISOString();
 var TERMINAL_FAILURES = /* @__PURE__ */ new Set(["blocked", "rejected", "expired"]);
 var APP_RUNTIME = { "claude-code": "claude", codex: "codex", opencode: "opencode" };
@@ -19569,7 +19618,7 @@ var THREAD_RUNS_PER_HOUR = 6;
 function onPath2(bin) {
   if (/[\\/]/.test(bin)) return existsSync5(bin);
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").concat("") : [""];
-  return (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":").some((dir) => dir && exts.some((e) => existsSync5(join7(dir, bin + e.toLowerCase())) || existsSync5(join7(dir, bin + e))));
+  return (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":").some((dir) => dir && exts.some((e) => existsSync5(join8(dir, bin + e.toLowerCase())) || existsSync5(join8(dir, bin + e))));
 }
 var decisionNote = (d, owner) => [
   `[a2a] ${owner} answered the approval you asked for.`,
@@ -19620,7 +19669,7 @@ var Daemon = class {
   async start() {
     this.config = loadConfig(this.home);
     if (this.config.agents.length === 0) throw new Error("No agents configured. Add one with `a2a agents add agent://<org>/<name>`.");
-    mkdirSync5(join7(this.home, "run"), { recursive: true, mode: 448 });
+    mkdirSync6(join8(this.home, "run"), { recursive: true, mode: 448 });
     for (const a of this.config.agents) this.keys.set(a.address, loadAgentKey(this.home, a));
     this.state = openState(this.home);
     await this.pinKeys();
@@ -19939,7 +19988,7 @@ var Daemon = class {
     const rule = (agent.auto_reply ?? []).find((r) => r.session === key);
     if (!rule) return no(`auto-reply is off ${m.session ? `in "${m.session.name}"` : "on this relay"}`);
     if (resume) return { run: true, rule };
-    if (m.kind !== "request") return no(`a ${m.kind} never starts an auto-reply`);
+    if (m.kind === "reply" && !m.expects_reply) return no("a reply that asks nothing back never starts an auto-reply");
     if (m.automated && !(rule.team && m.leader)) return no("loop guard: another agent's automated request never starts an auto-reply");
     const count = (sql, ...args) => Number(this.state.prepare(sql).get(...args).n ?? 0);
     const hourAgo = new Date(Date.now() - 36e5).toISOString();
@@ -20030,7 +20079,7 @@ var Daemon = class {
    * team the agent's owner joined, and answered from the relay's records, never from the message.
    */
   async leads(agent, m) {
-    if (m.kind !== "request" || !m.sender_verified || !m.session) return false;
+    if (m.kind === "reply" || !m.sender_verified || !m.session) return false;
     const sessionId = m.session.id;
     if (!(agent.auto_reply ?? []).some((r) => r.session === sessionId && r.team)) return false;
     if (m.from.endsWith("/console")) return true;
@@ -20048,7 +20097,7 @@ var Daemon = class {
    */
   ceiling(agent) {
     const dir = agent.workdir ? resolve2(agent.workdir) : "";
-    const project = !!dir && !samePath(dir, resolve2(homedir4())) && !samePath(dirname4(dir), dir);
+    const project = !!dir && !samePath(dir, resolve2(homedir4())) && !samePath(dirname5(dir), dir);
     return project ? agent.autopilot_max ?? "standard" : "read_only";
   }
   /** What the owner's permissions bar allows in a session this agent is in. */
@@ -20303,12 +20352,12 @@ var Daemon = class {
   /** Writes a message's attachments under <home>/files/<id>/, so agents get paths instead of megabytes of base64. */
   saveAttachments(id, attachments) {
     if (!attachments?.length) return void 0;
-    const dir = join7(this.home, "files", id.replace(/[^A-Za-z0-9_]/g, ""));
-    mkdirSync5(dir, { recursive: true, mode: 448 });
+    const dir = join8(this.home, "files", id.replace(/[^A-Za-z0-9_]/g, ""));
+    mkdirSync6(dir, { recursive: true, mode: 448 });
     return attachments.map((a, i) => {
       const name = basename(a.name).replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[.]+/, "").slice(0, 120) || `file-${i + 1}`;
       const data = Buffer.from(a.data, "base64");
-      const path = join7(dir, name);
+      const path = join8(dir, name);
       writeFileSync5(path, data, { mode: 384 });
       return { name, path, bytes: data.length, mime: a.mime };
     });
@@ -20587,6 +20636,7 @@ var Daemon = class {
     let agent = configured;
     let perms;
     const board = !!taskId || mission;
+    if (!board && m.kind === "notify") m = { ...m, expects_reply: true };
     const team = board ? !!agent.autopilot || !!rule?.team : !!rule?.team && !!m.leader;
     if (taskId) perms = await this.taskPermissions(agent.address, taskId);
     else if (team && m.session) perms = await this.sessionPermissions(agent.address, m.session.id);
@@ -20605,7 +20655,7 @@ var Daemon = class {
       A2A_SOCKET: socketPath(this.home),
       ...rule?.max_tokens && agent.runtime === "claude" ? { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(rule.max_tokens) } : {}
     };
-    const mcpConfigPath = join7(this.home, "run", `${runId}.mcp.json`);
+    const mcpConfigPath = join8(this.home, "run", `${runId}.mcp.json`);
     writeFileSync5(
       mcpConfigPath,
       JSON.stringify({ mcpServers: { a2a: { type: "stdio", command: process.execPath, args: ["--disable-warning=ExperimentalWarning", CLI_PATH, "mcp"], env } } }, null, 2),
@@ -35288,62 +35338,11 @@ function capsuleBrief(text2) {
   return m?.[1]?.trim() || null;
 }
 
-// packages/client/src/launcher.ts
-import { spawn as spawn3 } from "node:child_process";
-import { mkdirSync as mkdirSync6, openSync } from "node:fs";
-import { dirname as dirname5, join as join8 } from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
-function cliPath() {
-  if (process.env.A2A_CLI) return process.env.A2A_CLI;
-  const self = fileURLToPath2(import.meta.url);
-  return self.endsWith("launcher.ts") ? join8(dirname5(self), "cli.ts") : self;
-}
-async function daemonRunning(home2) {
-  try {
-    await ipc(home2, "GET", "/info", void 0, 2e3);
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function waitUntil(check2, timeoutMs) {
-  const until = Date.now() + timeoutMs;
-  while (Date.now() < until) {
-    if (await check2()) return true;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  return false;
-}
-async function ensureDaemon(home2, opts = {}) {
-  const running = await daemonRunning(home2);
-  if (running && !opts.restart) return "running";
-  if (running) {
-    try {
-      await ipc(home2, "POST", "/stop", {}, 5e3);
-    } catch {
-    }
-    await waitUntil(async () => !await daemonRunning(home2), 1e4);
-  }
-  mkdirSync6(join8(home2, "run"), { recursive: true, mode: 448 });
-  const log = openSync(join8(home2, "run", "daemon.log"), "a");
-  const child = spawn3(process.execPath, ["--disable-warning=ExperimentalWarning", cliPath(), "--home", home2, "run"], {
-    detached: true,
-    stdio: ["ignore", log, log],
-    windowsHide: true,
-    env: process.env
-  });
-  child.unref();
-  if (!await waitUntil(() => daemonRunning(home2), 15e3)) {
-    throw new Error(`a2a run did not start; see ${join8(home2, "run", "daemon.log")}`);
-  }
-  return running ? "restarted" : "started";
-}
-
 // packages/client/src/connect.ts
 import { copyFileSync, existsSync as existsSync8, mkdirSync as mkdirSync7, readFileSync as readFileSync9 } from "node:fs";
 import { hostname as hostname4 } from "node:os";
 import { join as join9 } from "node:path";
-import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // packages/client/src/join.ts
 import { existsSync as existsSync7, readFileSync as readFileSync8 } from "node:fs";
@@ -35477,7 +35476,7 @@ async function newConfig(server, person) {
   return { server, name: hostname4(), relay_public_key: info.relay_public_key, person, agents: [] };
 }
 function selfInstall(home2) {
-  const self = process.env.A2A_CLI ?? fileURLToPath3(import.meta.url);
+  const self = process.env.A2A_CLI ?? fileURLToPath2(import.meta.url);
   if (self.endsWith(".ts")) return { command: process.execPath, args: ["--disable-warning=ExperimentalWarning", join9(self, "..", "cli.ts"), "mcp"] };
   const dest = join9(home2, "bin", "a2a.mjs");
   if (self !== dest) {
@@ -35582,7 +35581,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.5.7" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.8" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);
@@ -35962,13 +35961,13 @@ ${formatMatrix(r.matrix)}`);
   server.registerTool(
     "send_message",
     {
-      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-theo) or just a name (guest-theo, Theo).",
+      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-theo) or just a name (guest-theo, Theo). An agent whose owner put it on the session's team answers on its own, so nobody has to prompt it; an app that is only open in a chat window answers when its person next uses it.",
       inputSchema: {
         to: external_exports.string().describe("Recipient: agent://<org>/<name>, or a name like guest-theo"),
         text: external_exports.string().describe("The message"),
         scope: external_exports.string().optional().describe("Policy scope. Usually leave empty; the relay picks one."),
         thread_id: external_exports.string().optional().describe("Continue an existing thread instead of starting a new one"),
-        wait_for_reply: external_exports.boolean().optional().describe("Wait for the reply (default true)"),
+        wait_for_reply: external_exports.boolean().optional().describe("Wait for the reply (default true). False sends without blocking: the message is still a request, and the answer arrives in your inbox (check_inbox, get_thread)."),
         timeout_seconds: external_exports.number().int().min(1).max(600).optional().describe("How long to wait for the reply (default 90)"),
         attach: external_exports.array(external_exports.string()).max(5).optional().describe("Sealed context capsules (*.capsule.md) to send along, by path, for big requests. Other files can't be attached from here. 180 KiB total."),
         session: external_exports.string().optional().describe("Which session this is for (name or id). Needed when you share several sessions with the recipient and want their auto-reply for one of them.")
@@ -35987,8 +35986,9 @@ ${formatMatrix(r.matrix)}`);
             text: args.text,
             scope: args.scope,
             thread_id: args.thread_id,
-            kind: wait ? "request" : "notify",
-            expects_reply: wait,
+            // Not waiting is not the same as wanting no answer: a notify would start nobody on older clients.
+            kind: "request",
+            expects_reply: true,
             wait_seconds: seconds,
             attachments: args.attach?.length ? readCapsuleAttachments(args.attach, home2) : void 0,
             session: args.session,
@@ -36105,9 +36105,9 @@ import { spawn as spawn4 } from "node:child_process";
 import { existsSync as existsSync10, readFileSync as readFileSync11 } from "node:fs";
 import { platform as platform2 } from "node:os";
 import { dirname as dirname6, join as join10, resolve as resolve4 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
-var here2 = dirname6(fileURLToPath4(import.meta.url));
-var REPO_ROOT = resolve4(here2, "../../..");
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+var here = dirname6(fileURLToPath3(import.meta.url));
+var REPO_ROOT = resolve4(here, "../../..");
 function loadDotEnv(paths, only) {
   for (const path of paths) {
     if (!existsSync10(path)) continue;

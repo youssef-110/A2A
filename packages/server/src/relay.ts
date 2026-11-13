@@ -597,9 +597,11 @@ export class Relay extends EventEmitter {
     const members = this.sessionMembers(id);
     const marks = members.map(() => "?").join(",");
     const gm = guests.map(() => "?").join(",") || "''";
+    // The owner's agents are in every session, so their messages show here when a guest is on the other
+    // side, or when the message names this session (typed on its page, or an answer to that).
     return this.db
-      .prepare(`SELECT * FROM messages WHERE from_addr IN (${marks}) AND to_addr IN (${marks}) AND (from_addr IN (${gm}) OR to_addr IN (${gm})) ORDER BY received_at DESC LIMIT ${Math.floor(limit)}`)
-      .all(...members, ...members, ...guests, ...guests) as unknown as MessageRow[];
+      .prepare(`SELECT * FROM messages WHERE from_addr IN (${marks}) AND to_addr IN (${marks}) AND (from_addr IN (${gm}) OR to_addr IN (${gm}) OR json_extract(envelope, '$.session') = ?) ORDER BY received_at DESC LIMIT ${Math.floor(limit)}`)
+      .all(...members, ...members, ...guests, ...guests, id) as unknown as MessageRow[];
   }
 
   accountInSession(account: string, id: string): boolean {
@@ -812,7 +814,7 @@ export class Relay extends EventEmitter {
       if (!this.inviteUsable(invite, target?.session_id)) return { status: 403, body: { error: "invalid_invite", detail: "this invite link is expired, used up or revoked" } };
     }
     if (target?.session_id && this.requireAccount && !account) {
-      return { status: 401, body: { error: "sign_in_required", detail: "Sessions need a signed-in account. Run: npx -y <relay>/a2a.tgz connect <invite link>" } };
+      return { status: 401, body: { error: "sign_in_required", detail: "Sessions need a signed-in account. Open the invite link in your browser and paste its prompt into your AI app, or run: a2a connect <invite link>" } };
     }
     const bound = this.accountOf(address);
     if (bound && account && bound.account_id !== account.id) return { status: 409, body: { error: "key_conflict", detail: "this agent name belongs to someone else; pick another name" } };

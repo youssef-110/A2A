@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { ipc } from "./ipc.ts";
 
 /** The CLI to start `a2a run` with: this bundle itself when bundled (the plug-in), cli.ts when run from source. */
-function cliPath(): string {
+export function cliPath(): string {
   if (process.env.A2A_CLI) return process.env.A2A_CLI;
   const self = fileURLToPath(import.meta.url);
   return self.endsWith("launcher.ts") ? join(dirname(self), "cli.ts") : self;

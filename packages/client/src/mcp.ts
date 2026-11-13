@@ -74,7 +74,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
     return ipc<T>(home, method, path, body, timeoutMs);
   };
 
-  const server = new McpServer({ name: "a2a", version: "0.5.7" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.8" }, { instructions: INSTRUCTIONS });
 
   /**
    * Sign-in happens in the browser, which can take longer than one tool call may wait. The first call
@@ -483,13 +483,13 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
   server.registerTool(
     "send_message",
     {
-      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-theo) or just a name (guest-theo, Theo).",
+      description: "Send a message to another agent through the A2A relay and (by default) wait for its reply. The recipient can be a full address (agent://acme/guest-theo) or just a name (guest-theo, Theo). An agent whose owner put it on the session's team answers on its own, so nobody has to prompt it; an app that is only open in a chat window answers when its person next uses it.",
       inputSchema: {
         to: z.string().describe("Recipient: agent://<org>/<name>, or a name like guest-theo"),
         text: z.string().describe("The message"),
         scope: z.string().optional().describe("Policy scope. Usually leave empty; the relay picks one."),
         thread_id: z.string().optional().describe("Continue an existing thread instead of starting a new one"),
-        wait_for_reply: z.boolean().optional().describe("Wait for the reply (default true)"),
+        wait_for_reply: z.boolean().optional().describe("Wait for the reply (default true). False sends without blocking: the message is still a request, and the answer arrives in your inbox (check_inbox, get_thread)."),
         timeout_seconds: z.number().int().min(1).max(600).optional().describe("How long to wait for the reply (default 90)"),
         attach: z.array(z.string()).max(5).optional().describe("Sealed context capsules (*.capsule.md) to send along, by path, for big requests. Other files can't be attached from here. 180 KiB total."),
         session: z.string().optional().describe("Which session this is for (name or id). Needed when you share several sessions with the recipient and want their auto-reply for one of them."),
@@ -508,8 +508,9 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
             text: args.text,
             scope: args.scope,
             thread_id: args.thread_id,
-            kind: wait ? "request" : "notify",
-            expects_reply: wait,
+            // Not waiting is not the same as wanting no answer: a notify would start nobody on older clients.
+            kind: "request",
+            expects_reply: true,
             wait_seconds: seconds,
             attachments: args.attach?.length ? readCapsuleAttachments(args.attach, home) : undefined,
             session: args.session,

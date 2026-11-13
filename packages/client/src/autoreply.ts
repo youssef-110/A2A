@@ -51,13 +51,13 @@ export function formatMatrix(rows: MatrixRow[]): string {
       out.push(`  ● ${r.app.padEnd(14)} ${name}  auto-reply ON via ${r.runtime}${r.runtime_ready ? "" : " (NOT FOUND on this computer: runs will fail)"}${r.model ? `, model ${r.model}` : ""}`);
       out.push(`      tools: ${r.tools.join(", ") || "(none)"}; ${caps.join(", ")}${r.workdir ? `; in ${r.workdir}` : ""}`);
       if (r.team) {
-        const limit = { read_only: "it only reads here: no project folder is set, or the limit is read_only (turn it on from inside the project to let it edit)", standard: "it may edit files in its folder and use the web, no shell", full: "it may edit files in its folder, use the web and run commands" }[r.ceiling ?? "standard"];
+        const limit = { read_only: `it only reads here: it has no project folder (it runs in ${r.workdir ?? "your home folder"}), or its limit is read_only. To let it edit, run on this computer: a2a auto-reply on --session "${r.session}" --agent ${name} --workdir <your project folder>`, standard: "it may edit files in its folder and use the web, no shell", full: "it may edit files in its folder, use the web and run commands" }[r.ceiling ?? "standard"];
         out.push(`      on the team: does task work and what the session's leader asks, as far as the session's permissions go; on this computer ${limit}`);
       }
       if (r.recent) out.push(`      last ${r.recent.runs} runs: delivery ${ms(r.recent.avg_delivery_ms)}, agent start ${ms(r.recent.avg_start_ms)}, model ${ms(r.recent.avg_model_ms)}`);
     }
   }
   if (rows.some((r) => r.autopilot)) out.push("", `Autopilot (task work, any session): ${[...new Set(rows.filter((r) => r.autopilot).map((r) => r.agent.split("/").pop()))].join(", ")}`);
-  out.push("", "Idle cost: one relay connection per workspace; no model runs until an enabled agent gets a new request.");
+  out.push("", "Idle cost: one relay connection per workspace; no model runs until an enabled agent gets a new message.");
   return out.join("\n");
 }

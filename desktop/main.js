@@ -55,7 +55,8 @@ const linked = () => readState().linked === true;
 
 // ------------------------------------------------------------------ the bundled client
 
-const cliEnv = () => ({ ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_NO_WARNINGS: "1", A2A_HOME: AGENT_HOME });
+// The app starts and stops its own client, so the client never adds itself to the system's sign-in items.
+const cliEnv = () => ({ ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_NO_WARNINGS: "1", A2A_HOME: AGENT_HOME, A2A_NO_AUTOSTART: "1" });
 
 function runCli(args) {
   return new Promise((resolve) => {
@@ -192,8 +193,18 @@ async function finishLink(sender, p) {
     httpOnly: true,
     secure: RELAY.startsWith("https:"),
     sameSite: "lax",
-    expirationDate: Math.floor(Date.now() / 1000) + 30 * 86_400,
+    // As long as the session the relay gives a desktop app (DEVICE_SESSION_DAYS in the cloud's accounts.ts).
+    expirationDate: Math.floor(Date.now() / 1000) + 180 * 86_400,
   });
+  // Signing in again as the same person, with this computer's agent still accepted by the same
+  // workspace: keep the agent (its key, name and sessions) and only renew the website's sign-in.
+  const before = readState();
+  const info = before.linked && before.workspace === p.workspace && before.user === p.user.email ? await daemonInfo() : null;
+  if (info?.connected && info.agents?.[0]?.online) {
+    send(sender, { state: "done" });
+    loadDashboard();
+    return;
+  }
   await stopDaemon();
   fs.rmSync(AGENT_HOME, { recursive: true, force: true });
   const runtime = (await hasClaude()) ? "claude" : "none";
@@ -261,10 +272,24 @@ function createWindow() {
     openExternal(url);
     return { action: "deny" };
   });
-  wc.on("will-navigate", (e, url) => {
+  // Our pages stay in the window; everything else opens in the browser. That includes where a
+  // redirect leads: Google and GitHub sign-in must never run inside the app.
+  const stayHere = (e, url) => {
     if (isOurs(url)) return;
     e.preventDefault();
     openExternal(url);
+  };
+  wc.on("will-navigate", stayHere);
+  wc.on("will-redirect", stayHere);
+  // The website asking to sign in means its sign-in here ended (signed out elsewhere, expired, or the
+  // account changed). The app signs in through the browser, so go back to the welcome screen.
+  wc.on("did-navigate", (_e, url) => {
+    try {
+      const u = new URL(url);
+      if (u.origin === ORIGIN && ["/signin", "/signup"].includes(u.pathname)) showWelcome(true);
+    } catch {
+      /* not a URL */
+    }
   });
   // Downloads of the app from inside the app are pointless; send everything else to the browser.
   session.defaultSession.on("will-download", (e, item) => {
@@ -274,7 +299,7 @@ function createWindow() {
   linked() ? loadDashboard() : showWelcome();
 }
 
-const showWelcome = () => win?.loadFile(WELCOME);
+const showWelcome = (again = false) => win?.loadFile(WELCOME, again ? { query: { again: "1" } } : undefined);
 const loadDashboard = () => win?.loadURL(`${RELAY}/app`);
 
 function showWindow() {

@@ -103,6 +103,11 @@
       else if (m.state === "denied") fail("The sign-in was cancelled in the browser.");
       else if (m.state === "error") fail(m.message || "Joining failed.");
     });
+    // Sent back here because the website's sign-in ended: say so instead of greeting a new user.
+    if (new URLSearchParams(location.search).has("again")) {
+      document.querySelector("#intro h1").textContent = "Sign in again";
+      document.querySelector("#intro p").textContent = "Your sign-in on this computer ended. Sign in with your browser to open your dashboard again.";
+    }
     $("start").addEventListener("click", start);
     $("retry").addEventListener("click", start);
     $("reopen").addEventListener("click", () => verifyUrl && window.a2aDesktop.openUrl(verifyUrl));

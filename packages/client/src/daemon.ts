@@ -4,7 +4,7 @@ import { connect, type AddressInfo } from "node:net";
 import { randomBytes, type KeyObject } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { cliPath } from "./launcher.ts";
 import { WebSocket } from "ws";
 import {
   ADDRESS_RE,
@@ -46,8 +46,8 @@ import { toolById } from "./tools.ts";
 import { personSlug } from "./account.ts";
 import { installAutostart } from "./install.ts";
 
-const here = dirname(fileURLToPath(import.meta.url));
-export const CLI_PATH = resolve(here, "cli.ts");
+// The bundled client is one file: headless runs and the sign-in autostart must start that file, not a cli.ts next to it.
+export const CLI_PATH = cliPath();
 
 const iso = (): string => new Date().toISOString();
 const TERMINAL_FAILURES = new Set(["blocked", "rejected", "expired"]);
@@ -589,7 +589,9 @@ export class Daemon {
     const rule = (agent.auto_reply ?? []).find((r) => r.session === key);
     if (!rule) return no(`auto-reply is off ${m.session ? `in "${m.session.name}"` : "on this relay"}`);
     if (resume) return { run: true, rule };
-    if (m.kind !== "request") return no(`a ${m.kind} never starts an auto-reply`);
+    // A reply that asks nothing back ends an exchange. Anything else another agent sends here is
+    // answered, whether or not its sender waits: an app that doesn't block on the answer sends a notify.
+    if (m.kind === "reply" && !m.expects_reply) return no("a reply that asks nothing back never starts an auto-reply");
     // A team's leader is usually a headless run itself, so its requests are automated. They still
     // start a run on the team; the thread and hourly limits below are what stop a loop.
     if (m.automated && !(rule.team && m.leader)) return no("loop guard: another agent's automated request never starts an auto-reply");
@@ -695,7 +697,7 @@ export class Daemon {
    * team the agent's owner joined, and answered from the relay's records, never from the message.
    */
   private async leads(agent: AgentConfig, m: InboundMessage): Promise<boolean> {
-    if (m.kind !== "request" || !m.sender_verified || !m.session) return false;
+    if (m.kind === "reply" || !m.sender_verified || !m.session) return false;
     const sessionId = m.session.id;
     if (!(agent.auto_reply ?? []).some((r) => r.session === sessionId && r.team)) return false;
     if (m.from.endsWith("/console")) return true;
@@ -1327,6 +1329,8 @@ export class Daemon {
     let agent = configured;
     let perms: TaskPermissions | undefined;
     const board = !!taskId || mission;
+    // Once this computer chose to answer a message its sender isn't waiting on, it is answered like a request.
+    if (!board && m.kind === "notify") m = { ...m, expects_reply: true };
     // On the team, the session's permissions pick the tools, capped by this computer's own limit:
     // for task work when the owner switched this session's team (or autopilot) on, and for a message
     // only when it comes from the team's leader. Everything else runs with the agent's own tools.

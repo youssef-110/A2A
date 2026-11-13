@@ -45,7 +45,7 @@ async function friend(name: string, agents: Omit<AgentConfig, "key">[], invites:
     for (const code of invites) await registerAgent(r.url, a.address, privateKeyPem, { invite: code, display_name: a.address.split("/").pop() });
   }
   saveConfig(home, { server: r.url, name, person: name, relay_public_key: (await relayInfo(r.url)).relay_public_key, default_agent: agents[0]!.address, agents: configured });
-  const d = new Daemon({ home, log: () => {} });
+  const d = new Daemon({ home, log: process.env.A2A_TEST_LOG ? (l: string) => console.log(`[${name}] ${l}`) : () => {} });
   await d.start();
   await waitFor(() => d.info().connected === true, 5000, `${name} connect`);
   daemons.push(d);
@@ -154,13 +154,12 @@ test("a sender can't claim a session the recipient isn't in", async () => {
   assert.equal(res.reason_code, "not_in_session");
 });
 
-test("notices, the hourly limit and requests from inside a run never start or change anything", async () => {
+test("a message the sender doesn't wait for is answered too; the hourly limit and requests from inside a run still hold", async () => {
   const before = runs(A, A_CODEX).length;
-  // A notify (no reply wanted) is not a request.
-  await sendNoWait(A_CODEX, "fyi only", { session: "Project X", kind: "notify", expects_reply: false });
-  // One more request is allowed (limit 2 per hour), the third waits.
-  const second = await send(A_CODEX, "second question", { session: "Project X" });
-  assert.ok(second.reply);
+  // An app that doesn't block on the answer sends a notify. Where Ada's agent listens it is answered
+  // like a request, and the answer waits in Ben's inbox. It is the second run of the hour (limit 2).
+  await sendNoWait(A_CODEX, "not waiting, but tell me", { session: "Project X", kind: "notify", expects_reply: false });
+  await waitFor(async () => (await unhandled(B, B_CLAUDE)).some((t) => /ada-codex received your notify/.test(t)), 8000, "the answer to a message nobody waited on");
   const third = await send(A_CODEX, "third question", { session: "Project X", wait_seconds: 1 });
   assert.equal(third.timed_out, true);
   assert.equal(runs(A, A_CODEX).length, before + 1);
@@ -208,6 +207,11 @@ test("the workspace owner's agents count as members of every session, and anothe
   await adminFetch(r.url, "POST", "/v1/admin/console/send", { to: IVY, text: "From the session page", session: x.id });
   await waitFor(() => runs(ivy, IVY).length === 3, 8000, "a run for the session page message");
   assert.equal(runs(ivy, IVY).at(-1)!.session_id, x.id);
+  // What the owner typed on the session page, and the answer, show on that page (and only there).
+  const shown = (id: string): string[] => (r.relay.sessionDetail(id)!.messages as { text: string }[]).map((m) => m.text);
+  await waitFor(() => shown(x.id).some((t) => /ivy-codex received your request: "From the session page"/.test(t)), 5000, "the answer on the session page");
+  assert.ok(shown(x.id).includes("From the session page"));
+  assert.ok(!shown(y.id).includes("From the session page"));
   await ipc(ivy, "POST", "/auto-reply", { action: "off", all: true });
 });
 
@@ -228,6 +232,44 @@ test("a job given from the session page wakes the coordinator only if its owner 
   await adminFetch(r.url, "POST", "/v1/admin/tasks/kickoff", { to: A_CLAUDE, mission: "Over the budget.", session_id: x.id });
   await waitFor(async () => (await unhandled(A, A_CLAUDE)).some((t) => t.includes("Over the budget.")), 5000, "the capped mission in the inbox");
   assert.equal(runs(A, A_CLAUDE).length, claudeBefore + 1);
+  await ipc(A, "POST", "/auto-reply", { action: "off", all: true });
+});
+
+test("two agents that both listen answer a person's message once and then stop: no ping-pong", async () => {
+  const KAI = "agent://team/kai-codex";
+  const kai = await friend("kai", [{ address: KAI, tool: "codex", runtime: "command", command: ECHO }], [y.code]);
+  await ipc(kai, "POST", "/auto-reply", { action: "on", session: "Friends", agents: ["kai-codex"] });
+  await ipc(A, "POST", "/auto-reply", { action: "on", session: "Friends", agents: ["ada-codex"] });
+  await waitFor(() => listening(y.id, KAI) && listening(y.id, A_CODEX), 5000, "both listening in Friends");
+  const adaBefore = runs(A, A_CODEX).length;
+  const settle = () => new Promise((res) => setTimeout(res, 1200));
+  const fromKai = (text: string, extra: Record<string, unknown> = {}) =>
+    ipc<Record<string, any>>(kai, "POST", "/send", { from: KAI, to: A_CODEX, text, session: "Friends", kind: "notify", expects_reply: false, wait_seconds: 0, ...extra });
+
+  // Kai's person has their app send one message and doesn't wait. Ada's agent answers it on its own.
+  const first = await fromKai("Can you look at the build?");
+  await waitFor(async () => (await unhandled(kai, KAI)).some((t) => /ada-codex received your notify/.test(t)), 8000, "Ada's automated answer in Kai's inbox");
+  // That answer is automated and asks nothing back, so Kai's listening agent stays asleep: the exchange ends.
+  await settle();
+  assert.equal(runs(kai, KAI).length, 0, "an automated reply never wakes the other side");
+  assert.equal(runs(A, A_CODEX).length, adaBefore + 1);
+
+  // Whatever an auto-run sends on its own (marked automated) wakes nobody either, whatever its kind.
+  await fromKai("automated follow-up", { auto: true });
+  await ipc(kai, "POST", "/send", { from: KAI, to: A_CODEX, text: "automated question", session: "Friends", auto: true, wait_seconds: 0 });
+  // A reply that asks nothing back is the end of an exchange, even from a person's own app.
+  const answer = (await ipc<{ messages: { id: string; text: string }[] }>(kai, "GET", `/inbox?agent=${encodeURIComponent(KAI)}`)).messages.find((m) => /ada-codex received/.test(m.text))!;
+  await ipc(kai, "POST", "/send", { from: KAI, to: A_CODEX, text: "thanks, got it", in_reply_to: answer.id, wait_seconds: 0 });
+  await settle();
+  assert.equal(runs(A, A_CODEX).length, adaBefore + 1, "automated messages and plain acknowledgements start nothing");
+
+  // Even a sender that drops the automated mark can't keep a thread going: six answers an hour, then it waits.
+  for (let i = 0; i < 8; i++) await fromKai(`again ${i}`, { thread_id: first.thread_id });
+  await waitFor(async () => (await unhandled(A, A_CODEX)).includes("again 7"), 8000, "the last one in Ada's inbox");
+  await settle();
+  assert.equal(runs(A, A_CODEX).length, adaBefore + 6, "the thread limit holds for messages nobody waits on");
+  assert.equal(runs(kai, KAI).length, 0);
+  await ipc(kai, "POST", "/auto-reply", { action: "off", all: true });
   await ipc(A, "POST", "/auto-reply", { action: "off", all: true });
 });
 
