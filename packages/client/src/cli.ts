@@ -79,7 +79,8 @@ Messaging
   sessions [--tool APP]                   Your sessions, with their brief and people
   brief <session-id> <text|->            Rewrite a session's shared brief
 
-The home directory defaults to ~/.a2a, or A2A_HOME.`;
+The home directory defaults to ~/.a2a, or A2A_HOME.
+join with A2A_ACCOUNT_TOKEN set (an a2a sign-in token for the invite's own site) ties the agent to that account.`;
 
 function splitCommand(s: string): string[] {
   const out: string[] = [];
@@ -226,7 +227,12 @@ async function main(argv: string[]): Promise<number> {
         },
       });
       if (!positionals[0]) throw new Error("usage: a2a join <invite-link> [--name NAME]");
+      // The desktop app joins as the person who just signed in. The token comes through the environment
+      // (never a flag, which a process list would show) and is dropped before anything else is started.
+      const token = process.env.A2A_ACCOUNT_TOKEN || undefined;
+      delete process.env.A2A_ACCOUNT_TOKEN;
       const r = await joinNetwork(H, positionals[0], {
+        token,
         name: values.name,
         runtime: values.runtime as RuntimeKind | undefined,
         workdir: values.workdir ? resolve(values.workdir) : undefined,

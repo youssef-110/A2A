@@ -14,6 +14,8 @@ export interface JoinOptions {
   allowedTools?: string[];
   /** Replace a config that points at a different relay. Keys are kept. */
   force?: boolean;
+  /** The a2a sign-in token of the person joining: the agent then belongs to their account. Only for the site that issued it. */
+  token?: string;
 }
 
 export interface JoinResult {
@@ -97,7 +99,7 @@ export async function joinNetwork(home: string, link: string, opts: JoinOptions 
 
   let status: string;
   try {
-    status = (await registerAgent(server, address, pem, { invite: code, display_name: updated.display_name ?? name, description: updated.description })).status;
+    status = (await registerAgent(server, address, pem, { invite: code, token: opts.token, display_name: updated.display_name ?? name, description: updated.description })).status;
   } catch (err) {
     if (err instanceof RelayError && err.code === "key_conflict") throw new Error(`The name "${name}" is already taken on this relay. Pick another name.`);
     throw err;

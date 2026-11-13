@@ -35407,7 +35407,7 @@ async function joinNetwork(home2, link, opts = {}) {
   config2.default_agent ??= address;
   let status;
   try {
-    status = (await registerAgent(server, address, pem, { invite: code, display_name: updated.display_name ?? name, description: updated.description })).status;
+    status = (await registerAgent(server, address, pem, { invite: code, token: opts.token, display_name: updated.display_name ?? name, description: updated.description })).status;
   } catch (err) {
     if (err instanceof RelayError && err.code === "key_conflict") throw new Error(`The name "${name}" is already taken on this relay. Pick another name.`);
     throw err;
@@ -36311,7 +36311,8 @@ Messaging
   sessions [--tool APP]                   Your sessions, with their brief and people
   brief <session-id> <text|->            Rewrite a session's shared brief
 
-The home directory defaults to ~/.a2a, or A2A_HOME.`;
+The home directory defaults to ~/.a2a, or A2A_HOME.
+join with A2A_ACCOUNT_TOKEN set (an a2a sign-in token for the invite's own site) ties the agent to that account.`;
 function splitCommand(s) {
   const out = [];
   let cur = "";
@@ -36439,7 +36440,10 @@ async function main(argv) {
         }
       });
       if (!positionals[0]) throw new Error("usage: a2a join <invite-link> [--name NAME]");
+      const token = process.env.A2A_ACCOUNT_TOKEN || void 0;
+      delete process.env.A2A_ACCOUNT_TOKEN;
       const r = await joinNetwork(H, positionals[0], {
+        token,
         name: values.name,
         runtime: values.runtime,
         workdir: values.workdir ? resolve5(values.workdir) : void 0,

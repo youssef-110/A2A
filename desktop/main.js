@@ -58,9 +58,9 @@ const linked = () => readState().linked === true;
 // The app starts and stops its own client, so the client never adds itself to the system's sign-in items.
 const cliEnv = () => ({ ...process.env, ELECTRON_RUN_AS_NODE: "1", NODE_NO_WARNINGS: "1", A2A_HOME: AGENT_HOME, A2A_NO_AUTOSTART: "1" });
 
-function runCli(args) {
+function runCli(args, env = {}) {
   return new Promise((resolve) => {
-    execFile(process.execPath, [CLI, ...args], { env: cliEnv(), windowsHide: true, timeout: 60_000 }, (err, stdout, stderr) =>
+    execFile(process.execPath, [CLI, ...args], { env: { ...cliEnv(), ...env }, windowsHide: true, timeout: 60_000 }, (err, stdout, stderr) =>
       resolve({ ok: !err, out: String(stdout), err: String(stderr || (err && err.message) || "") }),
     );
   });
@@ -200,7 +200,12 @@ async function finishLink(sender, p) {
   // workspace: keep the agent (its key, name and sessions) and only renew the website's sign-in.
   const before = readState();
   const info = before.linked && before.workspace === p.workspace && before.user === p.user.email ? await daemonInfo() : null;
+  // The agent joins as the person who signed in, so the relay knows whose it is: their page gets its
+  // auto-reply switch and its approval requests. The sign-in only ever goes back to the site it came from.
+  const asAccount = new URL(p.invite_url).origin === ORIGIN ? { A2A_ACCOUNT_TOKEN: p.session_token } : {};
   if (info?.connected && info.agents?.[0]?.online) {
+    // An agent made by an older app has no account behind it yet: registering again adds it.
+    await runCli(["join", p.invite_url, "--name", info.agents[0].address.split("/").pop(), "--no-start"], asAccount);
     send(sender, { state: "done" });
     loadDashboard();
     return;
@@ -210,11 +215,11 @@ async function finishLink(sender, p) {
   const runtime = (await hasClaude()) ? "claude" : "none";
   const base = ["join", p.invite_url, "--runtime", runtime, "--workdir", os.homedir(), "--display-name", os.hostname(), "--no-start", "--force"];
   let name = agentName();
-  let r = await runCli([...base, "--name", name]);
+  let r = await runCli([...base, "--name", name], asAccount);
   if (!r.ok && /taken|exists|in use/i.test(r.err)) {
     // This computer joined before (its old key is gone after a sign-out), so it takes a fresh name.
     name = `${name.slice(0, 19)}-${crypto.randomBytes(2).toString("hex")}`;
-    r = await runCli([...base, "--name", name]);
+    r = await runCli([...base, "--name", name], asAccount);
   }
   if (!r.ok) {
     send(sender, { state: "error", message: (r.err.split("\n").find((l) => l.trim() && !/Warning/.test(l)) || "Joining failed.").trim() });
