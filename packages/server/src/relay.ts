@@ -38,6 +38,21 @@ import { TaskBoard, TaskError } from "./tasks.ts";
 export const RELAY_VERSION = "0.1.0";
 const FUTURE_SKEW_MS = 5 * 60_000;
 const REDELIVER_AFTER_MS = 30_000;
+/** Requests one agent may have waiting on its person at once. */
+const MAX_OPEN_APPROVALS = 5;
+
+interface ApprovalRow {
+  id: string;
+  agent: string;
+  account_id: string | null;
+  session_id: string | null;
+  task_id: string | null;
+  action: string;
+  why: string;
+  status: "pending" | "approved" | "denied";
+  created_at: string;
+  decided_at: string | null;
+}
 
 /** What the relay pushes to a recipient. Signed by the relay so the client can trust the normalized text. */
 export interface Delivery {
@@ -111,7 +126,7 @@ const nullOutbound: Outbound = {
 };
 
 export interface RelayEvent {
-  type: "message" | "agent" | "policy" | "audit" | "console" | "session" | "task" | "permissions";
+  type: "message" | "agent" | "policy" | "audit" | "console" | "session" | "task" | "permissions" | "approval";
   data: unknown;
 }
 
@@ -684,6 +699,8 @@ export class Relay extends EventEmitter {
         brief: st.brief,
         brief_updated_at: st.brief_updated_at,
         max_members: st.max_members,
+        // What the owner's permissions bar allows here; each computer still caps it with its own limit.
+        permissions: this.tasks.permissions(s.id),
         // Emails are for the owner's dashboard, not for every agent in the session.
         members: this.sessionMembers(s.id)
           .filter((a) => a !== this.consoleAddress && a !== address)
@@ -1235,6 +1252,72 @@ export class Relay extends EventEmitter {
     this.out.notice?.(address, { kind: "auto_reply", session: { id: s.id, name: s.name }, on });
     this.audit(`account:${accountId}`, on ? "auto_reply.on" : "auto_reply.off", address, { session: s.id });
     return { ok: true };
+  }
+
+  // ------------------------------------------------------------ approvals
+
+  private approval(id: string): ApprovalRow | undefined {
+    return this.db.prepare("SELECT * FROM approvals WHERE id = ?").get(id) as ApprovalRow | undefined;
+  }
+
+  private approvalView(a: ApprovalRow): Record<string, unknown> {
+    const s = a.session_id ? this.getSession(a.session_id) : undefined;
+    return { id: a.id, agent: a.agent, session: s ? { id: s.id, name: s.name } : null, task_id: a.task_id, action: a.action, why: a.why, status: a.status, created_at: a.created_at, decided_at: a.decided_at };
+  }
+
+  /**
+   * A headless run asks its own person to OK one sensitive action. The relay keeps only the question and
+   * the answer: an approval carries no data and lifts no limit on the agent's computer. Only the person
+   * the agent belongs to may answer; a workspace owner can't answer for a guest's agent.
+   */
+  requestApproval(agent: string, input: Record<string, unknown>): { status: number; body: Record<string, unknown> } {
+    const clip = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+    const action = clip(input.action, 500);
+    if (!action) return { status: 400, body: { error: "action_required", detail: "Say what you need to do, in one sentence." } };
+    const owner = this.accountOf(agent)?.account_id ?? null;
+    // Without accounts (a self-hosted relay) the admin answers, and only for the owner's own agents.
+    if (!owner && !this.isOwnerAgent(agent)) return { status: 409, body: { error: "no_owner", detail: "This agent isn't tied to a person's account on this relay, so nobody can answer. Say you are blocked instead." } };
+    const open = this.db.prepare("SELECT * FROM approvals WHERE agent = ? AND status = 'pending'").all(agent) as ApprovalRow[];
+    const same = open.find((o) => o.action === action);
+    if (same) return { status: 200, body: this.approvalView(same) };
+    if (open.length >= MAX_OPEN_APPROVALS) return { status: 429, body: { error: "too_many_requests", detail: `${MAX_OPEN_APPROVALS} requests are already waiting for your owner. Wait for an answer.` } };
+    const sessionId = typeof input.session_id === "string" && this.getSession(input.session_id) && this.inSession(input.session_id, agent) ? input.session_id : null;
+    const id = `apr_${randomBytes(8).toString("base64url")}`;
+    this.db
+      .prepare("INSERT INTO approvals (id, agent, account_id, session_id, task_id, action, why, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)")
+      .run(id, agent, owner, sessionId, clip(input.task_id, 80) || null, action, clip(input.why, 1000), iso());
+    this.audit(agent, "approval.request", id, { session_id: sessionId });
+    // The event carries no text: every open dashboard hears it, and only the owner's can load the request.
+    this.emitEvent("approval", { id, agent, status: "pending" });
+    return { status: 201, body: this.approvalView(this.approval(id)!) };
+  }
+
+  /** An agent's own request, for its client to read the answer. */
+  approvalFor(agent: string, id: string): Record<string, unknown> | undefined {
+    const a = this.approval(id);
+    return a && a.agent === agent ? this.approvalView(a) : undefined;
+  }
+
+  /** The requests waiting on one person. With no account, the ones the admin answers (see requestApproval). */
+  approvalsFor(account: string | undefined): Record<string, unknown>[] {
+    const rows = (account
+      ? this.db.prepare("SELECT * FROM approvals WHERE status = 'pending' AND account_id = ? ORDER BY created_at").all(account)
+      : this.db.prepare("SELECT * FROM approvals WHERE status = 'pending' AND account_id IS NULL ORDER BY created_at").all()) as ApprovalRow[];
+    return rows.map((a) => this.approvalView(a));
+  }
+
+  /** The owner's answer. Someone else's request looks the same as one that doesn't exist. */
+  decideApproval(account: string | undefined, id: string, approve: boolean): { status: number; body: Record<string, unknown> } {
+    const a = this.approval(id);
+    if (!a || (a.account_id ?? undefined) !== account) return { status: 404, body: { error: "not_found" } };
+    if (a.status !== "pending") return { status: 409, body: { error: "already_decided", detail: `This request was already ${a.status}.` } };
+    const status = approve ? "approved" : "denied";
+    this.db.prepare("UPDATE approvals SET status = ?, decided_at = ? WHERE id = ?").run(status, iso(), id);
+    this.audit(account ? `account:${account}` : "admin", `approval.${status}`, id, { agent: a.agent });
+    // An offline computer asks for the answer when it reconnects.
+    this.out.notice?.(a.agent, { kind: "approval", id, status });
+    this.emitEvent("approval", { id, agent: a.agent, status });
+    return { status: 200, body: this.approvalView(this.approval(id)!) };
   }
 
   tryDeliver(id: string): boolean {

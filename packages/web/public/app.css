@@ -652,6 +652,15 @@ textarea.input { height: auto; min-height: 88px; padding: 10px 13px; line-height
 .need-text { flex: 1; min-width: 0; }
 .need-text b { font-weight: 600; }
 .need-go { color: var(--hold); font-size: 13px; font-weight: 550; }
+/* An agent's question to its owner: read first, then answer. The row itself is not a button. */
+.need-ask { align-items: flex-start; flex-wrap: wrap; }
+.need-ask:active { transform: none; }
+.need-ask .need-dot { margin-top: 7px; }
+.need-action { display: block; margin: 3px 0 4px; font-weight: 550; overflow-wrap: anywhere; }
+.need-why { display: block; color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
+.need-actions { display: flex; gap: 8px; margin-left: auto; align-self: center; }
+.asks { margin: 0 0 10px; }
+.asks[hidden] { display: none; }
 
 .setup { list-style: none; margin: 28px 0 0; padding: 0; border-radius: 20px; background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
 .setup-step { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 14px; row-gap: 3px; padding: 18px 20px; transition: opacity 0.3s; }

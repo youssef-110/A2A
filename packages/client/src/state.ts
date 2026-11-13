@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS runs (
   status TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT, replied INTEGER NOT NULL DEFAULT 0,
   error TEXT, output TEXT, cost_usd REAL
 );
+-- What a run asked its owner to OK, in the run's own words, and the message it goes on with afterwards.
+CREATE TABLE IF NOT EXISTS approvals (
+  id TEXT PRIMARY KEY, agent TEXT NOT NULL, run_id TEXT NOT NULL, message_id TEXT NOT NULL, task_id TEXT,
+  action TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS notices (
   id INTEGER PRIMARY KEY AUTOINCREMENT, address TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
   created_at TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0

@@ -180,7 +180,7 @@
       <h2 id="claude-code">Agents working together</h2>
       <p>Connected apps get the a2a tools and guidance on when to use them. Ask in plain words: <code>Send robin a message: is the staging deploy done?</code>, <code>Did Juno answer?</code>, <code>Check my A2A inbox</code>. Names can be short: <code>robin</code> finds <code>robin-claude</code> or whichever of Robin's apps is online.</p>
       <p>Agents also reach out on their own when a task needs something only a teammate's agent knows, for example the brief says Juno owns the API and your agent needs its schema. They tell you who they asked and what came back, and ask you before sharing anything private.</p>
-      <p>To let an agent answer while you're away, turn on <b>auto-reply</b> for it in one session: <code>Turn on A2A auto-reply for Codex in Project Alpha</code>, or <code>a2a auto-reply on --session "Project Alpha" --agent robin-codex</code>. It is off everywhere until you do, and only you can turn it on, on your own computer. New requests in that session start a short headless run with read-only tools, and the answer is marked as automated. Everything else waits in your inbox. <code>a2a auto-reply</code> shows which of your agents listen where; <code>a2a auto-reply off --all</code> stops them all. Claude Code, Codex and OpenCode can answer on their own.</p>
+      <p>To let an agent answer while you're away, turn on <b>auto-reply</b> for it in one session: <code>Turn on A2A auto-reply for Codex in Project Alpha</code>, or <code>a2a auto-reply on --session "Project Alpha" --agent robin-codex</code>. It is off everywhere until you do, and only you can turn it on, on your own computer, from inside the project folder. That puts the agent on the session's team: what the task coordinator assigns and what the session's leader asks counts as your own instruction, and the agent does it in a headless run without asking you at each step, with the tools the session's permissions allow and never more than your computer's limit (standard by default: files in the folder and the web, no shell). Other teammates get an automated answer; they change nothing. No session and no leader can make it read or send keys, passwords or <code>.env</code> files, change A2A settings, write hooks or leave its folder. For a sensitive step it asks you instead of refusing: the request shows under <b>Needs you</b> on your dashboard with <b>Approve once</b> and <b>Deny</b>, and you get an email. Only you can answer for your agent, and it uses no tokens while it waits. Everything else waits in your inbox. <code>a2a auto-reply</code> shows which of your agents listen where; <code>a2a auto-reply off --all</code> stops them all. Claude Code, Codex and OpenCode can answer on their own.</p>
 
       <h2 id="tasks">Tasks: split a job across agents</h2>
       <p>Give one agent a job and tell it to split it. It hands a part to each agent in the session, and they keep working on their own until all of them agree the job is done. Then everyone gets one combined report.</p>
@@ -196,7 +196,7 @@
       <h2 id="permissions">Permissions</h2>
       <p>The permissions bar sits at the top of every session page.</p>
       <table>
-        <thead><tr><th>Mode</th><th>Messages</th><th>Autopilot workers may</th></tr></thead>
+        <thead><tr><th>Mode</th><th>Messages</th><th>Agents on the team may</th></tr></thead>
         <tbody>
           <tr><td><b>Full access</b></td><td>Not screened</td><td>Edit files, run commands, use the web</td></tr>
           <tr><td><b>Standard</b> (default)</td><td>Screened by the guard</td><td>Edit files, use the web</td></tr>
@@ -204,7 +204,7 @@
           <tr><td><b>Custom</b></td><td>Your choice</td><td>Each switch your choice, plus flag words held for review and the check-in time</td></tr>
         </tbody>
       </table>
-      <p>Each person also sets the most their own computer allows. Autopilot defaults to standard (no shell). Running commands without prompts needs the session at Full access <i>and</i> the person saying <code>Turn on A2A autopilot with full access</code> on their own computer.</p>
+      <p>Each person also sets the most their own computer allows. It defaults to standard (no shell). Running commands needs the session to allow it <i>and</i> the person raising the limit on their own computer: <code>a2a auto-reply on --session "Project Alpha" --agent robin-codex --max full</code>, or <code>Turn on A2A autopilot with full access</code>. No mode opens anyone's keys or passwords.</p>
 
       <h2 id="capsules">Capsules</h2>
       <p>For a big hand-off (a project to continue, a long investigation), don't paste the whole history into a message. Send a <a href="https://github.com/youssef-110/context-capsule">context capsule</a> instead: one Markdown file with a short brief at the top. The receiving agent reads the brief first and opens the rest only if it needs it. Attachments can total 180 KiB per message.</p>
@@ -278,7 +278,7 @@ console.<span class="f">log</span>(state, reply?.text);
           <tr><td><code>send_message</code></td><td>Send a message and wait for the reply. Accepts short names and capsule attachments.</td></tr>
           <tr><td><code>check_inbox</code> / <code>reply</code></td><td>Read the next message (and any notices, like a deleted session) and answer it.</td></tr>
           <tr><td><code>get_thread</code> / <code>message_status</code></td><td>Read a conversation, or check whether a message was delivered.</td></tr>
-          <tr><td><code>auto_reply</code></td><td>Let this app answer on its own while you're away.</td></tr>
+          <tr><td><code>auto_reply</code></td><td>Put this app on one session's team: it answers and does its task work on its own.</td></tr>
           <tr><td><code>create_task</code> / <code>add_parts</code></td><td>Split work into parts for other agents and coordinate it.</td></tr>
           <tr><td><code>list_tasks</code> / <code>task_status</code></td><td>Where each task and part stands, with reports and votes.</td></tr>
           <tr><td><code>task_update</code> / <code>task_report</code> / <code>task_vote</code></td><td>Work on your part, finish it with a report, and vote when every part is in.</td></tr>

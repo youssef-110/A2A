@@ -41,7 +41,7 @@ import {
 } from "./config.ts";
 import { openState, type State } from "./state.ts";
 import { RelayError, relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
-import { boardNote, buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
+import { boardNote, buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type AutopilotMax, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
 import { toolById } from "./tools.ts";
 import { installAutostart } from "./install.ts";
 
@@ -64,7 +64,27 @@ function onPath(bin: string): boolean {
   return (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":").some((dir) => dir && exts.some((e) => existsSync(join(dir, bin + e.toLowerCase())) || existsSync(join(dir, bin + e))));
 }
 
-type AutoDecision = { run: true; rule?: AutoReplyRule; board?: boolean } | { run: false; why: string; checkin?: { taskId: string; part: string } };
+type AutoDecision = { run: true; rule?: AutoReplyRule; board?: boolean } | { run: false; why: string; checkin?: { taskId: string; part: string; note: string } };
+
+/** The owner's answer to a request one of this computer's runs made, in the run's own words. */
+interface Decided {
+  action: string;
+  approved: boolean;
+}
+
+/** What a run is told when it is started again with its owner's answer. */
+const decisionNote = (d: Decided, owner: string): string =>
+  [
+    `[a2a] ${owner} answered the approval you asked for.`,
+    `You asked: ${d.action}`,
+    d.approved
+      ? "Answer: APPROVED, this one time. Do exactly that now and nothing beyond it, then carry on with the work below. An approval never opens secrets: the rules below still hold."
+      : "Answer: DENIED. Don't do it and don't ask again. Finish what you can without it; if the work can't be finished, say so (on a task: task_update with status blocked, and what is missing).",
+    "",
+    "",
+  ].join("\n");
+
+const samePath = (a: string, b: string): boolean => (process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
 
 /** One relay connection. A computer can be in several workspaces (its own, and sessions others invited it into). */
 interface Link {
@@ -171,6 +191,8 @@ export class Daemon {
   private readonly activeRuns = new Set<Promise<void>>();
   /** Runs in progress per "<agent> <task id>", so a check-in on that task needs no second run. */
   private readonly taskRuns = new Map<string, number>();
+  /** Message id -> the owner's answer its next run starts with. Used once. */
+  private readonly decided = new Map<string, Decided>();
   private flushing = false;
   private readonly directoryCache = new Map<string, { at: number; agents: DirectoryEntry[] }>();
   private readonly onStopRequest?: () => void;
@@ -357,6 +379,10 @@ export class Daemon {
       void this.flushOutbox();
       void this.reconcile(link);
       this.reportListening(link);
+      // An owner may have answered while this computer was offline. Asked once per connection, never on a timer.
+      for (const a of this.state.prepare("SELECT id, agent FROM approvals WHERE status = 'pending'").all() as { id: string; agent: string }[]) {
+        if (link.accepted.includes(a.agent)) void this.approvalAnswered(a.agent, a.id);
+      }
     } else if (msg.type === "deliver") {
       await this.onDeliver(link, ws, msg.message as DeliveryPayload);
     } else if (msg.type === "status") {
@@ -371,6 +397,10 @@ export class Daemon {
     const address = typeof msg.address === "string" ? msg.address : "";
     if (!this.agent(address) || serverOf(this.config, this.agent(address)!) !== link.server) return;
     const session = (msg.session ?? {}) as { id?: string; name?: string | null };
+    if (msg.kind === "approval") {
+      if (typeof msg.id === "string") void this.approvalAnswered(address, msg.id);
+      return;
+    }
     // The owner flipped the switch on their own signed-in page (the relay only passes it on for the
     // agent's own account). This computer still decides: a config can turn website switches off.
     if (msg.kind === "auto_reply" && session.id) {
@@ -464,6 +494,7 @@ export class Daemon {
       sent_at: d.created_at,
       received_at: iso(),
     };
+    if (await this.leads(agent, m)) m.leader = true;
 
     const fresh = this.state.prepare("INSERT OR IGNORE INTO seen (id, received_at) VALUES (?, ?)").run(d.id, iso()).changes === 1;
     if (fresh) {
@@ -489,8 +520,8 @@ export class Daemon {
       if (decision.checkin) {
         this.markHandled(m.id);
         this.log(`· ${m.id} ${agent.address}: ${decision.why}`);
-        const { taskId, part } = decision.checkin;
-        void this.taskCall([agent.address], taskId, "update", { status: "working", part_id: part, note: "Still working on it (answered by the a2a client: a run for this part is in progress)." }).catch((err) =>
+        const { taskId, part, note } = decision.checkin;
+        void this.taskCall([agent.address], taskId, "update", { status: "working", part_id: part, note }).catch((err) =>
           this.log(`could not answer the check-in on ${taskId}: ${(err as Error).message}`),
         );
         return;
@@ -515,21 +546,28 @@ export class Daemon {
    * agent is its owner's, the owner turned it on for this exact session, the message is a new request,
    * and the local limits allow it. Anything else stays in the inbox for the owner.
    */
-  autoDecision(agent: AgentConfig, m: InboundMessage): AutoDecision {
+  autoDecision(agent: AgentConfig, m: InboundMessage, resume = false): AutoDecision {
     const no = (why: string): AutoDecision => ({ run: false, why });
     if (agent.runtime === "none") return no("auto-reply is off");
     // The task board's notes are autopilot's, a separate switch the owner turns on with the autopilot tool.
     const fromBoard = m.from.endsWith("/console") && m.sender_verified !== false && /^\[a2a-(task \S+|mission)\]/.test(m.text);
     if (fromBoard) {
-      // Auto-reply on in this session covers its task work too (with the agent's own tools), so a job
-      // given from the session page gets done by the agents their owners let listen there.
+      // Auto-reply on in this session covers its task work too, so a job given from the session page
+      // gets done by the agents their owners let listen there.
       const listening = m.session ? (agent.auto_reply ?? []).find((r) => r.session === m.session!.id) : undefined;
       if (!agent.autopilot && !listening) return no(`auto-reply is off${m.session ? ` in "${m.session.name}"` : ""} and autopilot is off, so task work waits`);
+      // Going on after the owner's answer: the owner just asked for this run, so no limit holds it back.
+      if (resume) return { run: true, board: true, rule: agent.autopilot ? undefined : listening };
       // A model starts only for notes that need thinking. The rest cost no tokens, whatever the runtime.
       const note = boardNote(m.text);
       const taskId = taskIdOf(m.text);
       if (note.kind === "info") return no("this task note needs no answer");
-      if (note.kind === "checkin" && taskId && this.busyWith(agent.address, taskId)) return { run: false, why: "a run for this task is already going; answered the check-in without a model", checkin: { taskId, part: note.part } };
+      if (note.kind === "checkin" && taskId && this.busyWith(agent.address, taskId)) {
+        return { run: false, why: "a run for this task is already going; answered the check-in without a model", checkin: { taskId, part: note.part, note: "Still working on it (answered by the a2a client: a run for this part is in progress)." } };
+      }
+      if (note.kind === "checkin" && taskId && this.waitingOnOwner(agent.address, taskId)) {
+        return { run: false, why: "waiting for the owner's answer; answered the check-in without a model", checkin: { taskId, part: note.part, note: "Waiting for its owner's OK on one step (answered by the a2a client: no model runs while it waits)." } };
+      }
       if (agent.autopilot) return { run: true, board: true };
       // Task work under a session's auto-reply spends that session's budget. The per-sender, thread and
       // cooldown limits don't fit here: every note comes from the board, and a vote follows its assignment.
@@ -540,8 +578,11 @@ export class Daemon {
     const key = m.session === undefined ? "workspace" : m.session.id;
     const rule = (agent.auto_reply ?? []).find((r) => r.session === key);
     if (!rule) return no(`auto-reply is off ${m.session ? `in "${m.session.name}"` : "on this relay"}`);
+    if (resume) return { run: true, rule };
     if (m.kind !== "request") return no(`a ${m.kind} never starts an auto-reply`);
-    if (m.automated) return no("loop guard: another agent's automated request never starts an auto-reply");
+    // A team's leader is usually a headless run itself, so its requests are automated. They still
+    // start a run on the team; the thread and hourly limits below are what stop a loop.
+    if (m.automated && !(rule.team && m.leader)) return no("loop guard: another agent's automated request never starts an auto-reply");
 
     const count = (sql: string, ...args: (string | number)[]): number => Number((this.state.prepare(sql).get(...args) as { n: number | null }).n ?? 0);
     const hourAgo = new Date(Date.now() - 3600_000).toISOString();
@@ -575,6 +616,116 @@ export class Daemon {
   /** Whether this agent has a run for the task going, or waiting its turn. */
   private busyWith(address: string, taskId: string): boolean {
     return (this.taskRuns.get(`${address} ${taskId}`) ?? 0) > 0 || (this.backlog.get(address) ?? []).some((q) => taskIdOf(q.text) === taskId);
+  }
+
+  // ------------------------------------------------------------ teams and approvals
+
+  /**
+   * Whether the sender leads this agent's team in the message's session: it coordinates a task the
+   * agent is on, or it is the session's owner typing in the dashboard. Only asked for a session whose
+   * team the agent's owner joined, and answered from the relay's records, never from the message.
+   */
+  private async leads(agent: AgentConfig, m: InboundMessage): Promise<boolean> {
+    if (m.kind !== "request" || !m.sender_verified || !m.session) return false;
+    const sessionId = m.session.id;
+    if (!(agent.auto_reply ?? []).some((r) => r.session === sessionId && r.team)) return false;
+    if (m.from.endsWith("/console")) return true;
+    try {
+      const r = await signedGet(this.serverFor(agent.address), agent.address, this.keys.get(agent.address)!, "/v1/tasks");
+      return ((r.tasks as { coordinator: string; session_id: string | null; status: string }[]) ?? []).some((t) => t.coordinator === m.from && t.session_id === sessionId && (t.status === "active" || t.status === "review"));
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The most a team or autopilot run may do on this computer, whatever a session allows. Set only
+   * here. Editing needs a project folder: an agent whose folder is the home folder or a whole drive
+   * (the default when it was switched on from the website) only reads.
+   */
+  ceiling(agent: AgentConfig): AutopilotMax {
+    const dir = agent.workdir ? resolve(agent.workdir) : "";
+    const project = !!dir && !samePath(dir, resolve(homedir())) && !samePath(dirname(dir), dir);
+    return project ? (agent.autopilot_max ?? "standard") : "read_only";
+  }
+
+  /** What the owner's permissions bar allows in a session this agent is in. */
+  private async sessionPermissions(agent: string, sessionId: string): Promise<TaskPermissions | undefined> {
+    try {
+      const r = await signedGet(this.serverFor(agent), agent, this.keys.get(agent)!, "/v1/sessions");
+      return ((r.sessions as { id: string; permissions?: TaskPermissions }[]) ?? []).find((s) => s.id === sessionId)?.permissions;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Whether one of this agent's runs on the task stopped to ask its owner and has no answer yet. */
+  private waitingOnOwner(address: string, taskId: string): boolean {
+    return !!this.state.prepare("SELECT 1 FROM approvals WHERE agent = ? AND task_id = ? AND status = 'pending'").get(address, taskId);
+  }
+
+  /**
+   * Called through the MCP request_approval tool: a run asks its owner before one sensitive step, then
+   * ends. The relay shows the request to that owner only. Nothing runs and nothing is spent until the
+   * answer comes; check-ins on the task are answered by this client meanwhile.
+   */
+  async requestApproval(runId: string, action: string, why: string): Promise<Record<string, unknown>> {
+    const run = this.state.prepare("SELECT agent, message_id FROM runs WHERE id = ? AND status = 'running'").get(runId) as { agent: string; message_id: string } | undefined;
+    if (!run) throw new ClientError(404, "Only a running headless run can ask for approval. In a chat, ask the user directly.");
+    const m = JSON.parse((this.state.prepare("SELECT delivery FROM inbox WHERE id = ?").get(run.message_id) as { delivery: string }).delivery) as InboundMessage;
+    const taskId = m.from.endsWith("/console") && m.sender_verified ? taskIdOf(m.text) : null;
+    const server = this.serverFor(run.agent);
+    let r: Record<string, unknown>;
+    try {
+      r = await signedSend(server, run.agent, this.keys.get(run.agent)!, "POST", "/v1/approvals", { action, why, session_id: m.session?.id, task_id: taskId });
+    } catch (err) {
+      throw new ClientError(err instanceof RelayError ? err.status : 502, (err as Error).message);
+    }
+    // Kept in the run's own words: the answer is matched to this row, not to text the relay sends back.
+    // Asking the same thing again while it waits is the same request; the latest run is the one that goes on.
+    this.state
+      .prepare(
+        "INSERT INTO approvals (id, agent, run_id, message_id, task_id, action, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?) ON CONFLICT (id) DO UPDATE SET run_id = excluded.run_id, message_id = excluded.message_id, task_id = excluded.task_id WHERE status = 'pending'",
+      )
+      .run(String(r.id), run.agent, runId, run.message_id, taskId, action, iso());
+    // The owner's own apps mention it the next time they are used (the [A2A] hook note, check_inbox).
+    const page = `${new URL(server).origin}${new URL(server).pathname.startsWith("/w/") ? "/app" : ""}`;
+    this.state
+      .prepare("INSERT INTO notices (address, kind, text, created_at) VALUES (?, 'approval', ?, ?)")
+      .run(run.agent, `Your agent ${run.agent.split("/").pop()} stopped and is waiting for your OK on one step. See it and answer on your A2A dashboard: ${page}`, iso());
+    if (taskId) {
+      const note = boardNote(m.text);
+      void this.taskCall([run.agent], taskId, "update", { status: "working", ...(note.kind !== "info" && note.part ? { part_id: note.part } : {}), note: "Waiting for its owner's OK on one step." }).catch(() => {});
+    }
+    this.log(`? ${r.id} ${run.agent} asked its owner: ${action.slice(0, 120)}`);
+    return { id: r.id, status: r.status };
+  }
+
+  /**
+   * The owner answered. This computer goes on only for a request one of its own runs made, reads the
+   * answer from the relay itself, and uses it once: the same message starts one more run, told the
+   * answer in the words the run asked with. An approval lifts no limit here; the run has the same
+   * tools and the same hard line as before.
+   */
+  private async approvalAnswered(address: string, id: string): Promise<void> {
+    const row = this.state.prepare("SELECT message_id, action FROM approvals WHERE id = ? AND agent = ? AND status = 'pending'").get(id, address) as { message_id: string; action: string } | undefined;
+    if (!row) return;
+    let status: string;
+    try {
+      status = String((await signedGet(this.serverFor(address), address, this.keys.get(address)!, `/v1/approvals/${encodeURIComponent(id)}`)).status);
+    } catch (err) {
+      this.log(`could not read the answer to ${id}: ${(err as Error).message}`); // asked again on the next connection
+      return;
+    }
+    if (status !== "approved" && status !== "denied") return;
+    // Claimed before the run starts, so a repeated notice can't start a second one.
+    if (this.stopping || this.state.prepare("UPDATE approvals SET status = ? WHERE id = ? AND status = 'pending'").run(status, id).changes !== 1) return;
+    const agent = this.agent(address);
+    const delivery = this.state.prepare("SELECT delivery FROM inbox WHERE id = ?").get(row.message_id) as { delivery: string } | undefined;
+    if (!agent || !delivery) return;
+    this.log(`${status === "approved" ? "✓" : "✕"} ${id} ${status} by the owner of ${address}`);
+    this.decided.set(row.message_id, { action: row.action, approved: status === "approved" });
+    this.dispatch(agent, JSON.parse(delivery.delivery) as InboundMessage);
   }
 
   /**
@@ -638,6 +789,8 @@ export class Daemon {
           agent: a.address,
           app: a.tool ? (toolById(a.tool)?.label ?? a.tool) : (a.display_name ?? a.address.split("/").pop()),
           enabled: !!rule && a.runtime !== "none",
+          team: !!rule?.team && a.runtime !== "none",
+          ceiling: this.ceiling(a),
           runtime: a.runtime,
           runtime_ready: this.runtimeReady(a),
           workdir: a.workdir ?? null,
@@ -711,10 +864,14 @@ export class Daemon {
         if (Array.isArray(body.tools) && body.tools.length) a.allowed_tools = (body.tools as unknown[]).filter((t): t is string => typeof t === "string");
         else a.allowed_tools = a.allowed_tools?.length ? a.allowed_tools : ["Read", "Grep", "Glob"];
         if (typeof body.model === "string" && body.model) a.model = body.model;
+        // This computer's own limit. The website's switch never carries one (see onNotice).
+        if (body.max === "read_only" || body.max === "standard" || body.max === "full") a.autopilot_max = body.max;
         const rule: AutoReplyRule = {
           session: sessionId,
           name: session.name,
           set_at: iso(),
+          // One switch makes a working teammate; `team: false` keeps the agent to answering only.
+          ...(body.team === false ? {} : { team: true }),
           ...Object.fromEntries(
             (["max_concurrent", "cooldown_s", "max_per_hour", "max_tokens", "daily_usd", "daily_tokens"] as const).flatMap((k) => (num(body[k]) !== undefined ? [[k, num(body[k])]] : [])),
           ),
@@ -1065,8 +1222,9 @@ export class Daemon {
   private dispatch(configured: AgentConfig, m: InboundMessage): void {
     // The current config decides, so turning auto-reply off also stops runs that were waiting their turn.
     const agent = this.agent(configured.address) ?? configured;
-    const decision = this.autoDecision(agent, m);
+    const decision = this.autoDecision(agent, m, this.decided.has(m.id));
     if (!decision.run) {
+      this.decided.delete(m.id);
       this.state.prepare("UPDATE inbox SET auto = 0 WHERE id = ?").run(m.id);
       this.log(`· ${m.id} left in the inbox for ${agent.address}: ${decision.why}`);
       return;
@@ -1099,10 +1257,16 @@ export class Daemon {
     const mission = fromBoard && m.text.startsWith("[a2a-mission]");
     let agent = configured;
     let perms: TaskPermissions | undefined;
-    if (taskId || mission) {
-      if (taskId) perms = await this.taskPermissions(agent.address, taskId);
-      if (agent.autopilot && perms) agent = { ...agent, ...toolsFor(perms, agent.autopilot_max ?? "standard") };
-    }
+    const board = !!taskId || mission;
+    // On the team, the session's permissions pick the tools, capped by this computer's own limit:
+    // for task work when the owner switched this session's team (or autopilot) on, and for a message
+    // only when it comes from the team's leader. Everything else runs with the agent's own tools.
+    const team = board ? !!agent.autopilot || !!rule?.team : !!rule?.team && !!m.leader;
+    if (taskId) perms = await this.taskPermissions(agent.address, taskId);
+    else if (team && m.session) perms = await this.sessionPermissions(agent.address, m.session.id);
+    if (team && perms) agent = { ...agent, ...toolsFor(perms, this.ceiling(agent)) };
+    const decided = this.decided.get(m.id);
+    this.decided.delete(m.id);
     const sessionKey = taskId ? `task:${taskId}` : m.thread_id;
     const useSessions = agent.session !== "none" && (agent.runtime === "claude" || agent.runtime === "opencode");
     const session = useSessions
@@ -1139,13 +1303,14 @@ export class Daemon {
       agent,
       message: m,
       prompt:
-        taskId || mission
-          ? buildTaskPrompt(m, randomBytes(6).toString("hex"), perms, agent.autopilot ? agent.allowed_tools : undefined)
-          : buildPrompt(m, randomBytes(6).toString("hex"), auto ? { owner, app, session: m.session?.name } : undefined),
+        (decided ? decisionNote(decided, owner) : "") +
+        (board
+          ? buildTaskPrompt(m, randomBytes(6).toString("hex"), perms, team ? (agent.allowed_tools ?? []) : undefined, team ? owner : undefined)
+          : buildPrompt(m, randomBytes(6).toString("hex"), auto ? { owner, app, session: m.session?.name, team: !!rule?.team, ...(team ? { leaderTools: agent.allowed_tools ?? [] } : {}) } : undefined)),
       sessionId: session?.session_id,
       env,
       mcpConfigPath,
-      timeoutMs: durationMs(rule?.timeout ?? agent.timeout, taskId || mission ? 45 * 60_000 : 15 * 60_000),
+      timeoutMs: durationMs(rule?.timeout ?? agent.timeout, board || team ? 45 * 60_000 : 15 * 60_000),
     }).finally(() => taskKey && this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 1) - 1));
     const startMs = m.received_at ? Math.max(0, t0 - Date.parse(m.received_at)) : null;
     rmSync(mcpConfigPath, { force: true });
@@ -1162,7 +1327,8 @@ export class Daemon {
     // A task run that failed would otherwise leave its part silently stuck until a check-in.
     if (taskId && result.error) {
       await this.taskCall([agent.address], taskId, "update", { status: "blocked", note: `Autopilot run failed on ${agent.address.split("/").pop()}: ${result.error.slice(0, 300)}` }).catch(() => {});
-    } else if (taskId && result.output) {
+    } else if (taskId && result.output && !this.state.prepare("SELECT 1 FROM approvals WHERE run_id = ?").get(runId)) {
+      // A run that stopped to ask its owner isn't finished: its last words are not a report.
       const note = boardNote(m.text);
       if (note.kind !== "info" && note.part) await this.reportLeftOpen(agent.address, taskId, note.part, result.output);
     }
@@ -1391,6 +1557,14 @@ export class Daemon {
           return reply(200, { matrix: await this.autoReplyMatrix() });
         case "POST /auto-reply":
           return reply(200, await this.setAutoReply(body));
+        case "POST /approvals/request":
+          if (typeof body.run_id !== "string" || typeof body.action !== "string" || !body.action.trim()) throw new ClientError(400, "run_id and action are required");
+          return reply(200, await this.requestApproval(body.run_id, body.action.trim().slice(0, 500), (str(body.why) ?? "").slice(0, 1000)));
+        case "GET /approvals": {
+          const ours = mine(q.get("agent"), q.get("tool"));
+          const rows = ours.length ? this.state.prepare(`SELECT id, agent, created_at FROM approvals WHERE status = 'pending' AND agent IN (${ours.map(() => "?").join(",")}) ORDER BY created_at`).all(...ours) : [];
+          return reply(200, { approvals: rows });
+        }
         case "POST /reply": {
           if (typeof body.text !== "string") throw new ClientError(400, "text is required");
           if (typeof body.run_id === "string" && body.run_id) return reply(200, await this.replyFromRun(body.run_id, body.text, Boolean(body.expects_reply)));

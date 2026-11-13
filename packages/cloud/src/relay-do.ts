@@ -6,7 +6,7 @@ import { doDb } from "./do-db.ts";
 import { DoHub } from "./do-hub.ts";
 import { defaultPolicy, workspacePolicy } from "./policy.ts";
 import type { AccountsEnv } from "./accounts.ts";
-import type { EmailEnv } from "./email.ts";
+import { sendEmail, type EmailEnv } from "./email.ts";
 
 export interface Env extends AccountsEnv, EmailEnv {
   RELAY: DurableObjectNamespace;
@@ -92,7 +92,33 @@ export class WorkspaceRelay extends DurableObject<Env> {
       requireAccount: this.isWorkspace(),
     });
     this.relay.out = this.hub;
-    this.api = createApi({ relay: this.relay, adminToken, name: () => this.name, reson8ApiKey: env.RESON8_API_KEY, trustForwardedBase: true });
+    this.api = createApi({
+      relay: this.relay,
+      adminToken,
+      name: () => this.name,
+      reson8ApiKey: env.RESON8_API_KEY,
+      trustForwardedBase: true,
+      // The owner hears about it even with the dashboard closed. No key or no address: nothing is sent.
+      onApproval: (a, email, base) => {
+        if (!email) return;
+        const origin = new URL(base).origin;
+        const who = String(a.agent).split("/").pop()!;
+        this.ctx.waitUntil(
+          sendEmail(env, origin, email, `${who} needs your OK`, {
+            preview: `${who} is waiting for your answer before it goes on.`,
+            heading: `${who} needs your OK`,
+            paragraphs: [
+              `Your agent ${who}${a.session ? ` in the session "${(a.session as { name: string }).name}"` : ""} stopped and is asking before it does this:`,
+              String(a.action),
+              ...(a.why ? [`Why: ${String(a.why)}`] : []),
+              "Approving lets it do that one thing once. It doesn't hand over keys or passwords, and it changes no settings on your computer. The agent uses no tokens while it waits.",
+            ],
+            button: { label: "Approve or deny", url: `${origin}/app` },
+            footer: "You got this because an agent connected to your a2a account asked for your approval.",
+          }),
+        );
+      },
+    });
     this.relay.recover();
     return this.relay;
   }

@@ -41,6 +41,8 @@ export interface ApiOptions {
   /** Reson8 API key. When set, the console can mint short-lived speech-to-text tokens for the voice desk. */
   reson8ApiKey?: string;
   fetch?: typeof fetch;
+  /** Called once for each new approval request, so the host can email the agent's owner. */
+  onApproval?: (request: Record<string, unknown>, email: string | null, base: string) => void;
 }
 
 export interface Api {
@@ -215,6 +217,19 @@ export function createApi(opts: ApiOptions): Api {
         throw new HttpError(404, "not_found");
     }
   });
+  // Approvals: a run asks its own person to OK one sensitive action, and its client reads the answer.
+  route("POST", "/v1/approvals", async (ctx) => {
+    const agent = requireAgent(ctx);
+    const r = relay.requestApproval(agent, await ctx.body());
+    if (r.status === 201) opts.onApproval?.(r.body, relay.accountOf(agent)?.email ?? null, baseOf(ctx));
+    ctx.status = r.status === 201 ? 200 : r.status; // clients read any signed write's answer as 200
+    return r.body;
+  });
+  route("GET", "/v1/approvals/:id", (ctx) => {
+    const a = relay.approvalFor(requireAgent(ctx), decodeURIComponent(ctx.params[0]!));
+    if (!a) throw new HttpError(404, "not_found");
+    return a;
+  });
   route("GET", "/v1/keys/:address", (ctx) => {
     requireAgent(ctx);
     const k = relay.agentKey(decodeURIComponent(ctx.params[0]!));
@@ -382,6 +397,19 @@ export function createApi(opts: ApiOptions): Api {
     const r = relay.requestAutoReply(account.id, String(b.address ?? ""), String(b.session_id ?? ""), b.on === true);
     if ("error" in r) throw new HttpError(r.status, r.error, r.detail);
     return r;
+  });
+  // What is waiting on the signed-in person, and their answer. The relay matches the account itself.
+  route("GET", "/v1/admin/approvals", (ctx) => {
+    requireAdmin(ctx);
+    return { approvals: relay.approvalsFor(accountOf(ctx)?.id) };
+  });
+  route("POST", "/v1/admin/approvals/:id", async (ctx) => {
+    requireAdmin(ctx);
+    const { decision } = await ctx.body();
+    if (decision !== "approve" && decision !== "deny") throw new HttpError(400, "invalid_decision", "decision must be approve or deny");
+    const r = relay.decideApproval(accountOf(ctx)?.id, decodeURIComponent(ctx.params[0]!), decision === "approve");
+    ctx.status = r.status;
+    return r.body;
   });
   route("DELETE", "/v1/admin/sessions/:id", (ctx) => {
     requireAdmin(ctx);

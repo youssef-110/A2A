@@ -8,6 +8,10 @@ export interface MatrixRow {
   agent: string;
   app: string;
   enabled: boolean;
+  /** On the session's team: task work and the leader's requests, with the session's tools. */
+  team?: boolean;
+  /** The most a team run may do on this computer. */
+  ceiling?: "read_only" | "standard" | "full";
   runtime: string;
   runtime_ready: boolean;
   workdir: string | null;
@@ -46,6 +50,10 @@ export function formatMatrix(rows: MatrixRow[]): string {
       ].filter(Boolean);
       out.push(`  ● ${r.app.padEnd(14)} ${name}  auto-reply ON via ${r.runtime}${r.runtime_ready ? "" : " (NOT FOUND on this computer: runs will fail)"}${r.model ? `, model ${r.model}` : ""}`);
       out.push(`      tools: ${r.tools.join(", ") || "(none)"}; ${caps.join(", ")}${r.workdir ? `; in ${r.workdir}` : ""}`);
+      if (r.team) {
+        const limit = { read_only: "it only reads here: no project folder is set, or the limit is read_only (turn it on from inside the project to let it edit)", standard: "it may edit files in its folder and use the web, no shell", full: "it may edit files in its folder, use the web and run commands" }[r.ceiling ?? "standard"];
+        out.push(`      on the team: does task work and what the session's leader asks, as far as the session's permissions go; on this computer ${limit}`);
+      }
       if (r.recent) out.push(`      last ${r.recent.runs} runs: delivery ${ms(r.recent.avg_delivery_ms)}, agent start ${ms(r.recent.avg_start_ms)}, model ${ms(r.recent.avg_model_ms)}`);
     }
   }

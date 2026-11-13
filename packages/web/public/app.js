@@ -1454,6 +1454,12 @@ function connectEvents() {
       .then((r) => ((S.allTasks = r.tasks), S.view === "network" ? drawMap() : soon()))
       .catch(() => {});
   });
+  // The event names no text; the list below only ever holds this person's own agents' requests.
+  events.addEventListener("approval", () => {
+    loadApprovals()
+      .then((fresh) => (announceApprovals(fresh), drawApprovals()))
+      .catch(() => {});
+  });
   events.addEventListener("permissions", (e) => {
     const ev = JSON.parse(e.data);
     if (S.view === "session" && (ev.scope === S.session || ev.scope === "workspace")) soonExtras();
@@ -1722,13 +1728,81 @@ function agentChip(a, { doing, on, onclick, state } = {}) {
   );
 }
 
-/** What is waiting on the person: held messages, agents asking to join, parts that are stuck. */
+/** What the signed-in person's own agents stopped to ask them, here and in workspaces they were invited into. */
+async function loadApprovals() {
+  const [own, shared] = await Promise.all([api("GET", "/v1/admin/approvals").catch(() => ({ approvals: [] })), api("GET", "/api/shared/approvals").catch(() => ({ approvals: [] }))]);
+  const known = new Set((S.approvals ?? []).map((a) => a.id));
+  S.approvals = [...(own.approvals ?? []), ...(shared.approvals ?? [])];
+  return S.approvals.filter((a) => !known.has(a.id));
+}
+
+/** Redraws the places a request shows: Home's "needs you" and the open session. */
+function drawApprovals() {
+  if (S.view === "sessions") document.getElementById("home-live")?.replaceWith(homeLive());
+  if (S.view === "session" || S.view === "shared") document.getElementById("asks")?.replaceWith(sessionAsks(S.view === "session" ? S.session : S.sharedKey?.id));
+  renderSide();
+}
+
+/** A new request: say so on the page, and as a system notification when the person allowed those. */
+function announceApprovals(fresh) {
+  if (!fresh.length) return;
+  const text = fresh.length === 1 ? `${short(fresh[0].agent)} needs your OK` : `${fresh.length} agents need your OK`;
+  toast(text);
+  if (document.hidden && window.Notification?.permission === "granted") new Notification("a2a", { body: `${text}: ${fresh[0].action}`, tag: "a2a-approval" });
+}
+
+async function decideApproval(a, decision) {
+  S.approvals = S.approvals.filter((x) => x.id !== a.id);
+  drawApprovals();
+  try {
+    await api("POST", a.workspace ? `/api/shared/${a.workspace.slug}/approvals/${encodeURIComponent(a.id)}` : `/v1/admin/approvals/${encodeURIComponent(a.id)}`, { decision });
+    toast(decision === "approve" ? `Approved once. ${short(a.agent)} goes on.` : `Denied. ${short(a.agent)} was told.`);
+  } catch (err) {
+    toast(err.message);
+    await loadApprovals();
+    drawApprovals();
+  }
+}
+
+/** One request with its two answers. Not a whole-row button like the other rows: a stray click must not approve. */
+function approvalRow(a) {
+  const where = [a.session?.name, a.workspace?.name].filter(Boolean).join(" · ");
+  return h(
+    "div",
+    { class: "need need-ask" },
+    h("span", { class: "need-dot" }),
+    h(
+      "span",
+      { class: "need-text" },
+      h("b", {}, short(a.agent)),
+      " stopped to ask you before it does this:",
+      h("span", { class: "need-action" }, a.action),
+      a.why ? h("span", { class: "need-why" }, `Why: ${a.why}`) : null,
+      h("span", { class: "need-why" }, `${where ? `${where} · ` : ""}asked ${ago(a.created_at)}. Approving lets it do this one step, once. It never hands over keys or passwords.`),
+    ),
+    h(
+      "span",
+      { class: "need-actions" },
+      h("button", { class: "btn secondary small", type: "button", onclick: () => decideApproval(a, "deny") }, "Deny"),
+      h("button", { class: "btn small", type: "button", onclick: () => decideApproval(a, "approve") }, "Approve once"),
+    ),
+  );
+}
+
+/** The requests that belong to one session, at the top of its page. */
+function sessionAsks(sessionId) {
+  const rows = (S.approvals ?? []).filter((a) => a.session?.id === sessionId).map(approvalRow);
+  return h("div", { id: "asks", class: "needs asks", hidden: !rows.length, "aria-label": "Needs you" }, rows);
+}
+
+/** What is waiting on the person: their agents' questions, held messages, agents asking to join, parts that are stuck. */
 function needsYou() {
   const held = S.overview?.stats?.held || 0;
   const pending = S.agents.filter((a) => a.status === "pending").length;
   const blocked = (S.allTasks ?? []).filter((t) => t.status === "active").flatMap((t) => t.parts.filter((p) => p.status === "blocked").map((p) => ({ t, p })));
   const row = (text, action, onclick) => h("button", { class: "need", type: "button", onclick }, h("span", { class: "need-dot" }), h("span", { class: "need-text" }, text), h("span", { class: "need-go" }, action));
   const rows = [
+    ...(S.approvals ?? []).map(approvalRow),
     held ? row(`${held} ${held === 1 ? "message is" : "messages are"} held by the guard`, "Review", () => go("review")) : null,
     pending ? row(`${pending} ${pending === 1 ? "agent is" : "agents are"} asking to join`, "Decide", () => go("agents")) : null,
     ...blocked.slice(0, 3).map(({ t, p }) =>
@@ -2022,9 +2096,11 @@ function autoReplySection(members, sessionId, endpoint, reload) {
   const flip = async (m, on) => {
     S.autoPending[`${m.address} ${sessionId}`] = on;
     reload(true);
+    // An agent on the team may stop to ask its owner; this click is the moment to allow the browser to say so.
+    if (on && window.Notification?.permission === "default") Notification.requestPermission().catch(() => {});
     try {
       await api("POST", endpoint, { address: m.address, session_id: sessionId, on });
-      toast(on ? `Turning on auto-reply for ${appOf(m) ?? short(m.address)}…` : `Turning off auto-reply for ${appOf(m) ?? short(m.address)}…`);
+      toast(on ? `Putting ${appOf(m) ?? short(m.address)} on the team…` : `Taking ${appOf(m) ?? short(m.address)} off the team…`);
     } catch (err) {
       delete S.autoPending[`${m.address} ${sessionId}`];
       toast(err.message);
@@ -2051,14 +2127,14 @@ function autoReplySection(members, sessionId, endpoint, reload) {
         "div",
         { class: "auto-text" },
         h("b", {}, app),
-        h("span", { class: "muted small" }, why ?? (pending !== undefined ? "Waiting for your computer…" : on ? "Answers new requests here on its own, then stops." : "Off. Messages wait for you.")),
+        h("span", { class: "muted small" }, why ?? (pending !== undefined ? "Waiting for your computer…" : on ? "On the team: answers, does its parts and what the leader asks, then stops." : "Off. Messages and tasks wait for you.")),
       ),
       h("button", {
         class: `switch ${on ? "on" : ""}`,
         type: "button",
         role: "switch",
         "aria-checked": String(on),
-        "aria-label": `Auto-reply for ${app}`,
+        "aria-label": `${app} works on its own in this session`,
         disabled: disabled || pending !== undefined,
         onclick: () => flip(m, !on),
       }),
@@ -2067,11 +2143,15 @@ function autoReplySection(members, sessionId, endpoint, reload) {
   return h(
     "section",
     { class: "auto-sec" },
-    h("div", { class: "sec-h" }, h("h3", {}, "Auto-reply"), h("span", { class: "muted small" }, "your agents")),
+    h("div", { class: "sec-h" }, h("h3", {}, "On the team"), h("span", { class: "muted small" }, "your agents")),
     mine.length
       ? h("ul", { class: "auto-list" }, mine.map(row))
-      : h("p", { class: "muted small" }, "None of your AI apps is in this session yet. Connect one, and you can let it answer here on its own."),
-    h("p", { class: "muted small" }, "Off until you turn it on, here or in your app. Only your computer runs it, and everyone in the session can see which of your agents answer on their own."),
+      : h("p", { class: "muted small" }, "None of your AI apps is in this session yet. Connect one, and you can let it work here on its own."),
+    h(
+      "p",
+      { class: "muted small" },
+      "Off until you turn it on, here or in your app. Only your computer runs it. It changes files only in the project folder you chose in your app (turned on from here first, it only reads), never opens keys or passwords, and asks you on this page before a sensitive step. Everyone in the session can see which of your agents work on their own.",
+    ),
   );
 }
 
@@ -2296,11 +2376,12 @@ function viewSession() {
   let main;
   const tab = S.sessionTab ?? "chat";
   if (tab !== "chat") {
-    main = h("section", { class: "chat-col session-col", "aria-label": `${d.name}: ${tab}` }, permissionsBar(), sessionTabs(), roster(d, me), tab === "tasks" ? tasksPane(d) : tab === "reports" ? reportsPane() : mapPane());
+    main = h("section", { class: "chat-col session-col", "aria-label": `${d.name}: ${tab}` }, sessionAsks(S.session), permissionsBar(), sessionTabs(), roster(d, me), tab === "tasks" ? tasksPane(d) : tab === "reports" ? reportsPane() : mapPane());
   } else if (!guests.length) {
     main = h(
       "section",
       { class: "chat-col session-col" },
+      sessionAsks(S.session),
       permissionsBar(),
       sessionTabs(), roster(d, me),
       h(
@@ -2327,6 +2408,7 @@ function viewSession() {
     main = h(
       "section",
       { class: "chat-col session-col", "aria-label": `Conversation in ${d.name}` },
+      sessionAsks(S.session),
       permissionsBar(),
       sessionTabs(), roster(d, me),
       h("div", { class: "chat-scroll", id: "tl-scroll" }, h("div", { class: "log tl", "aria-live": "polite" }, timeline(shownMessages(d.messages, me), me))),
@@ -2360,16 +2442,16 @@ function viewSession() {
 // ------------------------------------------------------------------ session: permissions, tasks, live map
 
 const PERMISSION_MODES = [
-  ["full", "Full access", "No restrictions. Messages aren't screened; workers may edit files, run commands and use the web."],
-  ["standard", "Standard", "Messages are screened. Workers may edit files and use the web, but not run commands."],
-  ["read_only", "Read only", "Messages are screened. Workers only read, and agents can't hand out work."],
+  ["full", "Full access", "Messages aren't screened; agents on the team may edit files, run commands and use the web. Running commands also needs each owner to allow it on their own computer. Keys and passwords stay shut in every mode."],
+  ["standard", "Standard", "Messages are screened. Agents on the team may edit files and use the web, but not run commands."],
+  ["read_only", "Read only", "Messages are screened. Agents only read, and can't hand out work."],
   ["custom", "Custom", "Pick each switch yourself, and flag words to hold for review."],
 ];
 const PERMISSION_SWITCHES = [
   ["guard", "Screen messages", "The guard checks every message for prompt injection, secrets and risky requests."],
-  ["worker_edit", "Edit files", "Workers on autopilot may create and change files in their folder."],
-  ["worker_shell", "Run commands", "Workers on autopilot may run shell commands."],
-  ["worker_web", "Use the web", "Workers on autopilot may search and fetch pages."],
+  ["worker_edit", "Edit files", "Agents on the team may create and change files in their project folder."],
+  ["worker_shell", "Run commands", "Agents on the team may run shell commands, where their owner also allowed it on that computer."],
+  ["worker_web", "Use the web", "Agents on the team may search and fetch pages."],
   ["delegate", "Split work", "Agents may hand parts of a task to other agents."],
 ];
 
@@ -2418,7 +2500,7 @@ async function savePermissions(patch, msg) {
 function confirmFullAccess() {
   const dlg = openDialog(
     "Give everyone full access?",
-    h("p", {}, "Messages in this session go through without the guard, and agents on autopilot may edit files, run commands and use the web on their owners' computers. Use it with people and agents you trust."),
+    h("p", {}, "Messages in this session go through without the guard, and agents on the team may edit files, run commands and use the web on their owners' computers. Running commands also needs each owner to allow it on their own computer. Nobody's agent opens keys or passwords, in any mode. Use it with people and agents you trust."),
     h(
       "div",
       { class: "dialog-actions" },
@@ -2817,7 +2899,8 @@ async function openShared(slug, id) {
 async function loadSharedSession() {
   if (!S.sharedKey) return;
   try {
-    S.sharedData = await api("GET", `/api/shared/${S.sharedKey.slug}/sessions/${encodeURIComponent(S.sharedKey.id)}`);
+    // Other people's workspaces send this page no live events, so their requests are read with the session.
+    [S.sharedData] = await Promise.all([api("GET", `/api/shared/${S.sharedKey.slug}/sessions/${encodeURIComponent(S.sharedKey.id)}`), loadApprovals().catch(() => {})]);
   } catch {
     S.sharedData = { error: true };
   }
@@ -2854,6 +2937,7 @@ function viewShared() {
       h(
         "aside",
         { class: "details", "aria-label": "Session details" },
+        sessionAsks(S.sharedKey.id),
         h("section", {}, h("h3", {}, "Brief"), d.brief ? h("div", { class: "brief-read" }, d.brief) : h("p", { class: "muted small" }, "No brief yet. Your agent can write one with update_session_brief.")),
         autoReplySection(d.members, S.sharedKey.id, `/api/shared/${S.sharedKey.slug}/sessions/${encodeURIComponent(S.sharedKey.id)}/auto-reply`, (soft) => (soft ? renderView() : loadSharedSession())),
         h(
@@ -2970,13 +3054,17 @@ async function boot() {
   } else if (VIEW_NAMES.includes(view)) S.view = view;
   const [, , , sharedSlug, sharedId] = location.pathname.split("/").filter(Boolean);
   if (view === "shared" && sharedSlug && sharedId) S.sharedKey = { slug: sharedSlug, id: sharedId };
-  await Promise.all([refresh(), loadSessions(), loadShared(), fetch("/downloads/latest.json").then((r) => (r.ok ? r.json() : null)).then((c) => (S.cli = c)).catch(() => {})]);
+  await Promise.all([refresh(), loadSessions(), loadShared(), loadApprovals(), fetch("/downloads/latest.json").then((r) => (r.ok ? r.json() : null)).then((c) => (S.cli = c)).catch(() => {})]);
   if (S.view === "talk" && id) S.talk.to = talkable().find((a) => short(a.address) === decodeURIComponent(id))?.address ?? null;
   renderShell(); // both loads are in: draw with sessions included
   if (S.view === "session") await loadSession();
   if (S.view === "shared") await loadSharedSession();
   connectEvents();
   watchDevice();
+  // Coming back to the tab reads the requests once: a guest's page gets no live events for them.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) loadApprovals().then((fresh) => (announceApprovals(fresh), drawApprovals())).catch(() => {});
+  });
 }
 
 boot();

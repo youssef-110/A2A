@@ -221,6 +221,22 @@ CREATE TABLE IF NOT EXISTS task_events (
   at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS task_events_task ON task_events (task_id, id);
+
+-- Approvals: an agent's own run asks its person to OK one sensitive action. Only that person decides.
+CREATE TABLE IF NOT EXISTS approvals (
+  id         TEXT PRIMARY KEY,
+  agent      TEXT NOT NULL,
+  account_id TEXT,
+  session_id TEXT,
+  task_id    TEXT,
+  action     TEXT NOT NULL,
+  why        TEXT NOT NULL,
+  status     TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS approvals_owner ON approvals (account_id, status);
+CREATE INDEX IF NOT EXISTS approvals_agent ON approvals (agent, status);
 `;
 
 export type SqlValue = string | number | bigint | null | Uint8Array;

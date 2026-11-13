@@ -126,6 +126,26 @@ async function handleShared(env: Env, req: Request, url: URL, userId: string): P
     );
     return json({ sessions: out.flat() });
   }
+  // What this person's agents in other people's workspaces are waiting on them for, and their answer.
+  // The relay matches the account itself, so nobody else's requests come back or can be answered.
+  if (url.pathname === "/api/shared/approvals" && req.method === "GET") {
+    const out = await Promise.all(
+      spaces.map(async (ws) => {
+        const r = await toRelay(env, new Request(new URL("/v1/admin/approvals", url.origin)), ws.do_name, "/v1/admin/approvals", { ...workspaceHeaders(url, ws), "x-a2a-account-id": userId }, true);
+        const { approvals = [] } = (await r.json().catch(() => ({}))) as { approvals?: Record<string, unknown>[] };
+        return approvals.map((a) => ({ ...a, workspace: { slug: ws.slug, name: ws.name } }));
+      }),
+    );
+    return json({ approvals: out.flat() });
+  }
+  const ap = /^\/api\/shared\/([a-z0-9-]+)\/approvals\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (ap && req.method === "POST") {
+    const space = spaces.find((w) => w.slug === ap[1]);
+    if (!space) return json({ error: "not_found" }, 404);
+    const path = `/v1/admin/approvals/${ap[2]}`;
+    const fwd = new Request(new URL(path, url.origin), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(await readJson(req)) });
+    return toRelay(env, fwd, space.do_name, path, { ...workspaceHeaders(url, space), "x-a2a-account-id": userId }, true);
+  }
   const m = /^\/api\/shared\/([a-z0-9-]+)\/sessions\/([A-Za-z0-9_-]+)(\/leave|\/auto-reply)?$/.exec(url.pathname);
   const ws = m && spaces.find((w) => w.slug === m[1]);
   if (!m || !ws) return json({ error: "not_found" }, 404);
@@ -438,7 +458,7 @@ async function handleApi(env: Env, req: Request, url: URL, ctx: ExecutionContext
       return json({ ok: true, name });
     }
     // The relay checks the agent is this person's; it needs to know who is asking.
-    const who: Record<string, string> = m[2] === "/v1/admin/auto-reply" ? { "x-a2a-account-id": user.id } : {};
+    const who: Record<string, string> = m[2] === "/v1/admin/auto-reply" || m[2]!.startsWith("/v1/admin/approvals") ? { "x-a2a-account-id": user.id } : {};
     return toRelay(env, req, ws.do_name, m[2]!, { ...workspaceHeaders(url, ws), ...who }, true);
   }
   return json({ error: "not_found" }, 404);

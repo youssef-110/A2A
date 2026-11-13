@@ -17,6 +17,12 @@ export interface AutoReplyRule {
   session: string;
   /** The session's name when it was turned on, for display. */
   name?: string;
+  /**
+   * The owner put this agent on the session's team: task work and the leader's own requests run as the
+   * owner's instructions, with the tools the session's permissions allow, capped by autopilot_max.
+   * Missing (rules made before teams): the agent only answers, with its own allowed_tools.
+   */
+  team?: boolean;
   /** Runs at once for this agent in this session (default 1; more wait their turn). */
   max_concurrent?: number;
   /** Seconds after a run starts before the next one may (default 0). */
@@ -54,8 +60,9 @@ export interface AgentConfig {
   /** Task runs get the tools the session's permissions allow (the owner's permissions bar), not only allowed_tools. */
   autopilot?: boolean;
   /**
-   * The most this computer lets autopilot do, whatever a session's permissions say. Set by the person
-   * who owns the computer: "read_only", "standard" (files and web, no shell; the default) or "full".
+   * The most this computer lets team and autopilot runs do, whatever a session's permissions say. Set
+   * only here, by the person who owns the computer: "read_only", "standard" (files and web, no shell;
+   * the default) or "full" (also a shell). Without a project folder (workdir) runs only read.
    */
   autopilot_max?: "read_only" | "standard" | "full";
   /** Sessions where this agent answers messages on its own. Empty or missing: never (the default). */

@@ -180,13 +180,13 @@ test("autopilot tools: the session's permissions, capped by the ceiling set on t
   const base = { delegate: true };
   const fullSession = { ...base, mode: "full", worker_edit: true, worker_shell: true, worker_web: true };
   assert.deepEqual(toolsFor({ ...base, mode: "read_only", worker_edit: false, worker_shell: false, worker_web: false }, "full"), { allowed_tools: ["Read", "Grep", "Glob", "TodoWrite"] });
-  // A remote Full access alone never gives a shell or skips prompts on someone's computer.
+  // A remote Full access alone never gives a shell on someone's computer.
   const capped = toolsFor(fullSession);
-  assert.equal(capped.permission_mode, undefined);
   assert.ok(!capped.allowed_tools.includes("Bash") && capped.allowed_tools.includes("Edit"));
   assert.ok(!toolsFor(fullSession, "read_only").allowed_tools.includes("Edit"));
+  // Full here and full there gives a shell, and still never a run that skips permission checks.
   const full = toolsFor(fullSession, "full");
-  assert.equal(full.permission_mode, "bypassPermissions");
+  assert.deepEqual(Object.keys(full), ["allowed_tools"]);
   assert.ok(full.allowed_tools.includes("Bash") && full.allowed_tools.includes("WebFetch"));
 });
 

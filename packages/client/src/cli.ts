@@ -38,8 +38,11 @@ Setup by hand
       [--runtime none|claude|codex|opencode] [--workdir DIR] [--display-name NAME] [--no-start] [--force]
   init --server URL [--name NAME]         Create the client config and pin the relay's key
   agents add <address> [options]          Create a key for an agent on this machine and register it
-  auto-reply [status]                     Which of your agents answer on their own, per session
-  auto-reply on --session S --agent A     Let agent A answer new requests in session S on its own
+  auto-reply [status]                     Which of your agents work on their own, per session
+  auto-reply on --session S --agent A     Put agent A on session S's team: it answers, and does task work
+                                          and what the session's leader asks, in this folder
+       [--max read_only|standard|full]    The most it may do on this computer (default standard: no shell)
+       [--answer-only]                    Only answer messages; no task work, no changes
        [--max-per-hour N] [--cooldown SEC] [--concurrent N] [--max-tokens N] [--timeout 5m]
        [--daily-usd X] [--daily-tokens N] [--tools Read,Grep] [--model M] [--workdir DIR]
   auto-reply off [--agent A] [--session S] [--all]   Stop it for one agent, one session, or everything
@@ -191,6 +194,12 @@ async function main(argv: string[]): Promise<number> {
   }
   const H = resolveHome(home);
   const [cmd, ...args] = rest;
+  // A headless run with a shell could otherwise reach these through the command line: changing how A2A
+  // is set up on this computer is the owner's alone. (The run's own tools start as `a2a mcp`.)
+  if (process.env.A2A_RUN_ID && ["join", "connect", "login", "logout", "apps", "init", "agents", "install", "start", "stop", "run"].includes(cmd ?? "")) {
+    console.error("A headless run can't change how A2A is set up on this computer. Only the owner can.");
+    return 1;
+  }
 
   switch (cmd) {
     case undefined:
@@ -313,8 +322,14 @@ async function main(argv: string[]): Promise<number> {
           // Only who wrote, never what: message text reaches the model through check_inbox, framed as untrusted.
           const senders = [...new Set(fresh.map((m) => m.from))].slice(0, 5).join(", ");
           console.log(`[A2A] ${fresh.length} new message${fresh.length > 1 ? "s" : ""} from ${senders}. Tell the user, and read them with the a2a check_inbox tool if they want.`);
-          writeFileSync(seenFile, JSON.stringify([...seen, ...fresh.map((m) => m.id)].slice(-500)));
         }
+        // One of the user's own headless agents stopped to ask them. Said once; the answer is given on the dashboard.
+        const asking = (await ipc<{ approvals: { id: string; agent: string }[] }>(H, "GET", `/approvals${forApp}`, undefined, 800)).approvals.filter((a) => !seen.includes(a.id));
+        if (asking.length) {
+          const who = [...new Set(asking.map((a) => a.agent.split("/").pop()))].join(", ");
+          console.log(`[A2A] ${who} stopped and ${asking.length > 1 ? "are" : "is"} waiting for the user's OK on a sensitive step. Tell the user to approve or deny it on their A2A dashboard.`);
+        }
+        if (fresh.length || asking.length) writeFileSync(seenFile, JSON.stringify([...seen, ...fresh.map((m) => m.id), ...asking.map((a) => a.id)].slice(-500)));
       } catch {
         /* client not running: stay quiet */
       }
@@ -583,6 +598,8 @@ async function main(argv: string[]): Promise<number> {
           tools: { type: "string" },
           model: { type: "string" },
           workdir: { type: "string" },
+          "answer-only": { type: "boolean" },
+          max: { type: "string" },
           json: { type: "boolean" },
         },
       });
@@ -610,6 +627,8 @@ async function main(argv: string[]): Promise<number> {
         daily_tokens: n(values["daily-tokens"]),
         tools: values.tools?.split(",").map((t) => t.trim()).filter(Boolean),
         model: values.model,
+        team: !values["answer-only"],
+        max: values.max,
       });
       print(!!values.json, r, () => `${action === "on" ? `Auto-reply on in "${r.session?.name}" for` : "Auto-reply off for"} ${r.changed.map((a) => a.split("/").pop()).join(", ") || "nothing (no change)"}.\n\n${formatMatrix(r.matrix)}`);
       return 0;
