@@ -1366,6 +1366,8 @@ export class Relay extends EventEmitter {
         // The old name stays the agent's: nobody else can register it and pass as the agent people knew.
         const me = this.getAgent(address)!;
         this.db.prepare("DELETE FROM retired_names WHERE address = ?").run(to);
+        // Only the latest name it gave up is kept, so renaming over and over can't reserve a pile of names.
+        this.db.prepare("DELETE FROM retired_names WHERE public_key = ?").run(me.public_key);
         this.db.prepare("INSERT OR REPLACE INTO retired_names (address, account_id, public_key, at) VALUES (?, ?, ?, ?)").run(address, this.accountOf(address)?.account_id ?? null, me.public_key, iso());
         for (const [table, column] of RENAME_COLUMNS) this.db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, address);
       }
