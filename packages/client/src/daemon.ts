@@ -43,6 +43,7 @@ import { openState, type State } from "./state.ts";
 import { RelayError, relayInfo, signedGet, signedSend, submitEnvelope } from "./relay-api.ts";
 import { boardNote, buildPrompt, buildTaskPrompt, runAgent, taskIdOf, toolsFor, type AutopilotMax, type InboundMessage, type TaskPermissions } from "./runtimes.ts";
 import { toolById } from "./tools.ts";
+import { personSlug } from "./account.ts";
 import { installAutostart } from "./install.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -191,6 +192,7 @@ export class Daemon {
   private readonly activeRuns = new Set<Promise<void>>();
   /** Runs in progress per "<agent> <task id>", so a check-in on that task needs no second run. */
   private readonly taskRuns = new Map<string, number>();
+  private renaming?: Promise<unknown>;
   /** Message id -> the owner's answer its next run starts with. Used once. */
   private readonly decided = new Map<string, Decided>();
   private flushing = false;
@@ -399,6 +401,13 @@ export class Daemon {
     const session = (msg.session ?? {}) as { id?: string; name?: string | null };
     if (msg.kind === "approval") {
       if (typeof msg.id === "string") void this.approvalAnswered(address, msg.id);
+      return;
+    }
+    // The owner asked on their own signed-in page for their agents to carry another name. Like the
+    // auto-reply switch, this computer does it itself, and a config can turn website requests off.
+    if (msg.kind === "rename" && typeof msg.person === "string") {
+      if (this.config.web_controls === false) return this.log(`ignored a website request to rename agents (web_controls: false)`);
+      void this.renamePerson({ person: msg.person }).catch((err) => this.log(`could not rename agents: ${(err as Error).message}`));
       return;
     }
     // The owner flipped the switch on their own signed-in page (the relay only passes it on for the
@@ -616,6 +625,59 @@ export class Daemon {
   /** Whether this agent has a run for the task going, or waiting its turn. */
   private busyWith(address: string, taskId: string): boolean {
     return (this.taskRuns.get(`${address} ${taskId}`) ?? 0) > 0 || (this.backlog.get(address) ?? []).some((q) => taskIdOf(q.text) === taskId);
+  }
+
+  // ------------------------------------------------------------ names
+
+  /**
+   * Renames this computer's agents from <old>-<app> to <new>-<app> on every relay that answers. Each
+   * agent asks its relay itself, signed with its own key, so its sessions, tasks and threads move
+   * with it. Agents on relays that don't answer keep their name and are listed in the result.
+   */
+  renamePerson(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (body.run_id) return Promise.reject(new ClientError(403, "A headless run can't rename agents. Only the owner can."));
+    const raw = typeof body.person === "string" ? body.person.trim() : "";
+    if (!raw) return Promise.reject(new ClientError(400, "Give the name your agents should carry, for example robin."));
+    // One rename at a time: the website sends the request once per agent that is online.
+    const next = (this.renaming ?? Promise.resolve()).catch(() => {}).then(() => this.doRename(personSlug(raw, "")));
+    this.renaming = next;
+    return next;
+  }
+
+  private async doRename(person: string): Promise<Record<string, unknown>> {
+    // A copy from disk: reload() compares it with the running config to see which relays to say hello to again.
+    const config = loadConfig(this.home);
+    const old = config.person;
+    const renamed: { from: string; to: string }[] = [];
+    const failed: { agent: string; why: string }[] = [];
+    for (const a of config.agents) {
+      const short = a.address.split("/").pop()!;
+      if (!old || old === person || (short !== old && !short.startsWith(`${old}-`))) continue;
+      const label = a.tool ? (toolById(a.tool)?.label ?? a.tool) : null;
+      const from = a.address;
+      try {
+        const r = await signedSend(serverOf(config, a), from, this.keys.get(from)!, "POST", "/v1/agents/rename", {
+          name: `${person}${short.slice(old.length)}`,
+          display_name: `${person[0]!.toUpperCase()}${person.slice(1)}${label ? ` (${label})` : ""}`,
+        });
+        const to = String(r.address);
+        for (const [table, column] of [["inbox", "to_addr"], ["sent", "from_addr"], ["sessions", "agent"], ["runs", "agent"], ["approvals", "agent"], ["notices", "address"]]) {
+          this.state.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, from);
+        }
+        if (config.default_agent === from) config.default_agent = to;
+        a.address = to;
+        if (a.display_name) a.display_name = `${person[0]!.toUpperCase()}${person.slice(1)}${label ? ` (${label})` : ""}`;
+        renamed.push({ from, to });
+      } catch (err) {
+        failed.push({ agent: from, why: (err as Error).message });
+      }
+    }
+    // New agents (another app connected later) take the new name too, unless every relay refused it.
+    if (renamed.length || !failed.length) config.person = person;
+    saveConfig(this.home, config);
+    await this.reload();
+    this.log(`agents renamed to ${person}-*: ${renamed.length} done${failed.length ? `, ${failed.length} not (${failed.map((f) => `${f.agent}: ${f.why}`).join("; ")})` : ""}`);
+    return { person, renamed, failed };
   }
 
   // ------------------------------------------------------------ teams and approvals
@@ -1557,6 +1619,8 @@ export class Daemon {
           return reply(200, { matrix: await this.autoReplyMatrix() });
         case "POST /auto-reply":
           return reply(200, await this.setAutoReply(body));
+        case "POST /rename":
+          return reply(200, await this.renamePerson(body));
         case "POST /approvals/request":
           if (typeof body.run_id !== "string" || typeof body.action !== "string" || !body.action.trim()) throw new ClientError(400, "run_id and action are required");
           return reply(200, await this.requestApproval(body.run_id, body.action.trim().slice(0, 500), (str(body.why) ?? "").slice(0, 1000)));

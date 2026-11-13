@@ -38,6 +38,24 @@ import { TaskBoard, TaskError } from "./tasks.ts";
 export const RELAY_VERSION = "0.1.0";
 const FUTURE_SKEW_MS = 5 * 60_000;
 const REDELIVER_AFTER_MS = 30_000;
+/** Every place an agent's address is stored, for a rename. */
+const RENAME_COLUMNS: [table: string, column: string][] = [
+  ["agents", "address"],
+  ["agent_auto", "address"],
+  ["agent_accounts", "address"],
+  ["owner_agents", "address"],
+  ["session_members", "address"],
+  ["session_settings", "brief_updated_by"],
+  ["thread_participants", "address"],
+  ["threads", "created_by"],
+  ["messages", "from_addr"],
+  ["messages", "to_addr"],
+  ["tasks", "coordinator"],
+  ["task_items", "assignee"],
+  ["task_votes", "address"],
+  ["task_events", "actor"],
+  ["approvals", "agent"],
+];
 /** Requests one agent may have waiting on its person at once. */
 const MAX_OPEN_APPROVALS = 5;
 
@@ -1318,6 +1336,44 @@ export class Relay extends EventEmitter {
     this.out.notice?.(a.agent, { kind: "approval", id, status });
     this.emitEvent("approval", { id, agent: a.agent, status });
     return { status: 200, body: this.approvalView(this.approval(id)!) };
+  }
+
+  // ------------------------------------------------------------ renaming
+
+  /**
+   * An agent takes a new name on this relay. Its own client asks (signed with the agent's key), and
+   * the name moves with everything the agent has: sessions, tasks, threads, its account, its history.
+   */
+  renameAgent(address: string, input: { name?: unknown; display_name?: unknown }): { status: number; body: Record<string, unknown> } {
+    const to = `agent://${this.policy.org}/${typeof input.name === "string" ? input.name.trim().toLowerCase() : ""}`;
+    if (!ADDRESS_RE.test(to)) return { status: 400, body: { error: "invalid_name", detail: "A name uses lowercase letters, digits, dots and dashes." } };
+    if (address === this.consoleAddress || to === this.consoleAddress) return { status: 409, body: { error: "reserved_address", detail: "this address belongs to the relay" } };
+    if (to !== address && this.getAgent(to)) return { status: 409, body: { error: "name_taken", detail: `${to.split("/").pop()} already exists here. Pick another name.` } };
+    tx(this.db, () => {
+      // shortcut: a message still on its way keeps the old name inside its signed envelope, so the
+      // recipient's client drops it. Renames are rare and done by a person; resend if that happens.
+      if (to !== address) for (const [table, column] of RENAME_COLUMNS) this.db.prepare(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(to, address);
+      if (typeof input.display_name === "string" && input.display_name.trim()) this.db.prepare("UPDATE agents SET display_name = ?, updated_at = ? WHERE address = ?").run(input.display_name.trim().slice(0, 80), iso(), to);
+    });
+    if (to !== address) this.audit(address, "agent.rename", to);
+    this.emitEvent("agent", { ...this.agentView(this.getAgent(to)!), renamed_from: address });
+    for (const s of this.sessionsFor(to)) this.emitEvent("session", { id: s.id });
+    return { status: 200, body: { address: to } };
+  }
+
+  /**
+   * The signed-in person asks for their agents to be called <name>-<app>. The relay only passes it on to
+   * their own computers that are online; each one renames its agents itself, here and in other workspaces.
+   */
+  requestRename(accountId: string, name: unknown): { ok: true; asked: number; offline: number } | { status: number; error: string; detail: string } {
+    const person = typeof name === "string" ? name.trim().slice(0, 60) : "";
+    if (!person) return { status: 400, error: "name_required", detail: "Type the name your agents should carry." };
+    const mine = (this.db.prepare("SELECT address FROM agent_accounts WHERE account_id = ?").all(accountId) as { address: string }[]).map((r) => r.address);
+    const online = mine.filter((a) => this.out.isOnline(a));
+    if (!online.length) return { status: 409, error: "offline", detail: mine.length ? "Your computer is offline. Start your AI app (or a2a) and try again." : "None of your AI apps is connected here yet." };
+    for (const a of online) this.out.notice?.(a, { kind: "rename", person });
+    this.audit(`account:${accountId}`, "agent.rename_request", null, { agents: online.length });
+    return { ok: true, asked: online.length, offline: mine.length - online.length };
   }
 
   tryDeliver(id: string): boolean {

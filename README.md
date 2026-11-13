@@ -35,7 +35,7 @@ Click **Connect your AI apps** and paste the prompt into any AI agent on your co
 Antigravity, Cursor, Codex, Gemini CLI, ...). The agent runs one command:
 
 ```bash
-npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.5.tgz connect
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.6.tgz connect
 ```
 
 It opens your browser with a short code. You sign in and type the code. Every AI app on your computer
@@ -164,6 +164,11 @@ Nobody else can turn it on for you, and a message asking for it is ignored. `a2a
 matrix: session, agent, on or off, runtime, tools and limits, plus delivery, agent-start and model
 latency. `a2a auto-reply off --all` stops everything at once. While idle, the client holds one relay
 connection per workspace and runs no model.
+
+**Your agents' name.** Each app's agent is called `<name>-<app>` (`robin-claude`, `robin-codex`). Change the
+name in the dashboard under Settings, or run `a2a rename <name>` on your computer. Your computer renames
+them on every relay they are on, and they keep their sessions, tasks and history. A name someone else
+already has is refused.
 
 **Task work in every session: autopilot.** The same as a team, for task work in all your sessions at
 once: say "turn on A2A autopilot" in Claude Code, Codex or OpenCode (in the folder it should work in).
@@ -303,7 +308,7 @@ The dashboard (at `/app` after you sign in) has:
 `@a2a/sdk` gives your own programs an agent of their own:
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.5.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.6.tgz
 ```
 
 ```ts

@@ -38,6 +38,7 @@ Setup by hand
       [--runtime none|claude|codex|opencode] [--workdir DIR] [--display-name NAME] [--no-start] [--force]
   init --server URL [--name NAME]         Create the client config and pin the relay's key
   agents add <address> [options]          Create a key for an agent on this machine and register it
+  rename <name>                           Call your agents <name>-claude, <name>-codex, ... everywhere they are
   auto-reply [status]                     Which of your agents work on their own, per session
   auto-reply on --session S --agent A     Put agent A on session S's team: it answers, and does task work
                                           and what the session's leader asks, in this folder
@@ -196,7 +197,7 @@ async function main(argv: string[]): Promise<number> {
   const [cmd, ...args] = rest;
   // A headless run with a shell could otherwise reach these through the command line: changing how A2A
   // is set up on this computer is the owner's alone. (The run's own tools start as `a2a mcp`.)
-  if (process.env.A2A_RUN_ID && ["join", "connect", "login", "logout", "apps", "init", "agents", "install", "start", "stop", "run"].includes(cmd ?? "")) {
+  if (process.env.A2A_RUN_ID && ["join", "connect", "login", "logout", "apps", "init", "agents", "install", "start", "stop", "run", "rename"].includes(cmd ?? "")) {
     console.error("A headless run can't change how A2A is set up on this computer. Only the owner can.");
     return 1;
   }
@@ -643,6 +644,20 @@ async function main(argv: string[]): Promise<number> {
         r.sessions.length
           ? r.sessions.map((s) => `${s.name}  (${s.workspace}, ${s.id})\n  people: ${s.members.map((m) => `${m.online ? "●" : "○"} ${m.person ?? m.address.split("/").pop()}`).join(", ") || "just you"}\n  brief: ${s.brief?.replace(/\s+/g, " ").slice(0, 300) ?? "(none)"}`).join("\n\n")
           : "You aren't in any sessions yet.",
+      );
+      return 0;
+    }
+
+    case "rename": {
+      const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { json: { type: "boolean" } } });
+      if (!positionals[0]) throw new Error("usage: a2a rename <name>   (your agents become <name>-claude, <name>-codex, ...)");
+      const r = await ipc<{ person: string; renamed: { from: string; to: string }[]; failed: { agent: string; why: string }[] }>(H, "POST", "/rename", { person: positionals[0] }, 120_000);
+      print(!!values.json, r, () =>
+        [
+          r.renamed.length ? `Renamed ${r.renamed.length} agent${r.renamed.length > 1 ? "s" : ""}:` : `Nothing to rename: your agents already carry "${r.person}", or none start with the old name.`,
+          ...r.renamed.map((x) => `  ${x.from.split("/").pop()} -> ${x.to}`),
+          ...(r.failed.length ? ["Not renamed (the relay didn't accept it):", ...r.failed.map((x) => `  ${x.agent}: ${x.why}`)] : []),
+        ].join("\n"),
       );
       return 0;
     }

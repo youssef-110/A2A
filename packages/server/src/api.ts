@@ -230,6 +230,12 @@ export function createApi(opts: ApiOptions): Api {
     if (!a) throw new HttpError(404, "not_found");
     return a;
   });
+  // An agent takes a new name; everything it has moves with it.
+  route("POST", "/v1/agents/rename", async (ctx) => {
+    const r = relay.renameAgent(requireAgent(ctx), await ctx.body());
+    ctx.status = r.status;
+    return r.body;
+  });
   route("GET", "/v1/keys/:address", (ctx) => {
     requireAgent(ctx);
     const k = relay.agentKey(decodeURIComponent(ctx.params[0]!));
@@ -395,6 +401,15 @@ export function createApi(opts: ApiOptions): Api {
     if (!account) throw new HttpError(401, "signed_out", "Sign in to change auto-reply.");
     const b = await ctx.body();
     const r = relay.requestAutoReply(account.id, String(b.address ?? ""), String(b.session_id ?? ""), b.on === true);
+    if ("error" in r) throw new HttpError(r.status, r.error, r.detail);
+    return r;
+  });
+  // A signed-in person's own page asks their own computers to rename their agents.
+  route("POST", "/v1/admin/rename", async (ctx) => {
+    requireAdmin(ctx);
+    const account = accountOf(ctx);
+    if (!account) throw new HttpError(401, "signed_out", "Sign in to rename your agents.");
+    const r = relay.requestRename(account.id, (await ctx.body()).name);
     if ("error" in r) throw new HttpError(r.status, r.error, r.detail);
     return r;
   });

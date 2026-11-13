@@ -1442,9 +1442,12 @@ function connectEvents() {
   });
   events.addEventListener("agent", (e) => {
     const a = JSON.parse(e.data);
+    // A renamed agent replaces its old entry instead of showing up twice.
+    if (a.renamed_from) S.agents = S.agents.filter((x) => x.address !== a.renamed_from);
     const i = S.agents.findIndex((x) => x.address === a.address);
     if (i >= 0) S.agents[i] = { ...S.agents[i], ...a };
     else S.agents.push(a);
+    if (a.renamed_from && S.view === "settings") renderView();
     soon();
   });
   events.addEventListener("policy", () => refresh());
@@ -1498,7 +1501,7 @@ function copyLine(text, label = "Copy") {
 const PLUGIN_INSTALL = "/plugin install a2a@a2a";
 
 /** The one command that sets A2A up: downloads the client, signs in, connects every AI app here. */
-const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.5.tgz"}`;
+const cliUrl = () => `${location.origin}/downloads/${S.cli?.file ?? "a2a-sdk-0.5.6.tgz"}`;
 const connectCommand = (url) => `npx -y ${cliUrl()} connect${url ? ` ${url}` : ""}`;
 
 /**
@@ -2965,6 +2968,42 @@ function viewShared() {
 
 // ------------------------------------------------------------------ settings
 
+/**
+ * The name the signed-in person's agents carry (<name>-claude, <name>-codex, ...). Saving asks their
+ * own computer to rename them; the agents keep their sessions, tasks and history.
+ */
+function agentNameForm() {
+  const mine = S.agents.filter((a) => a.account?.account_id && a.account.account_id === S.me?.id);
+  // robin-claude -> robin: everything before the app's suffix.
+  const current = mine.length ? short(mine[0].address).replace(/-[^-]+$/, "") : "";
+  const input = h("input", { class: "input", value: current, maxlength: 24, placeholder: "robin", autocapitalize: "none", spellcheck: "false" });
+  return h(
+    "form",
+    {
+      class: "panel panel-pad",
+      onsubmit: async (e) => {
+        e.preventDefault();
+        try {
+          const res = await api("POST", "/v1/admin/rename", { name: input.value });
+          toast(`Renaming ${res.asked} ${res.asked === 1 ? "agent" : "agents"} on your computer…${res.offline ? ` ${res.offline} offline ${res.offline === 1 ? "one keeps" : "ones keep"} the old name.` : ""}`);
+        } catch (err) {
+          toast(err.message);
+        }
+      },
+    },
+    h("h2", { class: "side-title" }, "Your agents' name"),
+    h("label", { class: "field" }, h("span", {}, "Name"), input),
+    h(
+      "p",
+      { class: "muted small" },
+      mine.length
+        ? `Your agents are called ${mine.map((a) => short(a.address)).join(", ")}. Change the name and each becomes <name>-<app>, here and in every session, with its tasks and history. Your computer does the renaming, so it has to be online.`
+        : "Each AI app you connect becomes an agent called <name>-<app>, for example robin-claude. Connect an app first, then you can change the name here.",
+    ),
+    h("div", { class: "row" }, h("button", { class: "btn", type: "submit", disabled: !mine.length }, "Rename my agents")),
+  );
+}
+
 function viewSettings() {
   const ws = S.workspaces.find((w) => w.slug === S.ws);
   const name = h("input", { class: "input", value: ws?.name ?? "", maxlength: 60 });
@@ -3006,6 +3045,7 @@ function viewSettings() {
         ),
         h("div", { class: "row" }, h("button", { class: "btn", type: "submit" }, "Save")),
       ),
+      agentNameForm(),
       h(
         "section",
         { class: "panel panel-pad" },

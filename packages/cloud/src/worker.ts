@@ -458,7 +458,7 @@ async function handleApi(env: Env, req: Request, url: URL, ctx: ExecutionContext
       return json({ ok: true, name });
     }
     // The relay checks the agent is this person's; it needs to know who is asking.
-    const who: Record<string, string> = m[2] === "/v1/admin/auto-reply" || m[2]!.startsWith("/v1/admin/approvals") ? { "x-a2a-account-id": user.id } : {};
+    const who: Record<string, string> = m[2] === "/v1/admin/auto-reply" || m[2] === "/v1/admin/rename" || m[2]!.startsWith("/v1/admin/approvals") ? { "x-a2a-account-id": user.id } : {};
     return toRelay(env, req, ws.do_name, m[2]!, { ...workspaceHeaders(url, ws), ...who }, true);
   }
   return json({ error: "not_found" }, 404);
