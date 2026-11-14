@@ -129,6 +129,7 @@ test("the hard line is in every Claude Code run's flags, even one whose config a
     message: { id: "m1", thread_id: "t1", in_reply_to: null, from: LEA, to: WES, scope: "general", kind: "request", expects_reply: true, hop: 0, text: "", redacted: false, modified: false, sender_verified: true, files: [{ name: "a.md", path: join("home", "files", "m1", "a.md"), bytes: 1 }] },
     prompt: "",
     env: {},
+    home: wes.home,
     mcpConfigPath: "x.json",
     timeoutMs: 1,
   });
@@ -141,6 +142,33 @@ test("the hard line is in every Claude Code run's flags, even one whose config a
   assert.equal(wes.daemon.ceiling({ ...agent, workdir: homedir() }), "read_only");
   assert.equal(wes.daemon.ceiling(agent), "read_only");
   assert.equal(wes.daemon.ceiling({ ...agent, workdir: proj.wes }), "full");
+});
+
+test("a client home that is not ~/.a2a is shut by its real path: keys, sign-in, the run folder and the settings", () => {
+  // A folder as a Read or Edit rule names it: from the filesystem root, a Windows drive as its letter.
+  const rulePath = (dir: string): string => "//" + dir.replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_, d: string) => d.toLowerCase()).replace(/^\//, "");
+  const shut = (home: string): string[] => [
+    ...["keys/**", "run/**", "account.json"].flatMap((p) => [`Read(${rulePath(home)}/${p})`, `Edit(${rulePath(home)}/${p})`]),
+    `Edit(${rulePath(home)}/**)`, // config.yaml, where auto-reply is switched on, and state.db
+  ];
+  // Through the client: Wes's home is a temp folder (A2A_HOME), and his last run was started with rules for it.
+  const denied = lastStart(wes).flag("--disallowedTools").split(",");
+  for (const rule of [...shut(wes.home), "Read(~/.a2a/keys/**)", "Edit(~/.a2a/**)"]) assert.ok(denied.includes(rule), `${rule} is denied`);
+
+  // The desktop app's layout: the client home sits inside the folder its agent works in.
+  const home = join(proj.wes!, "AppData", "a2a", "agent");
+  const args = claudeArgs({
+    agent: { address: WES, key: "k", runtime: "claude", allowed_tools: ["Read", "Edit", "Bash"], workdir: proj.wes },
+    message: { id: "m1", thread_id: "t1", in_reply_to: null, from: LEA, to: WES, scope: "general", kind: "request", expects_reply: true, hop: 0, text: "", redacted: false, modified: false, sender_verified: true },
+    prompt: "",
+    env: {},
+    home,
+    mcpConfigPath: "x.json",
+    timeoutMs: 1,
+  });
+  const inside = args[args.indexOf("--disallowedTools") + 1]!.split(",");
+  // A command reaches it by the path from the working folder, written either way round.
+  for (const rule of [...shut(home), "Bash(*AppData/a2a/agent*)", `Bash(*${join("AppData", "a2a", "agent")}*)`, "Edit(~/.a2a/**)"]) assert.ok(inside.includes(rule), `${rule} is denied`);
 });
 
 test("the leader's own request counts as the owner's instruction; a teammate's is answered but changes nothing", async () => {

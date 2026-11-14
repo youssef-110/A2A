@@ -1382,6 +1382,7 @@ export class Daemon {
           : buildPrompt(m, randomBytes(6).toString("hex"), auto ? { owner, app, session: m.session?.name, team: !!rule?.team, ...(team ? { leaderTools: agent.allowed_tools ?? [] } : {}) } : undefined)),
       sessionId: session?.session_id,
       env,
+      home: this.home,
       mcpConfigPath,
       timeoutMs: durationMs(rule?.timeout ?? agent.timeout, board || team ? 45 * 60_000 : 15 * 60_000),
     }).finally(() => taskKey && this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 1) - 1));
