@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentConfig } from "./config.ts";
 
 /** What the relay delivered, as the client hands it to a runtime. */
@@ -42,6 +42,8 @@ export interface RunContext {
   prompt: string;
   sessionId?: string;
   env: Record<string, string>;
+  /** The client's home folder (A2A_HOME, or ~/.a2a): its keys, sign-in and settings stay shut to the run. */
+  home: string;
   mcpConfigPath: string;
   timeoutMs: number;
 }
@@ -344,6 +346,26 @@ const PROTECTED = [
   ...[...SECRET_FILES, ...CODE_LATER].map((p) => `Edit(${p})`), // Edit rules cover every file-writing tool
   ...SHELL_DENY.map((p) => `Bash(${p})`),
 ];
+/**
+ * The same rules for the client home this run really uses, wherever A2A_HOME put it. The desktop app
+ * keeps it inside the folder its agent works in, where no ~/.a2a rule reaches and reads need no rule.
+ * Checked with a real run of Claude Code 2.1.323 on Windows, with a space in the path.
+ */
+function homeRules(home: string, workdir = process.cwd()): string[] {
+  const abs = resolve(home);
+  // A Read or Edit rule starting with // is absolute from the filesystem root; C:\x is written //c/x.
+  const root = "/" + abs.replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_, drive: string) => "/" + drive.toLowerCase());
+  const secret = ["keys/**", "account.json", "run/**"].map((p) => `${root}/${p}`);
+  // A command names the home by its path from the working folder, which is also how the full path ends.
+  const rel = relative(resolve(workdir), abs);
+  const named = rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel : abs;
+  // shortcut: a home path with a comma or a bracket can't be written as a rule in this list, pass each rule as its own argument if one ever turns up.
+  return [
+    ...secret.map((p) => `Read(${p})`),
+    ...[...secret, `${root}/**`].map((p) => `Edit(${p})`),
+    ...[...new Set([named, named.replace(/\\/g, "/")])].map((p) => `Bash(*${p}*)`),
+  ];
+}
 const FILE_READ = new Set(["Read", "Grep", "Glob"]);
 const FILE_WRITE = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
@@ -366,7 +388,7 @@ export function claudeArgs(ctx: RunContext): string[] {
     "--strict-mcp-config",
     "--allowedTools", allow.join(","),
     "--permission-mode", a.permission_mode ?? "dontAsk",
-    "--disallowedTools", PROTECTED.join(","),
+    "--disallowedTools", [...PROTECTED, ...homeRules(ctx.home, a.workdir)].join(","),
   ];
   const attached = [...new Set((ctx.message.files ?? []).map((f) => dirname(f.path)))];
   if (attached.length) args.push("--add-dir", ...attached);
