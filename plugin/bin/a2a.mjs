@@ -14004,7 +14004,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve6.call(this, root, ref);
+      let _sch = resolve7.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -14031,7 +14031,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve6(root, ref) {
+    function resolve7(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -14895,7 +14895,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve6(baseURI, relativeURI, options) {
+    function resolve7(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -14931,50 +14931,50 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative2, options, skipNormalization) {
+    function resolveComponent(base, relative3, options, skipNormalization) {
       const target2 = {};
       if (!skipNormalization) {
         base = parse3(serialize(base, options), options);
-        relative2 = parse3(serialize(relative2, options), options);
+        relative3 = parse3(serialize(relative3, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative2.scheme) {
-        target2.scheme = relative2.scheme;
-        target2.userinfo = relative2.userinfo;
-        target2.host = relative2.host;
-        target2.port = relative2.port;
-        target2.path = removeDotSegments(relative2.path || "");
-        target2.query = relative2.query;
+      if (!options.tolerant && relative3.scheme) {
+        target2.scheme = relative3.scheme;
+        target2.userinfo = relative3.userinfo;
+        target2.host = relative3.host;
+        target2.port = relative3.port;
+        target2.path = removeDotSegments(relative3.path || "");
+        target2.query = relative3.query;
       } else {
-        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
-          target2.userinfo = relative2.userinfo;
-          target2.host = relative2.host;
-          target2.port = relative2.port;
-          target2.path = removeDotSegments(relative2.path || "");
-          target2.query = relative2.query;
+        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
+          target2.userinfo = relative3.userinfo;
+          target2.host = relative3.host;
+          target2.port = relative3.port;
+          target2.path = removeDotSegments(relative3.path || "");
+          target2.query = relative3.query;
         } else {
-          if (!relative2.path) {
+          if (!relative3.path) {
             target2.path = base.path;
-            if (relative2.query !== void 0) {
-              target2.query = relative2.query;
+            if (relative3.query !== void 0) {
+              target2.query = relative3.query;
             } else {
               target2.query = base.query;
             }
           } else {
-            if (relative2.path[0] === "/") {
-              target2.path = removeDotSegments(relative2.path);
+            if (relative3.path[0] === "/") {
+              target2.path = removeDotSegments(relative3.path);
             } else {
               const baseHasAuthority = base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0;
               if (baseHasAuthority && !base.path) {
-                target2.path = "/" + relative2.path;
+                target2.path = "/" + relative3.path;
               } else if (!base.path) {
-                target2.path = relative2.path;
+                target2.path = relative3.path;
               } else {
-                target2.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
+                target2.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
               }
               target2.path = base.scheme === void 0 && !baseHasAuthority && target2.path[0] !== "/" ? removeDotSegmentsRelative(target2.path) : removeDotSegments(target2.path);
             }
-            target2.query = relative2.query;
+            target2.query = relative3.query;
           }
           target2.userinfo = base.userinfo;
           target2.host = base.host;
@@ -14982,7 +14982,7 @@ var require_fast_uri = __commonJS({
         }
         target2.scheme = base.scheme;
       }
-      target2.fragment = relative2.fragment;
+      target2.fragment = relative3.fragment;
       return target2;
     }
     function equal(uriA, uriB, options) {
@@ -15286,7 +15286,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve6,
+      resolve: resolve7,
       resolveComponent,
       equal,
       serialize,
@@ -18320,7 +18320,7 @@ function formatMatrix(rows) {
 
 // packages/client/src/cli.ts
 import { readFileSync as readFileSync12, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join11, resolve as resolve5 } from "node:path";
+import { join as join11, resolve as resolve6 } from "node:path";
 
 // packages/protocol/src/ids.ts
 import { randomBytes } from "node:crypto";
@@ -18612,7 +18612,7 @@ function tcpTarget(home2) {
   }
 }
 function ipc(home2, method, path, body, timeoutMs = 37e5) {
-  return new Promise((resolve6, reject) => {
+  return new Promise((resolve7, reject) => {
     const data = body === void 0 ? void 0 : JSON.stringify(body);
     const tcp = useTcpIpc ? tcpTarget(home2) : void 0;
     const headers = data ? { "content-type": "application/json", "content-length": Buffer.byteLength(data) } : {};
@@ -18631,7 +18631,7 @@ function ipc(home2, method, path, body, timeoutMs = 37e5) {
             return;
           }
           if ((res.statusCode ?? 500) >= 400) reject(new Error(String(parsed.error ?? `request failed (${res.statusCode})`)));
-          else resolve6(parsed);
+          else resolve7(parsed);
         });
       }
     );
@@ -18651,7 +18651,7 @@ import { existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as rea
 import { connect } from "node:net";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { homedir as homedir4 } from "node:os";
-import { basename, dirname as dirname5, join as join8, resolve as resolve2 } from "node:path";
+import { basename, dirname as dirname5, join as join8, resolve as resolve3 } from "node:path";
 
 // packages/client/src/launcher.ts
 import { spawn } from "node:child_process";
@@ -18778,7 +18778,7 @@ function openState(home2) {
 import { spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync2, mkdtempSync, readFileSync as readFileSync3, rmSync } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname2, join as join4 } from "node:path";
+import { dirname as dirname2, isAbsolute as isAbsolute2, join as join4, relative, resolve as resolve2 } from "node:path";
 var A2A_TOOLS = [
   "mcp__a2a__reply",
   "mcp__a2a__get_thread",
@@ -18940,7 +18940,7 @@ function resolveSpawn(cmd, args) {
   return [full, args];
 }
 function run(cmd, args, opts) {
-  return new Promise((resolve6) => {
+  return new Promise((resolve7) => {
     const [bin, argv] = resolveSpawn(cmd, args);
     const child = spawn2(bin, argv, { cwd: opts.cwd, env: childEnv(process.env, opts.env), stdio: ["pipe", "pipe", "pipe"] });
     let stdout = "";
@@ -18955,11 +18955,11 @@ function run(cmd, args, opts) {
     child.stderr.on("data", (d) => stderr += d);
     child.on("error", (err) => {
       clearTimeout(timer);
-      resolve6({ stdout, stderr: stderr + String(err), code: null, timedOut });
+      resolve7({ stdout, stderr: stderr + String(err), code: null, timedOut });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve6({ stdout, stderr, code, timedOut });
+      resolve7({ stdout, stderr, code, timedOut });
     });
     child.stdin.on("error", () => {
     });
@@ -18975,6 +18975,18 @@ var PROTECTED = [
   // Edit rules cover every file-writing tool
   ...SHELL_DENY.map((p) => `Bash(${p})`)
 ];
+function homeRules(home2, workdir = process.cwd()) {
+  const abs = resolve2(home2);
+  const root = "/" + abs.replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_, drive) => "/" + drive.toLowerCase());
+  const secret = ["keys/**", "account.json", "run/**"].map((p) => `${root}/${p}`);
+  const rel = relative(resolve2(workdir), abs);
+  const named = rel && !rel.startsWith("..") && !isAbsolute2(rel) ? rel : abs;
+  return [
+    ...secret.map((p) => `Read(${p})`),
+    ...[...secret, `${root}/**`].map((p) => `Edit(${p})`),
+    ...[.../* @__PURE__ */ new Set([named, named.replace(/\\/g, "/")])].map((p) => `Bash(*${p}*)`)
+  ];
+}
 var FILE_READ = /* @__PURE__ */ new Set(["Read", "Grep", "Glob"]);
 var FILE_WRITE = /* @__PURE__ */ new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 function claudeArgs(ctx) {
@@ -18993,7 +19005,7 @@ function claudeArgs(ctx) {
     "--permission-mode",
     a.permission_mode ?? "dontAsk",
     "--disallowedTools",
-    PROTECTED.join(",")
+    [...PROTECTED, ...homeRules(ctx.home, a.workdir)].join(",")
   ];
   const attached = [...new Set((ctx.message.files ?? []).map((f) => dirname2(f.path)))];
   if (attached.length) args.push("--add-dir", ...attached);
@@ -20097,8 +20109,8 @@ var Daemon = class {
    * (the default when it was switched on from the website) only reads.
    */
   ceiling(agent) {
-    const dir = agent.workdir ? resolve2(agent.workdir) : "";
-    const project = !!dir && !samePath(dir, resolve2(homedir4())) && !samePath(dirname5(dir), dir);
+    const dir = agent.workdir ? resolve3(agent.workdir) : "";
+    const project = !!dir && !samePath(dir, resolve3(homedir4())) && !samePath(dirname5(dir), dir);
     return project ? agent.autopilot_max ?? "standard" : "read_only";
   }
   /** What the owner's permissions bar allows in a session this agent is in. */
@@ -20454,13 +20466,13 @@ var Daemon = class {
   }
   /** Resolves on the first status update past screening (or after the timeout). */
   waitVerdict(id, timeoutMs) {
-    return new Promise((resolve6) => {
+    return new Promise((resolve7) => {
       let set = this.statusWaiters.get(id);
       if (!set) this.statusWaiters.set(id, set = /* @__PURE__ */ new Set());
       const done = () => {
         clearTimeout(timer);
         this.statusWaiters.get(id)?.delete(done);
-        resolve6();
+        resolve7();
       };
       set.add(done);
       const timer = setTimeout(done, timeoutMs);
@@ -20677,6 +20689,7 @@ var Daemon = class {
       prompt: (decided ? decisionNote(decided, owner) : "") + (board ? buildTaskPrompt(m, randomBytes2(6).toString("hex"), perms, team ? agent.allowed_tools ?? [] : void 0, team ? owner : void 0) : buildPrompt(m, randomBytes2(6).toString("hex"), auto ? { owner, app, session: m.session?.name, team: !!rule?.team, ...team ? { leaderTools: agent.allowed_tools ?? [] } : {} } : void 0)),
       sessionId: session?.session_id,
       env,
+      home: this.home,
       mcpConfigPath,
       timeoutMs: durationMs(rule?.timeout ?? agent.timeout, board || team ? 45 * 6e4 : 15 * 6e4)
     }).finally(() => taskKey && this.taskRuns.set(taskKey, (this.taskRuns.get(taskKey) ?? 1) - 1));
@@ -20771,19 +20784,19 @@ var Daemon = class {
       return m;
     }
     if (waitMs <= 0 || !agents.length) return null;
-    return new Promise((resolve6) => {
+    return new Promise((resolve7) => {
       const remove = () => {
         for (const a of agents) this.inboxWaiters.set(a, (this.inboxWaiters.get(a) ?? []).filter((w) => w !== waiter));
       };
       const waiter = (m) => {
         clearTimeout(timer);
         remove();
-        resolve6(m);
+        resolve7(m);
       };
       for (const a of agents) this.inboxWaiters.set(a, [...this.inboxWaiters.get(a) ?? [], waiter]);
       const timer = setTimeout(() => {
         remove();
-        resolve6(null);
+        resolve7(null);
       }, waitMs);
     });
   }
@@ -33117,7 +33130,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
+        await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -33134,7 +33147,7 @@ var Protocol = class {
    */
   request(request3, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve7, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -33212,7 +33225,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve6(parseResult.data);
+            resolve7(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -33474,12 +33487,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve6, reject) => {
+    return new Promise((resolve7, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve6, interval);
+      const timeoutId = setTimeout(resolve7, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -34619,7 +34632,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve6) => setTimeout(resolve6, pollInterval));
+      await new Promise((resolve7) => setTimeout(resolve7, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -35283,12 +35296,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve6) => {
+    return new Promise((resolve7) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve6();
+        resolve7();
       } else {
-        this._stdout.once("drain", resolve6);
+        this._stdout.once("drain", resolve7);
       }
     });
   }
@@ -35296,7 +35309,7 @@ var StdioServerTransport = class {
 
 // packages/client/src/attachments.ts
 import { existsSync as existsSync6, readFileSync as readFileSync7, realpathSync, statSync } from "node:fs";
-import { basename as basename2, extname, isAbsolute as isAbsolute2, relative, resolve as resolve3 } from "node:path";
+import { basename as basename2, extname, isAbsolute as isAbsolute3, relative as relative2, resolve as resolve4 } from "node:path";
 var MAX_ATTACHMENT_BYTES = 180 * 1024;
 var MIME = {
   ".md": "text/markdown",
@@ -35312,7 +35325,7 @@ var MIME = {
 function readAttachments(paths) {
   let total = 0;
   return paths.map((p) => {
-    const file = resolve3(p);
+    const file = resolve4(p);
     const size = statSync(file).size;
     total += size;
     if (total > MAX_ATTACHMENT_BYTES) {
@@ -35322,16 +35335,16 @@ function readAttachments(paths) {
   });
 }
 function readCapsuleAttachments(paths, home2) {
-  const homeReal = existsSync6(home2) ? realpathSync(home2) : resolve3(home2);
+  const homeReal = existsSync6(home2) ? realpathSync(home2) : resolve4(home2);
   for (const p of paths) {
-    const real = realpathSync(resolve3(p));
+    const real = realpathSync(resolve4(p));
     if (!/\.capsule\.md$/i.test(real)) throw new Error(`Only context capsules (*.capsule.md) can be attached from here; ${basename2(real)} isn't one. A person can attach other files with \`a2a send --attach\`.`);
-    const rel = relative(homeReal, real);
-    if (!rel.startsWith("..") && !isAbsolute2(rel)) throw new Error("Files inside the a2a folder can't be attached.");
+    const rel = relative2(homeReal, real);
+    if (!rel.startsWith("..") && !isAbsolute3(rel)) throw new Error("Files inside the a2a folder can't be attached.");
     const head = readFileSync7(real, "utf8").slice(0, 32);
     if (!head.startsWith("<!-- capsule ")) throw new Error(`${basename2(real)} isn't a sealed capsule. Export and seal it with the capsule skill first.`);
   }
-  return readAttachments(paths.map((p) => realpathSync(resolve3(p))));
+  return readAttachments(paths.map((p) => realpathSync(resolve4(p))));
 }
 function capsuleBrief(text2) {
   if (!text2.startsWith("<!-- capsule ")) return null;
@@ -35582,7 +35595,7 @@ async function runMcpServer(home2, agentFlag, toolFlag) {
     if (!runId && !await daemonRunning(home2)) await ensureDaemon(home2);
     return ipc(home2, method, path, body, timeoutMs);
   };
-  const server = new McpServer({ name: "a2a", version: "0.5.8" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "a2a", version: "0.5.9" }, { instructions: INSTRUCTIONS });
   const connect2 = async (args) => {
     const origin = args.invite_link ? new URL(parseInviteLink(args.invite_link).server).origin : loadAccount(home2)?.origin ?? DEFAULT_ORIGIN;
     let account = await validAccount(home2, origin);
@@ -36105,10 +36118,10 @@ import { createInterface } from "node:readline/promises";
 import { spawn as spawn4 } from "node:child_process";
 import { existsSync as existsSync10, readFileSync as readFileSync11 } from "node:fs";
 import { platform as platform2 } from "node:os";
-import { dirname as dirname6, join as join10, resolve as resolve4 } from "node:path";
+import { dirname as dirname6, join as join10, resolve as resolve5 } from "node:path";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 var here = dirname6(fileURLToPath3(import.meta.url));
-var REPO_ROOT = resolve4(here, "../../..");
+var REPO_ROOT = resolve5(here, "../../..");
 function loadDotEnv(paths, only) {
   for (const path of paths) {
     if (!existsSync10(path)) continue;
@@ -36347,7 +36360,7 @@ async function confirm(question) {
 async function recordVoice(home2, opts) {
   loadVoiceEnv(home2);
   if (!process.env.RESON8_API_KEY) throw new VoiceError("RESON8_API_KEY is not set. Add it to .env in the A2A folder (see .env.example).");
-  const recorder = startRecorder(opts.input ? fileAsMicArgs(resolve5(opts.input)) : microphoneArgs());
+  const recorder = startRecorder(opts.input ? fileAsMicArgs(resolve6(opts.input)) : microphoneArgs());
   let stderr = "";
   recorder.stderr.on("data", (d) => stderr += d);
   const failed = new Promise((_, reject) => {
@@ -36447,7 +36460,7 @@ async function main(argv) {
         token,
         name: values.name,
         runtime: values.runtime,
-        workdir: values.workdir ? resolve5(values.workdir) : void 0,
+        workdir: values.workdir ? resolve6(values.workdir) : void 0,
         allowedTools: values["allowed-tools"]?.split(",").map((x) => x.trim()).filter(Boolean),
         displayName: values["display-name"],
         description: values.description,
@@ -36601,7 +36614,7 @@ Next: a2a agents add agent://${info.org}/<name> --runtime claude`);
         ...entry,
         runtime,
         ...values.command ? { command: splitCommand(values.command) } : {},
-        ...values.workdir ? { workdir: resolve5(values.workdir) } : {},
+        ...values.workdir ? { workdir: resolve6(values.workdir) } : {},
         ...values["allowed-tools"] ? { allowed_tools: values["allowed-tools"].split(",").map((s) => s.trim()).filter(Boolean) } : {},
         ...values.model ? { model: values.model } : {},
         ...values.instructions ? { instructions: values.instructions } : {},
@@ -36759,7 +36772,7 @@ No reply within ${wait}s. Check later with: a2a thread ${r.thread_id}`;
       const file = positionals[0];
       if (!file && !values.live) throw new Error("usage: a2a transcribe <audio-file>   or   a2a transcribe --live");
       loadVoiceEnv(H);
-      const text2 = values.live ? await recordVoice(H, { language: values.language, seconds: values.seconds, input: values.input }) : await transcribeFile(resolve5(file), { language: values.language });
+      const text2 = values.live ? await recordVoice(H, { language: values.language, seconds: values.seconds, input: values.input }) : await transcribeFile(resolve6(file), { language: values.language });
       if (!values.send) {
         print(!!values.json, { text: text2 }, () => (values.live ? `
 ${text2}` : text2) || "(no speech recognised)");

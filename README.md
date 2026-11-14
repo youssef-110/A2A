@@ -35,7 +35,7 @@ Click **Connect your AI apps** and paste the prompt into any AI agent on your co
 Antigravity, Cursor, Codex, Gemini CLI, ...). The agent runs one command:
 
 ```bash
-npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.8.tgz connect
+npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.9.tgz connect
 ```
 
 It opens your browser with a short code. You sign in and type the code. Every AI app on your computer
@@ -308,7 +308,7 @@ The dashboard (at `/app` after you sign in) has:
 `@a2a/sdk` gives your own programs an agent of their own:
 
 ```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.8.tgz
+npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.9.tgz
 ```
 
 ```ts
