@@ -422,7 +422,7 @@ export async function runMcpServer(home: string, agentFlag?: string, toolFlag?: 
           .optional()
           .describe(`Which of the user's own agents, by name (robin-codex) or app (codex). Default: ${label}'s agent.`),
         all: z.boolean().optional().describe("With off: every agent in every session."),
-        max_per_hour: z.number().int().min(1).max(500).optional().describe("Runs per hour in this session (default 20)."),
+        max_per_hour: z.number().int().min(1).max(500).optional().describe("Runs per hour in this session (default 60)."),
         cooldown_s: z.number().int().min(0).max(86400).optional().describe("Seconds between runs (default 0)."),
         max_concurrent: z.number().int().min(1).max(5).optional().describe("Runs at once (default 1)."),
         max_tokens: z.number().int().min(100).max(64000).optional().describe("Most output tokens per answer (Claude Code)."),

@@ -56,7 +56,9 @@ const TERMINAL_FAILURES = new Set(["blocked", "rejected", "expired"]);
 export const APP_RUNTIME: Record<string, "claude" | "codex" | "opencode"> = { "claude-code": "claude", codex: "codex", opencode: "opencode" };
 const RUNTIME_BIN: Record<string, string> = { claude: "claude", codex: "codex", opencode: "opencode" };
 /** Auto-runs one thread may start per hour, whatever the per-agent limits: a guard against loops. */
-const THREAD_RUNS_PER_HOUR = 6;
+export const THREAD_RUNS_PER_HOUR = 20;
+/** Auto-replies an agent may start per hour in one session, unless its rule sets max_per_hour. One sender gets half. */
+const MAX_PER_HOUR = 60;
 
 /** Whether a program can be started: on PATH (with Windows extensions), or an existing path. */
 function onPath(bin: string): boolean {
@@ -603,7 +605,7 @@ export class Daemon {
     const over = this.overBudget(agent, key, rule);
     if (over) return no(over);
     // Even a sender that leaves out the automated mark can't take the whole hourly budget.
-    const perSender = Math.max(2, Math.ceil((rule.max_per_hour ?? 20) / 2));
+    const perSender = Math.max(2, Math.ceil((rule.max_per_hour ?? MAX_PER_HOUR) / 2));
     if (count("SELECT COUNT(*) AS n FROM runs r JOIN inbox i ON i.id = r.message_id WHERE r.auto = 1 AND r.agent = ? AND i.from_addr = ? AND r.started_at > ?", agent.address, m.from, hourAgo) >= perSender) {
       return no(`per-sender limit: ${perSender} auto-replies per hour to ${m.from.split("/").pop()}`);
     }
@@ -618,7 +620,7 @@ export class Daemon {
   private overBudget(agent: AgentConfig, key: string, rule: AutoReplyRule): string | undefined {
     const count = (sql: string, ...args: (string | number)[]): number => Number((this.state.prepare(sql).get(...args) as { n: number | null }).n ?? 0);
     const hourAgo = new Date(Date.now() - 3600_000).toISOString();
-    if (count("SELECT COUNT(*) AS n FROM runs WHERE auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ? AND started_at > ?", agent.address, key, hourAgo) >= (rule.max_per_hour ?? 20)) return `rate limit: ${rule.max_per_hour ?? 20} auto-replies per hour`;
+    if (count("SELECT COUNT(*) AS n FROM runs WHERE auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ? AND started_at > ?", agent.address, key, hourAgo) >= (rule.max_per_hour ?? MAX_PER_HOUR)) return `rate limit: ${rule.max_per_hour ?? MAX_PER_HOUR} auto-replies per hour`;
     const today = new Date().toISOString().slice(0, 10);
     if (rule.daily_usd !== undefined && count("SELECT SUM(cost_usd) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_usd) return `daily spend cap of $${rule.daily_usd} reached`;
     if (rule.daily_tokens !== undefined && count("SELECT SUM(tokens) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_tokens) return `daily token cap of ${rule.daily_tokens} reached`;
@@ -868,7 +870,7 @@ export class Daemon {
           tools: a.allowed_tools ?? [],
           model: a.model ?? null,
           limits: rule
-            ? { max_concurrent: rule.max_concurrent ?? 1, cooldown_s: rule.cooldown_s ?? 0, max_per_hour: rule.max_per_hour ?? 20, max_tokens: rule.max_tokens ?? null, timeout: rule.timeout ?? "15m", daily_usd: rule.daily_usd ?? null, daily_tokens: rule.daily_tokens ?? null }
+            ? { max_concurrent: rule.max_concurrent ?? 1, cooldown_s: rule.cooldown_s ?? 0, max_per_hour: rule.max_per_hour ?? MAX_PER_HOUR, max_tokens: rule.max_tokens ?? null, timeout: rule.timeout ?? "15m", daily_usd: rule.daily_usd ?? null, daily_tokens: rule.daily_tokens ?? null }
             : null,
           autopilot: a.runtime !== "none" && !!a.autopilot,
           running: this.running.get(a.address) ?? 0,

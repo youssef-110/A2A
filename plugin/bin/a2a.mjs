@@ -19614,7 +19614,8 @@ var iso = () => (/* @__PURE__ */ new Date()).toISOString();
 var TERMINAL_FAILURES = /* @__PURE__ */ new Set(["blocked", "rejected", "expired"]);
 var APP_RUNTIME = { "claude-code": "claude", codex: "codex", opencode: "opencode" };
 var RUNTIME_BIN = { claude: "claude", codex: "codex", opencode: "opencode" };
-var THREAD_RUNS_PER_HOUR = 6;
+var THREAD_RUNS_PER_HOUR = 20;
+var MAX_PER_HOUR = 60;
 function onPath2(bin) {
   if (/[\\/]/.test(bin)) return existsSync5(bin);
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").concat("") : [""];
@@ -19996,7 +19997,7 @@ var Daemon = class {
     const inScope = "auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ?";
     const over = this.overBudget(agent, key, rule);
     if (over) return no(over);
-    const perSender = Math.max(2, Math.ceil((rule.max_per_hour ?? 20) / 2));
+    const perSender = Math.max(2, Math.ceil((rule.max_per_hour ?? MAX_PER_HOUR) / 2));
     if (count("SELECT COUNT(*) AS n FROM runs r JOIN inbox i ON i.id = r.message_id WHERE r.auto = 1 AND r.agent = ? AND i.from_addr = ? AND r.started_at > ?", agent.address, m.from, hourAgo) >= perSender) {
       return no(`per-sender limit: ${perSender} auto-replies per hour to ${m.from.split("/").pop()}`);
     }
@@ -20010,7 +20011,7 @@ var Daemon = class {
   overBudget(agent, key, rule) {
     const count = (sql, ...args) => Number(this.state.prepare(sql).get(...args).n ?? 0);
     const hourAgo = new Date(Date.now() - 36e5).toISOString();
-    if (count("SELECT COUNT(*) AS n FROM runs WHERE auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ? AND started_at > ?", agent.address, key, hourAgo) >= (rule.max_per_hour ?? 20)) return `rate limit: ${rule.max_per_hour ?? 20} auto-replies per hour`;
+    if (count("SELECT COUNT(*) AS n FROM runs WHERE auto = 1 AND agent = ? AND COALESCE(session_id, 'workspace') = ? AND started_at > ?", agent.address, key, hourAgo) >= (rule.max_per_hour ?? MAX_PER_HOUR)) return `rate limit: ${rule.max_per_hour ?? MAX_PER_HOUR} auto-replies per hour`;
     const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
     if (rule.daily_usd !== void 0 && count("SELECT SUM(cost_usd) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_usd) return `daily spend cap of $${rule.daily_usd} reached`;
     if (rule.daily_tokens !== void 0 && count("SELECT SUM(tokens) AS n FROM runs WHERE auto = 1 AND agent = ? AND started_at >= ?", agent.address, today) >= rule.daily_tokens) return `daily token cap of ${rule.daily_tokens} reached`;
@@ -20230,7 +20231,7 @@ var Daemon = class {
           workdir: a.workdir ?? null,
           tools: a.allowed_tools ?? [],
           model: a.model ?? null,
-          limits: rule ? { max_concurrent: rule.max_concurrent ?? 1, cooldown_s: rule.cooldown_s ?? 0, max_per_hour: rule.max_per_hour ?? 20, max_tokens: rule.max_tokens ?? null, timeout: rule.timeout ?? "15m", daily_usd: rule.daily_usd ?? null, daily_tokens: rule.daily_tokens ?? null } : null,
+          limits: rule ? { max_concurrent: rule.max_concurrent ?? 1, cooldown_s: rule.cooldown_s ?? 0, max_per_hour: rule.max_per_hour ?? MAX_PER_HOUR, max_tokens: rule.max_tokens ?? null, timeout: rule.timeout ?? "15m", daily_usd: rule.daily_usd ?? null, daily_tokens: rule.daily_tokens ?? null } : null,
           autopilot: a.runtime !== "none" && !!a.autopilot,
           running: this.running.get(a.address) ?? 0,
           recent: recent.runs ? { runs: recent.runs, avg_delivery_ms: Math.round(recent.delivery_ms ?? 0), avg_start_ms: Math.round(recent.start_ms ?? 0), avg_model_ms: Math.round(recent.model_ms ?? 0) } : null
@@ -35900,7 +35901,7 @@ ${t.final_report ?? ""}`);
         max: external_exports.enum(["read_only", "standard", "full"]).optional().describe("The most team work may do on this computer, whatever the session allows: read_only, standard (edit files in the folder and use the web; the default) or full (also run shell commands). Only set full when the user explicitly says so."),
         agents: external_exports.array(external_exports.string()).optional().describe(`Which of the user's own agents, by name (robin-codex) or app (codex). Default: ${label}'s agent.`),
         all: external_exports.boolean().optional().describe("With off: every agent in every session."),
-        max_per_hour: external_exports.number().int().min(1).max(500).optional().describe("Runs per hour in this session (default 20)."),
+        max_per_hour: external_exports.number().int().min(1).max(500).optional().describe("Runs per hour in this session (default 60)."),
         cooldown_s: external_exports.number().int().min(0).max(86400).optional().describe("Seconds between runs (default 0)."),
         max_concurrent: external_exports.number().int().min(1).max(5).optional().describe("Runs at once (default 1)."),
         max_tokens: external_exports.number().int().min(100).max(64e3).optional().describe("Most output tokens per answer (Claude Code)."),

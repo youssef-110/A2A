@@ -6,13 +6,15 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { generateAgentKeyPair } from "@a2a/protocol";
-import { Daemon } from "../packages/client/src/daemon.ts";
+import { Daemon, THREAD_RUNS_PER_HOUR } from "../packages/client/src/daemon.ts";
 import { ipc } from "../packages/client/src/ipc.ts";
 import { registerAgent, relayInfo } from "../packages/client/src/relay-api.ts";
 import { saveConfig, writeKey, type AgentConfig } from "../packages/client/src/config.ts";
 import { ECHO_AGENT, adminFetch, cleanup, relay, tempDir, waitFor } from "./helpers.ts";
 
-const POLICY = "org: team\nregistration: invite\nisolation: sessions\nscopes:\n  general:\n    description: Anything.\nrules:\n  block: []\n  hold: []\n  redact: []\nguard:\n  judge: off\n";
+// The relay ends a thread after a number of hops (40 on the hosted site). Here that is set high, so the
+// client's own per-thread limit is what the ping-pong test meets.
+const POLICY = "org: team\nregistration: invite\nisolation: sessions\nscopes:\n  general:\n    description: Anything.\nrules:\n  block: []\n  hold: []\n  redact: []\nlimits:\n  max_hops_per_thread: 100\n  max_messages_per_thread: 200\nguard:\n  judge: off\n";
 const A_CODEX = "agent://team/ada-codex";
 const A_CLAUDE = "agent://team/ada-claude";
 const B_CLAUDE = "agent://team/ben-claude";
@@ -263,11 +265,13 @@ test("two agents that both listen answer a person's message once and then stop: 
   await settle();
   assert.equal(runs(A, A_CODEX).length, adaBefore + 1, "automated messages and plain acknowledgements start nothing");
 
-  // Even a sender that drops the automated mark can't keep a thread going: six answers an hour, then it waits.
-  for (let i = 0; i < 8; i++) await fromKai(`again ${i}`, { thread_id: first.thread_id });
-  await waitFor(async () => (await unhandled(A, A_CODEX)).includes("again 7"), 8000, "the last one in Ada's inbox");
+  // Even a sender that drops the automated mark can't keep a thread going: a set number of answers an hour, then it waits.
+  const last = THREAD_RUNS_PER_HOUR + 1;
+  for (let i = 0; i <= last; i++) await fromKai(`again ${i}`, { thread_id: first.thread_id });
+  await waitFor(async () => (await unhandled(A, A_CODEX)).includes(`again ${last}`), 30_000, "the last one in Ada's inbox");
+  await waitFor(() => runs(A, A_CODEX).length >= adaBefore + THREAD_RUNS_PER_HOUR, 30_000, "the allowed answers to run");
   await settle();
-  assert.equal(runs(A, A_CODEX).length, adaBefore + 6, "the thread limit holds for messages nobody waits on");
+  assert.equal(runs(A, A_CODEX).length, adaBefore + THREAD_RUNS_PER_HOUR, "the thread limit holds for messages nobody waits on");
   assert.equal(runs(kai, KAI).length, 0);
   await ipc(kai, "POST", "/auto-reply", { action: "off", all: true });
   await ipc(A, "POST", "/auto-reply", { action: "off", all: true });
