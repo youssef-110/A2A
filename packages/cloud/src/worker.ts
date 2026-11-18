@@ -190,6 +190,9 @@ function page(title: string, body: string, form?: { action: string; label: strin
   );
 }
 
+/** Desktop builds people can wait for; the landing page sends source "waitlist-mac" or "waitlist-linux". */
+const WAITLIST_OS: Record<string, string> = { "waitlist-mac": "Mac", "waitlist-linux": "Linux" };
+
 /** The newsletter: subscribe from the site, unsubscribe from the link in any email. */
 async function handleNews(env: Env, req: Request, url: URL, ctx: ExecutionContext): Promise<Response> {
   const ip = req.headers.get("cf-connecting-ip") ?? "local";
@@ -199,7 +202,23 @@ async function handleNews(env: Env, req: Request, url: URL, ctx: ExecutionContex
     const r = await subscribe(env, String(body.email ?? ""), typeof body.source === "string" ? body.source : "site");
     if ("error" in r) return json({ error: r.error }, 400);
     await recordFailure(env, [`news:${ip}`]);
-    if (r.isNew) {
+    const os = WAITLIST_OS[String(body.source)];
+    if (os && r.waitlisted) {
+      ctx.waitUntil(
+        sendEmail(env, url.origin, r.email, `You're on the a2a waitlist for ${os}`, {
+          preview: `One email when the a2a desktop app for ${os} is ready.`,
+          heading: "You're on the list",
+          paragraphs: [
+            `We'll email you once, when the a2a desktop app for ${os} is ready to download.`,
+            `You don't have to wait to use a2a on ${os}: with Node 22 or later, one command in the docs connects every AI app on your computer, and the dashboard works in any browser.`,
+            `You'll also get ${NEWSLETTER_NAME}, a short note about once a month. One click unsubscribes from both.`,
+          ],
+          button: { label: "Connect without the app", url: `${url.origin}/docs` },
+          footer: `You got this because ${r.email} joined the ${os} waitlist on the a2a website.`,
+          unsubscribeUrl: `${url.origin}/news/unsubscribe?t=${r.unsub_token}`,
+        }),
+      );
+    } else if (r.isNew) {
       ctx.waitUntil(
         sendEmail(env, url.origin, r.email, `You're on ${NEWSLETTER_NAME}`, {
           preview: "Short notes on what's new in a2a, about once a month.",
@@ -214,7 +233,7 @@ async function handleNews(env: Env, req: Request, url: URL, ctx: ExecutionContex
         }),
       );
     }
-    return json({ ok: true, already: !r.isNew });
+    return json({ ok: true, already: !r.isNew && !r.waitlisted });
   }
   if (url.pathname === "/news/unsubscribe") {
     const token = url.searchParams.get("t") ?? "";
