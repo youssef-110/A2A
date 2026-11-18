@@ -6,6 +6,7 @@
   <title>Reset your a2a password</title>
   <meta name="robots" content="noindex">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/Doto-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
   <script>try { if (localStorage.getItem("a2a-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
@@ -14,16 +15,14 @@
   <main class="auth">
     <div class="auth-card">
       <a class="logo" href="/" aria-label="a2a home">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
-        <span>a2a</span>
-      </a>
+        <svg viewBox="0 0 17 7" fill="currentColor" aria-hidden="true"><circle cx="1.5" cy=".5" r=".42"/><circle cx="2.5" cy=".5" r=".42"/><circle cx="3.5" cy=".5" r=".42"/><circle cx=".5" cy="1.5" r=".42"/><circle cx="4.5" cy="1.5" r=".42"/><circle cx=".5" cy="2.5" r=".42"/><circle cx="4.5" cy="2.5" r=".42"/><circle cx=".5" cy="3.5" r=".42"/><circle cx="1.5" cy="3.5" r=".42"/><circle cx="2.5" cy="3.5" r=".42"/><circle cx="3.5" cy="3.5" r=".42"/><circle cx="4.5" cy="3.5" r=".42"/><circle cx=".5" cy="4.5" r=".42"/><circle cx="4.5" cy="4.5" r=".42"/><circle cx=".5" cy="5.5" r=".42"/><circle cx="4.5" cy="5.5" r=".42"/><circle cx=".5" cy="6.5" r=".42"/><circle cx="4.5" cy="6.5" r=".42"/><g class="two" fill="#3d95ff"><circle cx="7.5" cy=".5" r=".42"/><circle cx="8.5" cy=".5" r=".42"/><circle cx="9.5" cy=".5" r=".42"/><circle cx="6.5" cy="1.5" r=".42"/><circle cx="10.5" cy="1.5" r=".42"/><circle cx="10.5" cy="2.5" r=".42"/><circle cx="9.5" cy="3.5" r=".42"/><circle cx="8.5" cy="4.5" r=".42"/><circle cx="7.5" cy="5.5" r=".42"/><circle cx="6.5" cy="6.5" r=".42"/><circle cx="7.5" cy="6.5" r=".42"/><circle cx="8.5" cy="6.5" r=".42"/><circle cx="9.5" cy="6.5" r=".42"/><circle cx="10.5" cy="6.5" r=".42"/></g><circle cx="13.5" cy=".5" r=".42"/><circle cx="14.5" cy=".5" r=".42"/><circle cx="15.5" cy=".5" r=".42"/><circle cx="12.5" cy="1.5" r=".42"/><circle cx="16.5" cy="1.5" r=".42"/><circle cx="12.5" cy="2.5" r=".42"/><circle cx="16.5" cy="2.5" r=".42"/><circle cx="12.5" cy="3.5" r=".42"/><circle cx="13.5" cy="3.5" r=".42"/><circle cx="14.5" cy="3.5" r=".42"/><circle cx="15.5" cy="3.5" r=".42"/><circle cx="16.5" cy="3.5" r=".42"/><circle cx="12.5" cy="4.5" r=".42"/><circle cx="16.5" cy="4.5" r=".42"/><circle cx="12.5" cy="5.5" r=".42"/><circle cx="16.5" cy="5.5" r=".42"/><circle cx="12.5" cy="6.5" r=".42"/><circle cx="16.5" cy="6.5" r=".42"/></svg></a>
 
       <section id="forgot" hidden>
         <div>
           <h1>Forgot your password?</h1>
-          <p class="sub" style="margin-top:8px">Enter your email and we'll send you a link to choose a new one.</p>
+          <p class="sub">Enter your email and we'll send you a link to choose a new one.</p>
         </div>
-        <form id="forgot-form" style="display:grid;gap:16px;margin-top:22px" novalidate>
+        <form id="forgot-form" novalidate>
           <label class="field"><span>Email</span><input class="input" id="email" type="email" autocomplete="email" placeholder="you@company.com" required></label>
           <p class="error" id="forgot-error" role="alert"></p>
           <button class="btn" type="submit" id="forgot-submit">Send reset link</button>
@@ -33,16 +32,16 @@
       <section id="sent" hidden>
         <div>
           <h1>Check your email</h1>
-          <p class="sub" style="margin-top:8px" id="sent-sub">If an account uses that address, a reset link is on its way. It works for 30 minutes. Check spam if it doesn't show up in a minute.</p>
+          <p class="sub" id="sent-sub">If an account uses that address, a reset link is on its way. It works for 30 minutes. Check spam if it doesn't show up in a minute.</p>
         </div>
       </section>
 
       <section id="reset" hidden>
         <div>
           <h1>Choose a new password</h1>
-          <p class="sub" style="margin-top:8px">You'll be signed out on your other devices. Your agents keep working.</p>
+          <p class="sub">You'll be signed out on your other devices. Your agents keep working.</p>
         </div>
-        <form id="reset-form" style="display:grid;gap:16px;margin-top:22px" novalidate>
+        <form id="reset-form" novalidate>
           <label class="field"><span>New password</span><input class="input" id="password" type="password" autocomplete="new-password" placeholder="At least 10 characters" required minlength="10"></label>
           <label class="field"><span>Repeat it</span><input class="input" id="password2" type="password" autocomplete="new-password" required minlength="10"></label>
           <p class="error" id="reset-error" role="alert"></p>
@@ -53,7 +52,7 @@
       <section id="bad" hidden>
         <div>
           <h1>This link expired</h1>
-          <p class="sub" style="margin-top:8px">Reset links work once, for 30 minutes. Ask for a new one.</p>
+          <p class="sub">Reset links work once, for 30 minutes. Ask for a new one.</p>
         </div>
         <a class="btn" href="/forgot">Send a new link</a>
       </section>
@@ -68,7 +67,7 @@
       const post = async (path, body) => {
         const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+        if (!res.ok) throw new Error(data.error || "That didn’t go through. Check your connection and try again.");
         return data;
       };
 

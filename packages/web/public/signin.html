@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sign in to a2a</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/Doto-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
   <script>try { if (localStorage.getItem("a2a-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
@@ -13,13 +14,12 @@
   <main class="auth">
     <div class="auth-card">
       <a class="logo" href="/" aria-label="a2a home">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
-        <span>a2a</span>
-      </a>
+        <svg viewBox="0 0 17 7" fill="currentColor" aria-hidden="true"><circle cx="1.5" cy=".5" r=".42"/><circle cx="2.5" cy=".5" r=".42"/><circle cx="3.5" cy=".5" r=".42"/><circle cx=".5" cy="1.5" r=".42"/><circle cx="4.5" cy="1.5" r=".42"/><circle cx=".5" cy="2.5" r=".42"/><circle cx="4.5" cy="2.5" r=".42"/><circle cx=".5" cy="3.5" r=".42"/><circle cx="1.5" cy="3.5" r=".42"/><circle cx="2.5" cy="3.5" r=".42"/><circle cx="3.5" cy="3.5" r=".42"/><circle cx="4.5" cy="3.5" r=".42"/><circle cx=".5" cy="4.5" r=".42"/><circle cx="4.5" cy="4.5" r=".42"/><circle cx=".5" cy="5.5" r=".42"/><circle cx="4.5" cy="5.5" r=".42"/><circle cx=".5" cy="6.5" r=".42"/><circle cx="4.5" cy="6.5" r=".42"/><g class="two" fill="#3d95ff"><circle cx="7.5" cy=".5" r=".42"/><circle cx="8.5" cy=".5" r=".42"/><circle cx="9.5" cy=".5" r=".42"/><circle cx="6.5" cy="1.5" r=".42"/><circle cx="10.5" cy="1.5" r=".42"/><circle cx="10.5" cy="2.5" r=".42"/><circle cx="9.5" cy="3.5" r=".42"/><circle cx="8.5" cy="4.5" r=".42"/><circle cx="7.5" cy="5.5" r=".42"/><circle cx="6.5" cy="6.5" r=".42"/><circle cx="7.5" cy="6.5" r=".42"/><circle cx="8.5" cy="6.5" r=".42"/><circle cx="9.5" cy="6.5" r=".42"/><circle cx="10.5" cy="6.5" r=".42"/></g><circle cx="13.5" cy=".5" r=".42"/><circle cx="14.5" cy=".5" r=".42"/><circle cx="15.5" cy=".5" r=".42"/><circle cx="12.5" cy="1.5" r=".42"/><circle cx="16.5" cy="1.5" r=".42"/><circle cx="12.5" cy="2.5" r=".42"/><circle cx="16.5" cy="2.5" r=".42"/><circle cx="12.5" cy="3.5" r=".42"/><circle cx="13.5" cy="3.5" r=".42"/><circle cx="14.5" cy="3.5" r=".42"/><circle cx="15.5" cy="3.5" r=".42"/><circle cx="16.5" cy="3.5" r=".42"/><circle cx="12.5" cy="4.5" r=".42"/><circle cx="16.5" cy="4.5" r=".42"/><circle cx="12.5" cy="5.5" r=".42"/><circle cx="16.5" cy="5.5" r=".42"/><circle cx="12.5" cy="6.5" r=".42"/><circle cx="16.5" cy="6.5" r=".42"/></svg></a>
       <div>
         <h1 id="title">Welcome back</h1>
-        <p class="sub" id="sub" style="margin-top:8px">Sign in to your sessions and agents.</p>
+        <p class="sub" id="sub">Sign in to your sessions and agents.</p>
       </div>
+      <div class="providers">
       <a class="google" id="google" href="/auth/google">
         <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
         Continue with Google
@@ -28,6 +28,7 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
         Continue with GitHub
       </a>
+      </div>
       <div class="divider">or with email</div>
       <form id="form" novalidate>
         <label class="field" id="name-field" hidden><span>Your name</span><input class="input" id="name" name="name" autocomplete="name" placeholder="Robin Vale" maxlength="60"></label>
@@ -93,7 +94,7 @@
         try {
           const res = await fetch(signup ? "/auth/signup" : "/auth/signin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
           const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
+          if (!res.ok) throw new Error(data.error || "That didn’t go through. Check your connection and try again.");
           location.href = next;
         } catch (ex) {
           error.textContent = ex.message;
