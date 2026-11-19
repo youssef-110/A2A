@@ -205,7 +205,7 @@
     if (label && primary && note) {
       label.textContent = mac ? "Download for Mac" : "Download for Linux";
       primary.href = mac ? "/download/mac" : "/download/linux";
-      note.textContent = mac ? "The Mac build is on its way; the page shows how to build it today." : "The Linux build is on its way; the page shows how to build it today.";
+      note.textContent = mac ? "macOS 11 or later, Apple silicon and Intel. Free beta." : "64-bit AppImage for most distributions. Free beta.";
     }
   }
 })();

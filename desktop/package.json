@@ -28,7 +28,7 @@
     "extraResources": [{ "from": "../plugin/bin/a2a.mjs", "to": "a2a.mjs" }],
     "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
     "nsis": { "oneClick": true, "perMachine": false, "createDesktopShortcut": true, "shortcutName": "a2a", "runAfterFinish": true },
-    "mac": { "category": "public.app-category.productivity", "target": ["dmg", "zip"], "icon": "build/icon.png" },
+    "mac": { "category": "public.app-category.productivity", "target": ["dmg", "zip"], "icon": "build/icon.png", "identity": "-" },
     "linux": { "target": ["AppImage"], "category": "Network", "icon": "build/icon.png" }
   }
 }
