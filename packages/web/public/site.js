@@ -688,9 +688,9 @@ if (mac || linux) {
   document.getElementById("dl-primary")?.setAttribute("href", href);
   const label = document.getElementById("dl-label");
   if (label) label.textContent = mac ? "Download for Mac" : "Download for Linux";
-  const note = document.getElementById("dl-note");
-  if (note) note.textContent = mac ? "The desktop app for macOS 11 or later, Apple silicon and Intel. Free beta." : "The desktop app for Linux, a 64-bit AppImage. Free beta.";
 }
+// The visitor's own platform is marked in the row of all three.
+document.querySelector(`.platform[data-os="${mac ? "mac" : linux ? "linux" : "windows"}"]`)?.setAttribute("aria-current", "true");
 
 // ---------------------------------------------------------------- The Relay
 function signup(form, { source, ok, already }) {

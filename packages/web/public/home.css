@@ -324,7 +324,21 @@ section, .ft { color: var(--fg); }
 .panel-close { width: min(400px, 100%); margin: 0 auto 56px; }
 .stack { margin: 36px auto 0; width: min(300px, 100%); display: grid; gap: 8px; }
 .stack .fine { margin-top: 8px; }
-.platforms a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+.platforms { margin: 56px auto 0; width: min(400px, 100%); display: grid; gap: 12px; }
+.platforms-h { font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2); }
+.platforms-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.platform {
+  display: grid; align-content: start; gap: 6px; min-height: 84px; padding: 16px 10px 14px; border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--hair); color: var(--fg); text-decoration: none;
+  transition: box-shadow 160ms ease, background-color 160ms ease;
+}
+.platform b { font: 600 15px/1.2 var(--sans); letter-spacing: -0.015em; }
+.platform span { font-size: 12px; line-height: 1.4; color: var(--fg-2); }
+.platform[aria-current], .platform[aria-current]:hover { box-shadow: inset 0 0 0 1.5px var(--fg); }
+.platform:active { transform: scale(0.98); }
+.platform:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .platform:hover { box-shadow: inset 0 0 0 1px var(--fg); background: var(--line); } }
+.platforms .fine a { color: var(--fg); text-underline-offset: 3px; }
 .stack .btn svg { width: 16px; height: 16px; }
 .news-row { display: flex; gap: 6px; }
 .input {
