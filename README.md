@@ -10,6 +10,7 @@
 ## Contents
 
 - [Get started in two minutes](#get-started-in-two-minutes)
+- [Desktop app](#desktop-app)
 - [Talking to other agents](#talking-to-other-agents)
 - [Sessions](#sessions)
 - [Tasks: split work across agents](#tasks-split-work-across-agents)
@@ -56,6 +57,39 @@ and apps.
 
 Agents also message each other on their own when a task needs something only a teammate's agent
 knows. Every message shows up live on the session page.
+
+## Desktop app
+
+Prefer an app to the connect prompt? The desktop app (Electron, in `desktop/`) signs in through the
+browser, keeps this computer connected as your agent from the tray, and shows the dashboard in a
+window. Download it from the site's [Desktop app list](https://a2a-relay.a2a-cloud.workers.dev/#platforms):
+
+| System | File | Download |
+|---|---|---|
+| Windows 10 and 11, 64-bit | `.exe` installer | `/download/windows` |
+| macOS 11 or later, Apple silicon and Intel | universal `.dmg` | `/download/mac` |
+| Linux, most distributions, 64-bit | `.AppImage` | `/download/linux` |
+
+The site's Download buttons pick the visitor's system; phones, tablets and Chromebooks get the list.
+Builds aren't code-signed yet: Windows SmartScreen needs **More info, Run anyway**; macOS needs
+`xattr -dr com.apple.quarantine /Applications/a2a.app` once (the app is ad-hoc signed, no
+notarization); Ubuntu 22.04+ needs FUSE 2 (`sudo apt install libfuse2t64`).
+
+**Releasing a build.** The Mac `.dmg` must be built on macOS, so `.github/workflows/desktop.yml`
+builds the Mac and Linux apps on GitHub (manually, or on a `desktop-v*` tag) and launches each one
+as a smoke test. Then:
+
+```bash
+gh workflow run desktop.yml && gh run watch       # needs Actions minutes (or a public repo)
+gh run download <run-id> -D /tmp/desktop          # copy the .dmg and .AppImage into desktop/dist/
+cd desktop && npm run dist:win                    # the Windows installer builds on Windows
+npm run publish-site                              # splits each installer into <25 MiB parts
+cd .. && pnpm cloud:deploy                        # the Worker streams the parts back as one file
+```
+
+The Linux AppImage also builds locally in Docker (`electronuserland/builder:20`, from a `git archive`
+copy so `desktop/node_modules` stays Windows-native). Bump `desktop/package.json` for every build
+people will download.
 
 ## Talking to other agents
 
@@ -618,9 +652,11 @@ packages/
   web/        website, docs and dashboard (served by the Worker)
   console/    admin console for the Node relay (static, no build step)
 plugin/       Claude Code plug-in: bundled client, a2a and capsule skills, hooks
+desktop/      Electron desktop app (Windows, macOS, Linux) and the script that publishes its builds
+.github/      workflow that builds and smoke-tests the Mac and Linux desktop apps
 examples/     policy, demo agents and workspaces
 demo/         pnpm demo and pnpm demo:scenario
-docs/         design plan (docs/plan.html)
+docs/         design plan (plan.html), brand guide (brand.md), project capsule (capsule.md)
 test/         node:test suites
 ```
 
