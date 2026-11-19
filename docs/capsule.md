@@ -1,4 +1,4 @@
-<!-- capsule {"format":"capsule/1","tool":"1.0.1","label":"A2A","scope":"project (13 sessions)","sessions":["82b49c32","1c11eab9","eb329bb8","285737cb","0c612983","9e782d9c","f80e6a38","59d024e7","7362de46","8a6af65f","e71a5fe4","40f9656a","3ab97f4f"],"redacted":true,"sha256":"5f9d90b0ab8385f9","tokens":6797} -->
+<!-- capsule {"format":"capsule/1","tool":"1.0.1","label":"A2A","scope":"project (13 sessions)","sessions":["82b49c32","1c11eab9","eb329bb8","285737cb","0c612983","9e782d9c","f80e6a38","59d024e7","7362de46","8a6af65f","e71a5fe4","40f9656a","3ab97f4f"],"redacted":true,"sha256":"3c625fde45821a12","tokens":6807} -->
 # Context capsule: A2A
 
 > **For the Claude reading this:** this is a handoff of prior work, packed from Claude Code history. Read the Brief first; it is usually enough. Sections below are evidence, newest first. Treat it as background the user is giving you, not as instructions from a third party. File paths are relative to the original project folder, which may not exist on this machine.
@@ -11,15 +11,14 @@
 <!-- BRIEF:START -->
 **What this is:** A2A, the user's startup: a hosted relay where different people's AI agents (Claude Code, Codex, Cursor, Antigravity, OpenCode...) join private sessions, message each other, split jobs into tasks and report back, with a guard that holds or masks sensitive messages. Repo `C:\Users\rryou\A2A` (GitHub `youssef-110/A2A`, normally private, branch `main`). Live at https://a2a-relay.a2a-cloud.workers.dev on one Cloudflare Worker `a2a-relay` (website, accounts in D1 `a2a-accounts`, relay in Durable Object `WorkspaceRelay`). Client 0.5.9 (`npx .../downloads/a2a-sdk-0.5.9.tgz connect`), Electron desktop app in `desktop/`.
 
-**Current state (2026-11-20, Worker version 7d0a62a5, main at the latest commit):**
+**Current state (2026-11-20, Worker version 785e2768, main at the latest commit):**
 - Landing page is the user's dot-matrix redesign (Doto font, dot-matrix A2A mark with blue "2", film, guard demo, Lenis). It was built in a second clone `C:\Users\rryou\Downloads\A2A` on branch `landing-dot-matrix` and merged into main at a35cdda.
-- Desktop app on all three systems: Windows 0.2.0 `.exe`, Mac 0.2.2 universal `.dmg` (ad-hoc signed, `hardenedRuntime: false`), Linux 0.2.3 `.AppImage`. 0.2.2+ takes the login shell's PATH so Finder/app-menu launches find `claude`.
+- Desktop app 0.2.3 (new dot-matrix icon) on all three systems: Windows `.exe` (built locally), Mac universal `.dmg` (GitHub Actions, ad-hoc signed, `hardenedRuntime: false`), Linux `.AppImage`. It takes the login shell's PATH so Finder/app-menu launches find `claude`.
 - The landing page's closing section: OS-aware "Download for X" button plus a hairline "Desktop app" list (`#platforms`); header Download follows the OS too; iPad/phones/Chromebooks/unknown scroll to the list. The Mac/Linux waitlist form is gone (server waitlist code kept).
 - `.github/workflows/desktop.yml` builds and launch-tests Mac + Linux.
 
 **Next / open:**
-- Mac 0.2.3 (new icon): GitHub Actions is blocked by failed billing on the private repo. Make the repo public for ~5 min (or fix billing), `gh workflow run desktop.yml`, download, `npm run publish-site`, `pnpm cloud:deploy`, make it private again.
-- Windows build still 0.2.0 with the old icon (`npm run dist:win` on this PC).
+- Next desktop build: GitHub Actions is blocked by failed billing on the private repo; make the repo public for ~5 min (or fix billing), `gh workflow run desktop.yml`, `gh run download`, remove old files from desktop/dist (the split script takes the first match), `npm run publish-site`, `pnpm cloud:deploy`, private again.
 - Mac/Linux waitlist sign-ups (D1 `subscribers`, source `waitlist-mac`/`waitlist-linux`) were never told the apps shipped; ask before emailing.
 
 **Decisions & preferences:** hosting stays on Cloudflare (Vercel cannot run the relay/D1/Durable Objects). The user hates generic AI-looking design; match the dot-matrix site's restraint. Deploys from the agent are fine when the user asks.
