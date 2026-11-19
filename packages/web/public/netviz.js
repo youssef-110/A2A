@@ -23,7 +23,7 @@ const STYLE = `
 .nv .nv-edge.board { stroke-dasharray: 1 7; }
 .nv .nv-edge.live { stroke: var(--nv-line-live, rgb(255 255 255 / 0.28)); }
 .nv .nv-edge.hot { stroke: var(--nv-hot, rgb(255 255 255 / 0.7)); transition: stroke 0.08s; }
-.nv .nv-edge.hot.board { stroke: var(--nv-signal, #2997ff); }
+.nv .nv-edge.hot.board { stroke: var(--nv-signal, #3d95ff); }
 .nv .nv-node { transition: opacity 0.4s; }
 .nv .nv-node.off { opacity: 0.42; }
 .nv .nv-body { transform-box: fill-box; transform-origin: center; transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -31,7 +31,7 @@ const STYLE = `
 .nv .nv-face { stroke: rgb(0 0 0 / 0.25); stroke-width: 1; }
 .nv .nv-ini { font-weight: 650; font-size: 14px; text-anchor: middle; dominant-baseline: central; letter-spacing: -0.02em; pointer-events: none; }
 .nv .nv-ring { fill: none; stroke: var(--nv-line, rgb(255 255 255 / 0.12)); stroke-width: 2; }
-.nv .st-working .nv-ring, .nv .st-coordinating .nv-ring { stroke: var(--nv-signal, #2997ff); stroke-dasharray: 10 6; animation: nv-spin 6s linear infinite; transform-box: fill-box; transform-origin: center; }
+.nv .st-working .nv-ring, .nv .st-coordinating .nv-ring { stroke: var(--nv-signal, #3d95ff); stroke-dasharray: 10 6; animation: nv-spin 6s linear infinite; transform-box: fill-box; transform-origin: center; }
 .nv .st-blocked .nv-ring { stroke: var(--nv-hold, #ff9f0a); }
 .nv .st-done .nv-ring { stroke: var(--nv-allow, #30d158); }
 .nv .nv-dot { fill: var(--nv-line, rgb(255 255 255 / 0.2)); stroke: var(--nv-bg, #111); stroke-width: 2.5; }
@@ -39,7 +39,7 @@ const STYLE = `
 .nv .nv-name { fill: var(--nv-ink, #f5f5f7); font-size: 12.5px; font-weight: 560; text-anchor: middle; letter-spacing: -0.01em; }
 .nv .nv-sub { fill: var(--nv-ink-3, #8e8e93); font-size: 11px; text-anchor: middle; }
 .nv .nv-hub-core { fill: var(--nv-hub, #18181a); stroke: var(--nv-line-live, rgb(255 255 255 / 0.22)); stroke-width: 1.5; }
-.nv .nv-hub-halo { fill: none; stroke: var(--nv-signal, #2997ff); stroke-opacity: 0.35; animation: nv-breathe 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.nv .nv-hub-halo { fill: none; stroke: var(--nv-signal, #3d95ff); stroke-opacity: 0.35; animation: nv-breathe 3.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
 .nv .nv-hub-t { fill: var(--nv-ink-2, #c7c7cc); font-size: 10.5px; font-weight: 560; text-anchor: middle; dominant-baseline: central; letter-spacing: 0.02em; }
 .nv .nv-trail { fill: none; stroke-linecap: round; stroke-width: 3; }
 .nv .nv-head { filter: url(#nv-glow); }
@@ -49,7 +49,7 @@ const STYLE = `
 .nv .nv-chip { transition: opacity 0.4s, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 .nv .t-msg { stroke: var(--nv-ink, #f5f5f7); fill: var(--nv-ink, #f5f5f7); color: var(--nv-ink, #f5f5f7); }
 .nv .t-reply { stroke: var(--nv-allow, #30d158); fill: var(--nv-allow, #30d158); color: var(--nv-allow, #30d158); }
-.nv .t-board { stroke: var(--nv-signal, #2997ff); fill: var(--nv-signal, #2997ff); color: var(--nv-signal, #2997ff); }
+.nv .t-board { stroke: var(--nv-signal, #3d95ff); fill: var(--nv-signal, #3d95ff); color: var(--nv-signal, #3d95ff); }
 .nv .t-held { stroke: var(--nv-hold, #ff9f0a); fill: var(--nv-hold, #ff9f0a); color: var(--nv-hold, #ff9f0a); }
 .nv .t-blocked { stroke: var(--nv-block, #ff6961); fill: var(--nv-block, #ff6961); color: var(--nv-block, #ff6961); }
 .nv .t-done { stroke: var(--nv-allow, #30d158); fill: var(--nv-allow, #30d158); color: var(--nv-allow, #30d158); }

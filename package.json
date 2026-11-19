@@ -15,6 +15,7 @@
     "eval": "node --disable-warning=ExperimentalWarning packages/guard/scripts/eval.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p packages/cloud/tsconfig.json --noEmit",
     "build:plugin": "node scripts/build-plugin.mjs",
+    "build:guard-demo": "esbuild scripts/guard-demo/entry.ts --bundle --format=esm --minify --target=es2022 --outfile=packages/web/public/guard-demo.js",
     "cloud:dev": "node scripts/build-plugin.mjs && cd packages/cloud && npx wrangler dev",
     "cloud:deploy": "node scripts/build-plugin.mjs && cd packages/cloud && npx wrangler deploy"
   },

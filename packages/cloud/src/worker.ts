@@ -184,11 +184,14 @@ function page(title: string, body: string, form?: { action: string; label: strin
   const action = form ? `<form method="post" action="${form.action}"><button class="btn" type="submit">${form.label}</button></form>` : `<a class="btn" href="/">Back to a2a</a>`;
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/site.css"></head>` +
-      `<body><main class="auth"><div class="auth-card"><a class="logo" href="/" aria-label="a2a home"><img src="/email-logo.png" width="28" height="28" alt="" style="border-radius:7px"><span>a2a</span></a>` +
+      `<body><main class="auth"><div class="auth-card"><a class="logo" href="/" aria-label="a2a home"><svg viewBox="0 0 17 7" fill="currentColor" aria-hidden="true"><circle cx="1.5" cy=".5" r=".42"/><circle cx="2.5" cy=".5" r=".42"/><circle cx="3.5" cy=".5" r=".42"/><circle cx=".5" cy="1.5" r=".42"/><circle cx="4.5" cy="1.5" r=".42"/><circle cx=".5" cy="2.5" r=".42"/><circle cx="4.5" cy="2.5" r=".42"/><circle cx=".5" cy="3.5" r=".42"/><circle cx="1.5" cy="3.5" r=".42"/><circle cx="2.5" cy="3.5" r=".42"/><circle cx="3.5" cy="3.5" r=".42"/><circle cx="4.5" cy="3.5" r=".42"/><circle cx=".5" cy="4.5" r=".42"/><circle cx="4.5" cy="4.5" r=".42"/><circle cx=".5" cy="5.5" r=".42"/><circle cx="4.5" cy="5.5" r=".42"/><circle cx=".5" cy="6.5" r=".42"/><circle cx="4.5" cy="6.5" r=".42"/><g class="two" fill="#3d95ff"><circle cx="7.5" cy=".5" r=".42"/><circle cx="8.5" cy=".5" r=".42"/><circle cx="9.5" cy=".5" r=".42"/><circle cx="6.5" cy="1.5" r=".42"/><circle cx="10.5" cy="1.5" r=".42"/><circle cx="10.5" cy="2.5" r=".42"/><circle cx="9.5" cy="3.5" r=".42"/><circle cx="8.5" cy="4.5" r=".42"/><circle cx="7.5" cy="5.5" r=".42"/><circle cx="6.5" cy="6.5" r=".42"/><circle cx="7.5" cy="6.5" r=".42"/><circle cx="8.5" cy="6.5" r=".42"/><circle cx="9.5" cy="6.5" r=".42"/><circle cx="10.5" cy="6.5" r=".42"/></g><circle cx="13.5" cy=".5" r=".42"/><circle cx="14.5" cy=".5" r=".42"/><circle cx="15.5" cy=".5" r=".42"/><circle cx="12.5" cy="1.5" r=".42"/><circle cx="16.5" cy="1.5" r=".42"/><circle cx="12.5" cy="2.5" r=".42"/><circle cx="16.5" cy="2.5" r=".42"/><circle cx="12.5" cy="3.5" r=".42"/><circle cx="13.5" cy="3.5" r=".42"/><circle cx="14.5" cy="3.5" r=".42"/><circle cx="15.5" cy="3.5" r=".42"/><circle cx="16.5" cy="3.5" r=".42"/><circle cx="12.5" cy="4.5" r=".42"/><circle cx="16.5" cy="4.5" r=".42"/><circle cx="12.5" cy="5.5" r=".42"/><circle cx="16.5" cy="5.5" r=".42"/><circle cx="12.5" cy="6.5" r=".42"/><circle cx="16.5" cy="6.5" r=".42"/></svg></a>` +
       `<div><h1>${title}</h1><p class="sub" style="margin-top:10px">${body}</p></div>${action}</div></main></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
 }
+
+/** Desktop builds people can wait for; the landing page sends source "waitlist-mac" or "waitlist-linux". */
+const WAITLIST_OS: Record<string, string> = { "waitlist-mac": "Mac", "waitlist-linux": "Linux" };
 
 /** The newsletter: subscribe from the site, unsubscribe from the link in any email. */
 async function handleNews(env: Env, req: Request, url: URL, ctx: ExecutionContext): Promise<Response> {
@@ -199,7 +202,23 @@ async function handleNews(env: Env, req: Request, url: URL, ctx: ExecutionContex
     const r = await subscribe(env, String(body.email ?? ""), typeof body.source === "string" ? body.source : "site");
     if ("error" in r) return json({ error: r.error }, 400);
     await recordFailure(env, [`news:${ip}`]);
-    if (r.isNew) {
+    const os = WAITLIST_OS[String(body.source)];
+    if (os && r.waitlisted) {
+      ctx.waitUntil(
+        sendEmail(env, url.origin, r.email, `You're on the a2a waitlist for ${os}`, {
+          preview: `One email when the a2a desktop app for ${os} is ready.`,
+          heading: "You're on the list",
+          paragraphs: [
+            `We'll email you once, when the a2a desktop app for ${os} is ready to download.`,
+            `You don't have to wait to use a2a on ${os}: with Node 22 or later, one command in the docs connects every AI app on your computer, and the dashboard works in any browser.`,
+            `You'll also get ${NEWSLETTER_NAME}, a short note about once a month. One click unsubscribes from both.`,
+          ],
+          button: { label: "Connect without the app", url: `${url.origin}/docs` },
+          footer: `You got this because ${r.email} joined the ${os} waitlist on the a2a website.`,
+          unsubscribeUrl: `${url.origin}/news/unsubscribe?t=${r.unsub_token}`,
+        }),
+      );
+    } else if (r.isNew) {
       ctx.waitUntil(
         sendEmail(env, url.origin, r.email, `You're on ${NEWSLETTER_NAME}`, {
           preview: "Short notes on what's new in a2a, about once a month.",
@@ -214,7 +233,7 @@ async function handleNews(env: Env, req: Request, url: URL, ctx: ExecutionContex
         }),
       );
     }
-    return json({ ok: true, already: !r.isNew });
+    return json({ ok: true, already: !r.isNew && !r.waitlisted });
   }
   if (url.pathname === "/news/unsubscribe") {
     const token = url.searchParams.get("t") ?? "";

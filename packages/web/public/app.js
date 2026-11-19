@@ -1,5 +1,6 @@
 // A2A dashboard. No build step: plain modules, DOM built with h(), live updates over SSE.
 import { createNetwork } from "/netviz.js";
+import { glyph, textCells } from "/dotfont.js";
 // Every relay call goes to /api/w/<workspace>/..., which the Worker allows only for members.
 
 const S = {
@@ -217,8 +218,15 @@ const ICONS = {
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
 };
 
-const LOGO_MARK =
-  '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>';
+// The wordmark: "A2A" in the 5x7 dot font, the "2" (the relay) lit blue through .two in app.css.
+const LOGO_MARK = `<svg viewBox="0 0 17 7" fill="currentColor" aria-hidden="true">${textCells("A2A")
+  .map(([x, y, i]) => `<circle cx="${x + 0.5}" cy="${y + 0.5}" r=".42"${i === 1 ? ' class="two"' : ""}/>`)
+  .join("")}</svg>`;
+// The small mark, as favicon.svg: the "2" alone on a dark 5x7 board, which stays dark in both themes.
+const TWO = new Set(glyph("2").map(([x, y]) => `${x},${y}`));
+const SMALL_MARK = `<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0a0a0b"/>${Array.from({ length: 35 }, (_, n) => [n % 5, Math.floor(n / 5)])
+  .map(([x, y]) => `<circle cx="${(8.8 + x * 3.6).toFixed(2)}" cy="${(5.2 + y * 3.6).toFixed(2)}" r="1.38" fill="${TWO.has(`${x},${y}`) ? "#3d95ff" : "#26262a"}"/>`)
+  .join("")}</svg>`;
 const brandMark = () =>
   h("span", {
     class: "brand-mark",
@@ -227,8 +235,9 @@ const brandMark = () =>
 
 // Every agent has its own signal colour, like a lamp on a switchboard: the same agent is the same
 // colour in the roster, the chat, the task board and the live map.
-const SIGNALS = ["#ffb020", "#35d39a", "#4da3ff", "#ff6b8a", "#a78bfa", "#f2d14b", "#4fd1c5", "#ff8a4c"];
-const SIGNALS_LIGHT = ["#a15c00", "#0f7a52", "#0a5fc2", "#b92548", "#6540c4", "#7a6400", "#0d7a70", "#b34a0a"];
+// Neutral steps only: blue means live and amber means held, so an agent must never look like either.
+const SIGNALS = ["#f4f4f1", "#bdbdb7", "#8f8f89", "#d9d9d3", "#a6a6a0", "#e8e8e2", "#7d7d77", "#cfcfc9"];
+const SIGNALS_LIGHT = ["#111112", "#3a3a37", "#5c5c57", "#262624", "#4a4a46", "#1c1c1b", "#63635d", "#30302d"];
 function signalOf(address) {
   // By position among the workspace's agents, so neighbours never share a colour; a hash for strangers.
   let i = S.agents.map((a) => a.address).sort().indexOf(address);
@@ -357,7 +366,7 @@ function renderSide() {
         h(
           "button",
           { class: "ws-btn", "aria-haspopup": "menu", "aria-expanded": "false", onclick: (e) => workspaceMenu(e.currentTarget), title: ws ? `agent://${ws.slug}` : "" },
-          h("span", { class: "mark", html: LOGO_MARK }),
+          h("span", { class: "mark", html: SMALL_MARK }),
           h("span", { class: "ws-name" }, ws?.name ?? "Workspace"),
           h("span", { class: "chev", html: ICONS.chev }),
         ),

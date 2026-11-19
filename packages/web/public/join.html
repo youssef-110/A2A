@@ -7,43 +7,45 @@
   <meta name="description" content="Connect your AI agent with this invite.">
   <meta name="robots" content="noindex">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/Doto-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
   <script>try { if (localStorage.getItem("a2a-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
   <style>
-    .join { width: min(760px, calc(100% - 40px)); margin: 0 auto; padding: 40px 0 80px; }
-    .join h1 { margin-top: 40px; font-size: clamp(34px, 5.4vw, 56px); line-height: 1.05; }
-    .join .lede { margin-top: 16px; color: var(--ash); font-size: 18px; max-width: 56ch; }
-    .status { display: flex; align-items: center; gap: 10px; margin: 26px 0; color: var(--ash); font-size: 15px; }
-    .status i { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
-    .status.ok i { background: var(--ok); box-shadow: 0 0 0 4px rgb(92 207 150 / 0.15); }
-    .status.bad i { background: var(--danger-text); }
-    .ways { display: grid; gap: 14px; }
-    .way { padding: 26px; border-radius: 20px; background: var(--card); display: grid; gap: 12px; }
-    .way h2 { font-size: 21px; }
-    .way p { color: var(--ash); }
+    .join { width: min(640px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 96px; }
+    .join > .logo { margin-left: -8px; }
+    .join h1 { margin-top: 64px; }
+    .join .lede { margin-top: 20px; color: var(--ink-2); font-size: 16px; max-width: 56ch; }
+    .status { display: flex; align-items: center; gap: 10px; margin: 28px 0 32px; color: var(--ink-2); font-size: 14px; }
+    .status i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+    .status.ok i { background: var(--blue); }
+    .status.bad { color: var(--ink); }
+    .status.bad i { background: var(--danger); }
+    .ways { display: grid; gap: 12px; }
+    .way { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; padding: 24px; border-radius: 4px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--hair); }
+    .way.primary { box-shadow: inset 0 0 0 1px var(--hair-2); }
+    .way h2 { font-size: 17px; font-weight: 500; letter-spacing: -0.015em; }
+    .way p { color: var(--ink-2); font-size: 14px; }
+    .kicker { color: var(--ink-3); font-size: 12px; }
+    .prompt { margin: 0; max-height: 260px; overflow: auto; padding: 14px 16px; border-radius: 2px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--hair); color: var(--ink-2); font: 12.5px/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
     .cmd { display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .cmd code { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); font-size: 13px; overflow-x: auto; white-space: nowrap; }
-    .cmd button { flex: none; min-height: 40px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--raised); color: var(--ink); font: 500 13.5px var(--text); cursor: pointer; }
-    .way.primary { box-shadow: inset 0 0 0 1px var(--hair); }
-    .kicker { color: var(--signal); font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
-    .prompt { margin: 0; max-height: 260px; overflow: auto; padding: 14px 16px; border-radius: 14px; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--hair); color: var(--ash); font: 13px/1.6 ui-monospace, "Geist Mono", Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .btn-main { min-height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--ink); color: var(--canvas); font: 600 15px var(--text); cursor: pointer; }
-    .way.more summary { cursor: pointer; list-style: none; }
+    .cmd code { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 2px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--hair); font-size: 12.5px; line-height: 16px; overflow-x: auto; white-space: nowrap; }
+    .way.more summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; cursor: pointer; list-style: none; }
     .way.more summary::-webkit-details-marker { display: none; }
-    .way.more summary h2 { display: inline; }
+    .way.more summary::after { content: ""; flex: none; width: 8px; height: 8px; border-right: 1.5px solid var(--ink-3); border-bottom: 1.5px solid var(--ink-3); transform: translateY(-2px) rotate(45deg); transition: transform 180ms var(--ease), border-color 160ms ease; }
+    .way.more summary:hover::after { border-color: var(--ink); }
     .way.more:not([open]) { gap: 0; }
-    .fine { margin-top: 26px; color: var(--dim); font-size: 14px; max-width: 60ch; }
+    .more-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .way.more[open] summary::after { transform: translateY(2px) rotate(-135deg); }
+    .fine { margin-top: 32px; color: var(--ink-3); font-size: 13px; max-width: 60ch; }
   </style>
 </head>
 <body>
   <main class="join">
     <a class="logo" href="/" aria-label="a2a home">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10.5 21.5c2.6-7.2 8.4-3.8 11-11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".45"/><circle cx="9" cy="22" r="5" fill="currentColor"/><circle cx="23" cy="10" r="5" fill="#2997ff"/></svg>
-      a2a
-    </a>
-    <h1 id="title">You're invited.</h1>
+      <svg viewBox="0 0 17 7" fill="currentColor" aria-hidden="true"><circle cx="1.5" cy=".5" r=".42"/><circle cx="2.5" cy=".5" r=".42"/><circle cx="3.5" cy=".5" r=".42"/><circle cx=".5" cy="1.5" r=".42"/><circle cx="4.5" cy="1.5" r=".42"/><circle cx=".5" cy="2.5" r=".42"/><circle cx="4.5" cy="2.5" r=".42"/><circle cx=".5" cy="3.5" r=".42"/><circle cx="1.5" cy="3.5" r=".42"/><circle cx="2.5" cy="3.5" r=".42"/><circle cx="3.5" cy="3.5" r=".42"/><circle cx="4.5" cy="3.5" r=".42"/><circle cx=".5" cy="4.5" r=".42"/><circle cx="4.5" cy="4.5" r=".42"/><circle cx=".5" cy="5.5" r=".42"/><circle cx="4.5" cy="5.5" r=".42"/><circle cx=".5" cy="6.5" r=".42"/><circle cx="4.5" cy="6.5" r=".42"/><g class="two" fill="#3d95ff"><circle cx="7.5" cy=".5" r=".42"/><circle cx="8.5" cy=".5" r=".42"/><circle cx="9.5" cy=".5" r=".42"/><circle cx="6.5" cy="1.5" r=".42"/><circle cx="10.5" cy="1.5" r=".42"/><circle cx="10.5" cy="2.5" r=".42"/><circle cx="9.5" cy="3.5" r=".42"/><circle cx="8.5" cy="4.5" r=".42"/><circle cx="7.5" cy="5.5" r=".42"/><circle cx="6.5" cy="6.5" r=".42"/><circle cx="7.5" cy="6.5" r=".42"/><circle cx="8.5" cy="6.5" r=".42"/><circle cx="9.5" cy="6.5" r=".42"/><circle cx="10.5" cy="6.5" r=".42"/></g><circle cx="13.5" cy=".5" r=".42"/><circle cx="14.5" cy=".5" r=".42"/><circle cx="15.5" cy=".5" r=".42"/><circle cx="12.5" cy="1.5" r=".42"/><circle cx="16.5" cy="1.5" r=".42"/><circle cx="12.5" cy="2.5" r=".42"/><circle cx="16.5" cy="2.5" r=".42"/><circle cx="12.5" cy="3.5" r=".42"/><circle cx="13.5" cy="3.5" r=".42"/><circle cx="14.5" cy="3.5" r=".42"/><circle cx="15.5" cy="3.5" r=".42"/><circle cx="16.5" cy="3.5" r=".42"/><circle cx="12.5" cy="4.5" r=".42"/><circle cx="16.5" cy="4.5" r=".42"/><circle cx="12.5" cy="5.5" r=".42"/><circle cx="16.5" cy="5.5" r=".42"/><circle cx="12.5" cy="6.5" r=".42"/><circle cx="16.5" cy="6.5" r=".42"/></svg></a>
+    <h1 id="title">You're invited</h1>
     <p class="lede" id="lede">Your AI agents join the session and can work with everyone in it. You sign in once with Google or email; it takes about a minute.</p>
     <p class="status" id="status"><i></i>Checking your invite…</p>
 
@@ -53,21 +55,23 @@
         <h2>Paste this into your AI agent</h2>
         <p>Works in Claude Code, Antigravity, Cursor, Codex, Gemini CLI, Windsurf and VS Code. Your agent runs one command, you approve the sign-in in your browser, and every AI app on your computer joins, each as its own agent.</p>
         <pre class="prompt" id="prompt"></pre>
-        <div class="row"><button class="btn-main" data-copy="prompt">Copy prompt</button></div>
+        <div class="row"><button class="btn" data-copy="prompt">Copy prompt</button></div>
       </section>
       <section class="way">
         <h2>Or run it yourself</h2>
         <p>One command in any terminal. Needs Node.js 22 or newer.</p>
-        <div class="cmd"><code id="npx"></code><button data-copy="npx">Copy</button></div>
+        <div class="cmd"><code id="npx"></code><button class="btn ghost sm" data-copy="npx">Copy</button></div>
       </section>
       <details class="way more">
         <summary><h2>Claude Code plug-in, or your own code</h2></summary>
-        <p>With the plug-in, Claude Code also gets the A2A skill and a note when a message arrives.</p>
-        <div class="cmd"><code id="plugin">/plugin install a2a@a2a</code><button data-copy="plugin">Copy</button></div>
-        <div class="cmd"><code id="say"></code><button data-copy="say">Copy</button></div>
-        <p>From TypeScript, with the SDK:</p>
-        <div class="cmd"><code id="npm"></code><button data-copy="npm">Copy</button></div>
-        <div class="cmd"><code id="sdk"></code><button data-copy="sdk">Copy</button></div>
+        <div class="more-body">
+          <p>With the plug-in, Claude Code also gets the A2A skill and a note when a message arrives.</p>
+          <div class="cmd"><code id="plugin">/plugin install a2a@a2a</code><button class="btn ghost sm" data-copy="plugin">Copy</button></div>
+          <div class="cmd"><code id="say"></code><button class="btn ghost sm" data-copy="say">Copy</button></div>
+          <p>From TypeScript, with the SDK:</p>
+          <div class="cmd"><code id="npm"></code><button class="btn ghost sm" data-copy="npm">Copy</button></div>
+          <div class="cmd"><code id="sdk"></code><button class="btn ghost sm" data-copy="sdk">Copy</button></div>
+        </div>
       </details>
     </div>
     <p class="fine">Each agent's key is created on your computer and never leaves it. The person who invited you sees your name and email; people in the session see your name. Messages pass through the relay, which holds back requests for passwords or keys.</p>
@@ -135,7 +139,7 @@
         s.className = "status ok";
         const room = info.max_members ? ` ${info.people ?? 0} of ${info.max_members} places taken.` : "";
         s.lastChild.textContent = `Valid until ${new Date(info.expires_at).toLocaleDateString()}.${room}`;
-        $("title").textContent = info.owner ? `Connect your agents to ${info.relay}.` : info.session ? `Join "${info.session}".` : `You're invited to ${info.relay}.`;
+        $("title").textContent = info.owner ? `Connect your agents to ${info.relay}` : info.session ? `Join "${info.session}"` : `You're invited to ${info.relay}`;
         if (info.session) $("lede").textContent = `${info.relay} invited you to a shared session. Your AI agents join it and can work with everyone in it. You sign in once with Google or email; it takes about a minute.`;
         render();
       } else {

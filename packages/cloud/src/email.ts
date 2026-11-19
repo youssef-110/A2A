@@ -29,29 +29,29 @@ export interface EmailContent {
 
 /** Table layout and inline styles: what email clients (Gmail, Outlook, Apple Mail) render reliably. */
 export function renderEmail(origin: string, c: EmailContent): { html: string; text: string } {
-  const p = (t: string) => `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#d2d2d7">${esc(t)}</p>`;
+  const p = (t: string) => `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#cfcfca">${esc(t)}</p>`;
   const button = c.button
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px"><tr><td style="border-radius:999px;background:#f5f5f7">
-         <a href="${esc(c.button.url)}" style="display:inline-block;padding:13px 26px;font-size:15px;font-weight:600;color:#000000;text-decoration:none;border-radius:999px">${esc(c.button.label)}</a>
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px"><tr><td style="border-radius:2px;background:#f4f4f1">
+         <a href="${esc(c.button.url)}" style="display:inline-block;padding:13px 24px;font-size:15px;font-weight:500;color:#0e0e0f;text-decoration:none;border-radius:2px">${esc(c.button.label)}</a>
        </td></tr></table>
-       <p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#86868b">Or paste this link into your browser:<br><a href="${esc(c.button.url)}" style="color:#2997ff;word-break:break-all">${esc(c.button.url)}</a></p>`
+       <p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#9b9b95">Or paste this link into your browser:<br><a href="${esc(c.button.url)}" style="color:#3d95ff;word-break:break-all">${esc(c.button.url)}</a></p>`
     : "";
-  const unsub = c.unsubscribeUrl ? ` <a href="${esc(c.unsubscribeUrl)}" style="color:#86868b">Unsubscribe</a>.` : "";
+  const unsub = c.unsubscribeUrl ? ` <a href="${esc(c.unsubscribeUrl)}" style="color:#9b9b95">Unsubscribe</a>.` : "";
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>${esc(c.heading)}</title></head>
-<body style="margin:0;padding:0;background:#000000">
+<body style="margin:0;padding:0;background:#0e0e0f">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(c.preview)}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#000000"><tr><td align="center" style="padding:40px 16px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0e0e0f"><tr><td align="center" style="padding:40px 16px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
     <tr><td style="padding:0 0 28px">
-      <a href="${esc(origin)}" style="text-decoration:none"><img src="${esc(origin)}/email-logo.png" width="40" height="40" alt="a2a" style="display:inline-block;vertical-align:middle;border:0;border-radius:10px">
-      <span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:20px;font-weight:600;letter-spacing:-0.4px;color:#f5f5f7">a2a</span></a>
+      <a href="${esc(origin)}" style="text-decoration:none"><img src="${esc(origin)}/email-logo.png" width="40" height="40" alt="a2a" style="display:inline-block;vertical-align:middle;border:0;border-radius:9px">
+      <span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:20px;font-weight:500;letter-spacing:-0.4px;color:#f4f4f1">a2a</span></a>
     </td></tr>
-    <tr><td style="padding:32px;border-radius:20px;background:#111113">
-      <h1 style="margin:0 0 18px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.4px;color:#f5f5f7">${esc(c.heading)}</h1>
+    <tr><td style="padding:32px;border-radius:4px;background:#141416;border:1px solid #2a2a2d">
+      <h1 style="margin:0 0 18px;font-size:24px;line-height:1.25;font-weight:500;letter-spacing:-0.4px;color:#f4f4f1">${esc(c.heading)}</h1>
       ${c.paragraphs.map(p).join("\n      ")}
       ${button}
     </td></tr>
-    <tr><td style="padding:22px 8px 0;font-size:12px;line-height:1.6;color:#86868b">${esc(c.footer)}${unsub}<br>a2a, the relay where AI agents work together.</td></tr>
+    <tr><td style="padding:22px 8px 0;font-size:12px;line-height:1.6;color:#9b9b95">${esc(c.footer)}${unsub}<br>a2a, the relay where AI agents work together.</td></tr>
   </table>
 </td></tr></table>
 </body></html>`;

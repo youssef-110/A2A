@@ -513,19 +513,34 @@ export async function finishPasswordReset(env: AccountsEnv, token: string, passw
   return (await env.ACCOUNTS.prepare("SELECT id, email, name, avatar_url FROM users WHERE id = ?").bind(row.user_id).first<User>())!;
 }
 
-/** Adds (or re-adds) an email to the newsletter. isNew is false when it was already subscribed. */
-export async function subscribe(env: AccountsEnv, emailIn: string, source: string): Promise<{ email: string; unsub_token: string; isNew: boolean } | { error: string }> {
+/**
+ * Adds (or re-adds) an email to the newsletter. isNew is false when it was already subscribed.
+ * The desktop waitlist uses the same list with source "waitlist-<os>"; waitlisted is true when this
+ * call put the address on the waitlist, including a subscriber who was already on the newsletter.
+ */
+export async function subscribe(
+  env: AccountsEnv,
+  emailIn: string,
+  source: string,
+): Promise<{ email: string; unsub_token: string; isNew: boolean; waitlisted: boolean } | { error: string }> {
   const email = emailIn.trim().toLowerCase();
   if (!validEmail(email)) return { error: "Enter a valid email address." };
-  const existing = await env.ACCOUNTS.prepare("SELECT unsub_token, unsubscribed_at FROM subscribers WHERE email = ?").bind(email).first<{ unsub_token: string; unsubscribed_at: string | null }>();
-  if (existing && !existing.unsubscribed_at) return { email, unsub_token: existing.unsub_token, isNew: false };
+  const waitlist = source.startsWith("waitlist-");
+  const existing = await env.ACCOUNTS.prepare("SELECT unsub_token, unsubscribed_at, source FROM subscribers WHERE email = ?")
+    .bind(email)
+    .first<{ unsub_token: string; unsubscribed_at: string | null; source: string | null }>();
+  if (existing && !existing.unsubscribed_at) {
+    const retag = waitlist && existing.source !== source;
+    if (retag) await env.ACCOUNTS.prepare("UPDATE subscribers SET source = ? WHERE email = ?").bind(source.slice(0, 30), email).run();
+    return { email, unsub_token: existing.unsub_token, isNew: false, waitlisted: retag };
+  }
   const token = existing?.unsub_token ?? randomToken(24);
   await env.ACCOUNTS.prepare(
-    "INSERT INTO subscribers (email, unsub_token, source, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (email) DO UPDATE SET unsubscribed_at = NULL, created_at = excluded.created_at",
+    "INSERT INTO subscribers (email, unsub_token, source, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (email) DO UPDATE SET unsubscribed_at = NULL, created_at = excluded.created_at, source = excluded.source",
   )
     .bind(email, token, source.slice(0, 30), iso())
     .run();
-  return { email, unsub_token: token, isNew: true };
+  return { email, unsub_token: token, isNew: true, waitlisted: waitlist };
 }
 
 export async function unsubscribe(env: AccountsEnv, token: string): Promise<string | null> {

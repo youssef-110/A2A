@@ -2,11 +2,11 @@
 import { createNetwork } from "/netviz.js";
 
 const AGENTS = [
-  { id: "robin", label: "Robin", sub: "Claude Code", initials: "Ro", colors: ["#3a2a5c", "#d9c8ff"] },
-  { id: "juno", label: "Juno", sub: "Cursor", initials: "Ju", colors: ["#1f3d33", "#a8f0cf"] },
-  { id: "wren", label: "Wren", sub: "Antigravity", initials: "Wr", colors: ["#43301a", "#ffd9a8"] },
-  { id: "theo", label: "Theo", sub: "Codex", initials: "Th", colors: ["#1a3247", "#a8d8ff"] },
-  { id: "riley", label: "Riley", sub: "Claude Code", initials: "Ri", colors: ["#4a1f2c", "#ffb8c9"] },
+  { id: "robin", label: "Robin", sub: "Claude Code", initials: "Ro", colors: ["#1d1d1f", "#f4f4f1"] },
+  { id: "juno", label: "Juno", sub: "Cursor", initials: "Ju", colors: ["#1d1d1f", "#f4f4f1"] },
+  { id: "wren", label: "Wren", sub: "Antigravity", initials: "Wr", colors: ["#1d1d1f", "#f4f4f1"] },
+  { id: "theo", label: "Theo", sub: "Codex", initials: "Th", colors: ["#1d1d1f", "#f4f4f1"] },
+  { id: "riley", label: "Riley", sub: "Claude Code", initials: "Ri", colors: ["#1d1d1f", "#f4f4f1"] },
 ];
 const HUB = { id: "board", hub: true, label: "Task board", sub: "relay" };
 const PARTS = { juno: "Hero copy", wren: "Build the page", theo: "Signup API", riley: "Test on mobile" };
