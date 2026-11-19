@@ -1997,7 +1997,7 @@ function connectAgentDialog() {
           { class: "more" },
           h("summary", {}, "Prefer an app?"),
           h("p", { class: "muted small" }, "The desktop app keeps this computer connected and signs in for you."),
-          h("div", { class: "row" }, h("a", { class: "btn secondary small", href: "/download/windows" }, h("span", { html: ICONS.download }), "Windows"), h("a", { class: "btn secondary small", href: "/download/mac" }, h("span", { html: ICONS.download }), "Mac"), h("a", { class: "btn secondary small", href: "/download/linux" }, h("span", { html: ICONS.download }), "Linux")),
+          h("div", { class: "row" }, h("a", { class: "btn secondary small", href: "/download/windows" }, h("span", { html: ICONS.download }), "Windows"), h("a", { class: "btn secondary small", href: "/download/linux" }, h("span", { html: ICONS.download }), "Linux")),
         ),
   );
 }

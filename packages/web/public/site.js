@@ -197,15 +197,16 @@
   const mac = /Mac OS X|Macintosh/.test(ua) && !/iPhone|iPad/.test(ua);
   const linux = /Linux/.test(ua) && !/Android/.test(ua);
   const heroDl = document.querySelector("[data-os-label]");
-  if (heroDl) heroDl.textContent = mac ? "Download for Mac" : linux ? "Download for Linux" : "Download for Windows";
+  if (heroDl) heroDl.textContent = mac ? "Mac app coming soon" : linux ? "Download for Linux" : "Download for Windows";
   if (mac || linux) {
     const label = document.getElementById("dl-label");
     const primary = document.getElementById("dl-primary");
     const note = document.getElementById("dl-note");
     if (label && primary && note) {
-      label.textContent = mac ? "Download for Mac" : "Download for Linux";
-      primary.href = mac ? "/download/mac" : "/download/linux";
-      note.textContent = mac ? "macOS 11 or later, Apple silicon and Intel. Free beta." : "64-bit AppImage for most distributions. Free beta.";
+      // shortcut: no Mac build yet (needs a macOS runner); send Macs to the connect prompt until one ships.
+      label.textContent = mac ? "Set up on your Mac" : "Download for Linux";
+      primary.href = mac ? "/docs#desktop" : "/download/linux";
+      note.textContent = mac ? "The Mac app is coming soon. The connect prompt works on macOS today." : "64-bit AppImage for most distributions. Free beta.";
     }
   }
 })();
