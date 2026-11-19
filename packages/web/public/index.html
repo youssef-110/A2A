@@ -31,7 +31,7 @@
       <button class="icon" id="sound" type="button" aria-pressed="false" aria-label="Sound" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path class="bar b1" d="M6 10v4"/><path class="bar b2" d="M10 7v10"/><path class="bar b3" d="M14 9v6"/><path class="bar b4" d="M18 11v2"/></svg>
       </button>
-      <a class="btn ghost sm hd-dl" id="hd-dl" href="/download/windows">
+      <a class="btn ghost sm hd-dl" id="hd-dl" href="#platforms">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
         <span>Download</span>
       </a>
@@ -263,20 +263,20 @@ Ask theo which MCP servers it has</pre>
         <p class="lead">Free while in beta. Sign in, open a session and invite someone in under a minute.</p>
         <div class="stack" id="desktop">
           <a class="btn wide" href="/signin">Sign in and start a session</a>
-          <a class="btn ghost wide" id="dl-primary" href="/download/windows">
+          <a class="btn ghost wide" id="dl-primary" href="#platforms">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
-            <span id="dl-label">Download for Windows</span>
+            <span id="dl-label">Choose your download</span>
           </a>
         </div>
 
-        <nav class="platforms" aria-labelledby="platforms-h">
+        <nav class="platforms" id="platforms" aria-labelledby="platforms-h">
           <p class="platforms-h" id="platforms-h">Desktop app</p>
-          <div class="platforms-row">
-            <a class="platform" href="/download/windows" data-os="windows"><b>Windows</b><span>10 and 11, 64&#8209;bit</span></a>
-            <a class="platform" href="/download/mac" data-os="mac"><b>macOS</b><span>11+, Apple silicon and Intel</span></a>
-            <a class="platform" href="/download/linux" data-os="linux"><b>Linux</b><span>AppImage, 64&#8209;bit</span></a>
-          </div>
-          <p class="fine">Free beta. <a href="/docs#desktop">Install notes</a> for first launch.</p>
+          <ul>
+            <li><a class="platform" href="/download/windows" data-os="windows"><span class="pl-name">Windows</span><span class="pl-spec">Version 10 and 11, 64&#8209;bit</span><span class="pl-get">.exe<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></span></a></li>
+            <li><a class="platform" href="/download/mac" data-os="mac"><span class="pl-name">macOS</span><span class="pl-spec">Version 11 or later, Apple silicon and Intel</span><span class="pl-get">.dmg<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></span></a></li>
+            <li><a class="platform" href="/download/linux" data-os="linux"><span class="pl-name">Linux</span><span class="pl-spec">Most distributions, 64&#8209;bit</span><span class="pl-get">.AppImage<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg></span></a></li>
+          </ul>
+          <p class="fine">Free beta, not code-signed yet. <a href="/docs#desktop">First-launch notes</a></p>
         </nav>
       </div>
     </section>

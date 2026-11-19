@@ -324,22 +324,34 @@ section, .ft { color: var(--fg); }
 .panel-close { width: min(400px, 100%); margin: 0 auto 56px; }
 .stack { margin: 36px auto 0; width: min(300px, 100%); display: grid; gap: 8px; }
 .stack .fine { margin-top: 8px; }
-.platforms { margin: 56px auto 0; width: min(400px, 100%); display: grid; gap: 12px; }
-.platforms-h { font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2); }
-.platforms-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.platform {
-  display: grid; align-content: start; gap: 6px; min-height: 84px; padding: 16px 10px 14px; border-radius: 2px;
-  box-shadow: inset 0 0 0 1px var(--hair); color: var(--fg); text-decoration: none;
-  transition: box-shadow 160ms ease, background-color 160ms ease;
-}
-.platform b { font: 600 15px/1.2 var(--sans); letter-spacing: -0.015em; }
-.platform span { font-size: 12px; line-height: 1.4; color: var(--fg-2); }
-.platform[aria-current], .platform[aria-current]:hover { box-shadow: inset 0 0 0 1.5px var(--fg); }
-.platform:active { transform: scale(0.98); }
-.platform:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (hover: hover) { .platform:hover { box-shadow: inset 0 0 0 1px var(--fg); background: var(--line); } }
-.platforms .fine a { color: var(--fg); text-underline-offset: 3px; }
 .stack .btn svg { width: 16px; height: 16px; }
+
+/* Every desktop build, as a hairline list like the guard's: name and requirements, file type and arrow. */
+.platforms { margin: 64px auto 0; width: min(400px, 100%); text-align: left; scroll-margin-top: calc(var(--hd-h) + 24px); }
+.platforms-h { padding-bottom: 12px; font: 500 12px/1 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2); border-bottom: 1px solid var(--hair); }
+.platforms ul { margin: 0; padding: 0; list-style: none; }
+.platforms li { border-bottom: 1px solid var(--line); }
+.platform {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name get" "spec get"; align-items: center;
+  column-gap: 16px; row-gap: 3px; padding: 14px 8px; margin: 0 -8px; border-radius: 2px; color: var(--fg); text-decoration: none;
+  transition: background-color 160ms ease;
+}
+.pl-name { grid-area: name; display: flex; align-items: center; gap: 8px; font: 500 15px/1.3 var(--sans); letter-spacing: -0.015em; }
+.pl-spec { grid-area: spec; font-size: 13px; line-height: 1.4; color: var(--fg-2); }
+.pl-get { grid-area: get; display: inline-flex; align-items: center; gap: 8px; font: 500 12px/1 var(--mono); color: var(--fg-2); transition: color 160ms ease; }
+.pl-get svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform 200ms var(--ease-out); }
+/* The visitor's own computer gets the brand's blue dot. */
+.platform[aria-current] .pl-name::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.platform[aria-current] .pl-get { color: var(--fg); }
+.platform:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.platform:active .pl-get svg { transform: translateY(2px); }
+@media (hover: hover) {
+  .platform:hover { background: var(--line); }
+  .platform:hover .pl-get { color: var(--fg); }
+  .platform:hover .pl-get svg { transform: translateY(2px); }
+}
+.platforms .fine { margin-top: 14px; font-size: 12.5px; }
+.platforms .fine a { color: var(--fg); text-underline-offset: 3px; }
 .news-row { display: flex; gap: 6px; }
 .input {
   flex: 1; min-width: 0; min-height: 36px; padding: 0 12px; border: 1px solid var(--hair); border-radius: 2px;

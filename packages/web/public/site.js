@@ -678,19 +678,23 @@ if (code) {
 }
 
 // ---------------------------------------------------------------- download for this OS
-// The header and the closing section download the build for the visitor's OS.
-const ua = navigator.userAgent;
-const mac = /Mac OS X|Macintosh/.test(ua) && !/iPhone|iPad/.test(ua);
-const linux = /Linux/.test(ua) && !/Android/.test(ua);
-if (mac || linux) {
-  const href = mac ? "/download/mac" : "/download/linux";
-  document.getElementById("hd-dl")?.setAttribute("href", href);
-  document.getElementById("dl-primary")?.setAttribute("href", href);
-  const label = document.getElementById("dl-label");
-  if (label) label.textContent = mac ? "Download for Mac" : "Download for Linux";
+// The header and the closing section download the build for the visitor's computer. Phones, tablets
+// and anything unrecognised scroll to the list of all three instead (that is also the no-script default).
+function desktopOs() {
+  const ua = navigator.userAgent;
+  if (navigator.userAgentData?.mobile || /iPhone|iPad|iPod|Android|CrOS/.test(ua)) return null;
+  if (/Macintosh|Mac OS X/.test(ua)) return navigator.maxTouchPoints > 0 ? null : "mac"; // iPad Safari says Macintosh; Macs have no touch screen
+  if (/Windows NT/.test(ua)) return "windows";
+  if (/Linux|X11/.test(ua)) return "linux";
+  return null;
 }
-// The visitor's own platform is marked in the row of all three.
-document.querySelector(`.platform[data-os="${mac ? "mac" : linux ? "linux" : "windows"}"]`)?.setAttribute("aria-current", "true");
+const os = desktopOs();
+if (os) {
+  for (const id of ["hd-dl", "dl-primary"]) document.getElementById(id)?.setAttribute("href", `/download/${os}`);
+  const label = document.getElementById("dl-label");
+  if (label) label.textContent = `Download for ${{ windows: "Windows", mac: "Mac", linux: "Linux" }[os]}`;
+  document.querySelector(`.platform[data-os="${os}"]`)?.setAttribute("aria-current", "true");
+}
 
 // ---------------------------------------------------------------- The Relay
 function signup(form, { source, ok, already }) {
