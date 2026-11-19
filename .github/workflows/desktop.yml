@@ -38,6 +38,40 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder ${{ matrix.target }} --publish never
+      # Fail the run if the built app is broken: the bundled client must run, and the app must stay up.
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        env:
+          A2A_PROFILE: ${{ runner.temp }}/profile
+          A2A_NO_OPEN: "1"
+        run: |
+          hdiutil attach desktop/dist/*.dmg -nobrowse -mountpoint /tmp/a2a-dmg
+          app=/tmp/a2a-dmg/a2a.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          lipo -archs "$app/Contents/MacOS/a2a" | grep -q "x86_64 arm64"
+          out=$(ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/a2a" "$app/Contents/Resources/a2a.mjs" help)
+          echo "$out" | grep -q "a2a"
+          "$app/Contents/MacOS/a2a" & pid=$!
+          sleep 20
+          kill -0 "$pid"
+          kill "$pid"
+          sleep 2
+          hdiutil detach /tmp/a2a-dmg -force
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        env:
+          A2A_PROFILE: ${{ runner.temp }}/profile
+          A2A_NO_OPEN: "1"
+        run: |
+          img=$(ls "$GITHUB_WORKSPACE"/desktop/dist/*.AppImage)
+          chmod +x "$img"
+          cd "$RUNNER_TEMP"
+          "$img" --appimage-extract > /dev/null
+          out=$(ELECTRON_RUN_AS_NODE=1 squashfs-root/a2a-desktop squashfs-root/resources/a2a.mjs help)
+          echo "$out" | grep -q "a2a"
+          code=0
+          timeout 20 xvfb-run -a squashfs-root/a2a-desktop --no-sandbox || code=$?
+          test "$code" -eq 124
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
