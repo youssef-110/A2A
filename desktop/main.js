@@ -8,6 +8,25 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
+// Apps opened from Finder or a Linux app menu get a bare PATH (/usr/bin:/bin...), so `claude` in
+// ~/.local/bin or /opt/homebrew/bin is not found. Take the login shell's PATH, plus the usual install dirs.
+if (process.platform !== "win32") {
+  const dirs = [];
+  try {
+    const out = require("node:child_process").execFileSync(process.env.SHELL || "/bin/sh", ["-ilc", 'printf "__A2A_PATH__%s__A2A_PATH__" "$PATH"'], {
+      encoding: "utf8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const m = /__A2A_PATH__(.*?)__A2A_PATH__/s.exec(out);
+    if (m) dirs.push(...m[1].split(":"));
+  } catch {
+    /* no usable login shell: the fallbacks below still apply */
+  }
+  dirs.push(...(process.env.PATH || "").split(":"), path.join(os.homedir(), ".local", "bin"), path.join(os.homedir(), ".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin");
+  process.env.PATH = [...new Set(dirs.filter(Boolean))].join(":");
+}
+
 // Development only: a separate profile, and no browser pop-up when testing the sign-in by script.
 if (process.env.A2A_PROFILE) app.setPath("userData", process.env.A2A_PROFILE);
 const RELAY = (process.env.A2A_URL || "https://a2a-relay.a2a-cloud.workers.dev").replace(/\/+$/, "");
