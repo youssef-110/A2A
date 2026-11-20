@@ -31,6 +31,7 @@ import {
   workspacesFor,
 } from "./accounts.ts";
 import { NEWSLETTER_NAME, sendEmail } from "./email.ts";
+import { bump, fromPerson, isAdmin, report, trackView } from "./stats.ts";
 
 export { WorkspaceRelay } from "./relay-do.ts";
 
@@ -54,6 +55,13 @@ const PAGES: Record<string, string> = {
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** The Stats page is for the addresses in A2A_ADMINS, and only once that address is proven. */
+async function statsAdmin(env: Env, user: { id: string; email: string }): Promise<boolean> {
+  if (!isAdmin(env, user.email)) return false;
+  const row = await env.ACCOUNTS.prepare("SELECT email_verified FROM users WHERE id = ?").bind(user.id).first<{ email_verified: number }>();
+  return row?.email_verified === 1;
+}
 
 const json = (body: unknown, status = 200, headers: HeadersInit = {}): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers } });
@@ -385,7 +393,17 @@ async function handleApi(env: Env, req: Request, url: URL, ctx: ExecutionContext
   const ip = req.headers.get("cf-connecting-ip") ?? "local";
 
   if (url.pathname === "/api/me") {
-    return json({ user, workspaces: workspaces.map(({ slug, name, role }) => ({ slug, name, role, url: `${url.origin}/w/${slug}` })), google: googleEnabled(env), github: githubEnabled(env) });
+    return json({
+      user: { ...user, admin: await statsAdmin(env, user) },
+      workspaces: workspaces.map(({ slug, name, role }) => ({ slug, name, role, url: `${url.origin}/w/${slug}` })),
+      google: googleEnabled(env),
+      github: githubEnabled(env),
+    });
+  }
+  if (url.pathname === "/api/stats" && req.method === "GET") {
+    if (!(await statsAdmin(env, user))) return json({ error: "not_found" }, 404);
+    const days = [7, 30, 90].includes(Number(url.searchParams.get("days"))) ? Number(url.searchParams.get("days")) : 30;
+    return json(await report(env, days));
   }
   if (url.pathname.startsWith("/api/shared")) return handleShared(env, req, url, user.id);
   if (url.pathname === "/api/device" && req.method === "GET") {
@@ -575,7 +593,10 @@ async function route(req: Request, env: Env, ctx: ExecutionContext, url: URL): P
     const w = /^\/w\/([a-z0-9-]+)(\/.*)$/.exec(p);
     if (w) {
       const [, slug, rest] = w;
-      if (rest!.startsWith("/join/")) return asset(env, req, "/join.html");
+      if (rest!.startsWith("/join/")) {
+        ctx.waitUntil(trackView(env, req, url, "/join"));
+        return asset(env, req, "/join.html");
+      }
       if (!rest!.startsWith("/v1/") || rest!.startsWith("/v1/admin/") || rest!.startsWith("/v1/voice/")) return json({ error: "not_found" }, 404);
       const ws = await workspaceBySlug(env, slug!);
       if (!ws) return json({ error: "unknown_workspace" }, 404);
@@ -595,20 +616,33 @@ async function route(req: Request, env: Env, ctx: ExecutionContext, url: URL): P
       for (const k of [...headers.keys()]) if (k.startsWith("x-a2a-")) headers.delete(k);
       return env.RELAY.get(env.RELAY.idFromName("relay")).fetch(new Request(req, { headers }));
     }
-    if (p.startsWith("/join/")) return asset(env, req, "/join.html");
+    if (p.startsWith("/join/")) {
+      ctx.waitUntil(trackView(env, req, url, "/join"));
+      return asset(env, req, "/join.html");
+    }
 
     if (p === "/link") {
       if (!(await currentUser(env, req))) return Response.redirect(`${url.origin}/signin?next=${encodeURIComponent(p + url.search)}`, 302);
       return asset(env, req, "/link.html");
     }
     const dl = /^\/download\/(windows|mac|linux)$/.exec(p);
-    if (dl) return download(env, req, url, dl[1]!);
+    if (dl) {
+      if (fromPerson(req) && !req.headers.has("range")) ctx.waitUntil(bump(env, "download", dl[1]!)); // a resumed download isn't a new one
+      return download(env, req, url, dl[1]!);
+    }
+    // The connect prompt fetches this tarball through npx: one count per install (npm's agent isn't a crawler).
+    const sdk = /^\/downloads\/a2a-sdk-([0-9.]+)\.tgz$/.exec(p);
+    if (sdk && req.method === "GET") ctx.waitUntil(bump(env, "cli", sdk[1]!));
 
     if (p === "/app" || p.startsWith("/app/")) {
       if (!(await currentUser(env, req))) return Response.redirect(`${url.origin}/signin?next=${encodeURIComponent(p)}`, 302);
+      ctx.waitUntil(trackView(env, req, url, "/app"));
       return asset(env, req, "/app.html");
     }
-    if (PAGES[p]) return asset(env, req, PAGES[p]!);
+    if (PAGES[p]) {
+      ctx.waitUntil(trackView(env, req, url, p));
+      return asset(env, req, PAGES[p]!);
+    }
     return env.ASSETS.fetch(req);
   }
 }

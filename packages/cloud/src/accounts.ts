@@ -2,6 +2,7 @@
  * Website accounts on D1: email + password and Google sign-in, cookie sessions, and workspaces.
  * A workspace is one relay (one Durable Object); its slug is the agent org, agent://<slug>/<name>.
  */
+import { bump } from "./stats.ts";
 
 export interface AccountsEnv {
   ACCOUNTS: D1Database;
@@ -92,6 +93,7 @@ async function newSessionToken(env: AccountsEnv, userId: string, days = SESSION_
 }
 
 export async function createSession(env: AccountsEnv, userId: string, secure: boolean): Promise<string> {
+  await bump(env, "signin", "all"); // website sign-ins, for the Stats page
   return cookie(COOKIE, await newSessionToken(env, userId), SESSION_DAYS * 86_400, secure);
 }
 

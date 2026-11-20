@@ -204,6 +204,8 @@ const ICONS = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>',
   sessions:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="M8 12h.01"/><path d="M12 12h.01"/><path d="M16 12h.01"/></svg>',
+  stats:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M8 17v-3"/><path d="M13 17V9"/><path d="M18 17V5"/></svg>',
   settings:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>',
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>',
@@ -303,8 +305,8 @@ const NAV = [
   ["audit", "Audit log"],
 ];
 // Views reachable by URL, including the ones that live outside the sidebar list.
-const VIEW_NAMES = ["sessions", "session", "shared", "talk", "network", "traffic", "agents", "review", "policy", "settings", "audit"];
-const NAV_ICON = { sessions: "home", network: "network", traffic: "traffic", agents: "agents", review: "review", policy: "policy", audit: "audit" };
+const VIEW_NAMES = ["sessions", "session", "shared", "talk", "network", "traffic", "agents", "review", "policy", "settings", "audit", "stats"];
+const NAV_ICON = { sessions: "home", network: "network", traffic: "traffic", agents: "agents", review: "review", policy: "policy", audit: "audit", stats: "stats" };
 
 function navCount(view) {
   if (view === "review") return S.overview?.stats?.held || 0;
@@ -372,7 +374,7 @@ function renderSide() {
         ),
       ),
       h("button", { class: "new-btn", onclick: newSessionDialog }, h("span", { class: "plus", html: ICONS.plus }), "New session"),
-      NAV.map(([view, label]) => {
+      [...NAV, ...(S.me?.admin ? [["stats", "Stats"]] : [])].map(([view, label]) => {
         const n = navCount(view);
         return h(
           "button",
@@ -475,6 +477,7 @@ function renderView() {
     policy: viewPolicy,
     settings: viewSettings,
     audit: viewAudit,
+    stats: viewStats,
   };
   const out = (views[S.view] ?? viewHome)();
   const full = !(out instanceof Node);
@@ -1368,6 +1371,135 @@ function viewAudit() {
     )
     .catch((e) => toast(e.message));
   return h("div", {}, pageHead("Audit log", "Sign-ins, approvals, policy changes, invites and messages read from this console."), list);
+}
+
+// ------------------------------------------------------------------ stats (site owner only)
+
+const STAT_METRICS = [
+  ["visitors", "Visitors"],
+  ["views", "Page views"],
+  ["downloads", "App downloads"],
+  ["cli", "CLI installs"],
+  ["signups", "Sign-ups"],
+  ["signins", "Sign-ins"],
+];
+const OS_NAME = { windows: "Windows", mac: "macOS", linux: "Linux" };
+const fmtDay = (d, opts = { month: "short", day: "numeric" }) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { ...opts, timeZone: "UTC" });
+const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+
+function viewStats() {
+  S.stats ??= { days: 30, metric: "visitors", data: null };
+  const body = h("div", { class: "stats" }, h("div", { class: "empty" }, "Loading…"));
+  const load = () =>
+    fetch(`/api/stats?days=${S.stats.days}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 404 ? "Stats are only for the site owner." : "Stats didn't load. Try again."))))
+      .then((data) => ((S.stats.data = data), body.replaceChildren(...statsBody(data, load))))
+      .catch((e) => body.replaceChildren(h("div", { class: "empty" }, e.message)));
+  load();
+  const range = h(
+    "div",
+    { class: "seg", role: "tablist", "aria-label": "Time range" },
+    [7, 30, 90].map((d) =>
+      h("button", { role: "tab", "aria-selected": String(S.stats.days === d), onclick: () => ((S.stats.days = d), renderView()) }, `${d} days`),
+    ),
+  );
+  return h("div", {}, pageHead("Stats", "Who visits, downloads and signs in. Counted without cookies; bots and link previews are left out. Days are UTC.", range), body);
+}
+
+function statsBody(d, reload) {
+  const tiles = h(
+    "div",
+    { class: "stat-tiles" },
+    STAT_METRICS.map(([key, label]) =>
+      h(
+        "button",
+        { class: "stat-tile", "aria-pressed": String(S.stats.metric === key), onclick: () => ((S.stats.metric = key), reload()) },
+        h("span", { class: "stat-label" }, label),
+        h("span", { class: "stat-value" }, d.totals[key].toLocaleString()),
+      ),
+    ),
+  );
+  const list = (title, rows, name = (k) => k) =>
+    h(
+      "section",
+      { class: "panel stat-list" },
+      h("h2", {}, title),
+      rows.length
+        ? h("ol", {}, rows.map((r) => h("li", {}, h("span", {}, name(r.key)), h("b", {}, r.n.toLocaleString()))))
+        : h("p", { class: "muted small" }, "Nothing yet."),
+    );
+  const lists = Object.fromEntries(d.lists.map((l) => [l.source, l.n]));
+  const people = [
+    { key: "Accounts", n: d.accounts.users },
+    { key: "Signed in, last 7 days", n: d.accounts.active7d },
+    { key: "Workspaces", n: d.accounts.workspaces },
+    { key: "Newsletter", n: Object.entries(lists).filter(([s]) => !s.startsWith("waitlist-")).reduce((a, [, n]) => a + n, 0) },
+    { key: "Mac waitlist", n: lists["waitlist-mac"] ?? 0 },
+    { key: "Linux waitlist", n: lists["waitlist-linux"] ?? 0 },
+  ];
+  const regions = typeof Intl.DisplayNames === "function" ? new Intl.DisplayNames(undefined, { type: "region" }) : null;
+  return [
+    tiles,
+    statsChart(d),
+    h(
+      "div",
+      { class: "stat-grid" },
+      list("App downloads", d.downloads, (k) => OS_NAME[k] ?? k),
+      list("People", people),
+      list("Pages", d.pages),
+      list("Referrers", d.referrers),
+      list("Countries", d.countries, (k) => regions?.of(k) ?? k),
+      list("CLI installs by version", d.cli, (k) => `a2a ${k}`),
+    ),
+  ];
+}
+
+/** One metric per day as bars, with a hover readout and the same numbers as a table. */
+function statsChart(d) {
+  const [key, label] = STAT_METRICS.find(([k]) => k === S.stats.metric);
+  const values = d.daily.map((x) => x[key]);
+  const max = Math.max(1, ...values);
+  const tip = h("div", { class: "chart-tip", role: "status", hidden: true });
+  const bars = h(
+    "div",
+    { class: "chart-bars", style: `--n:${values.length}` },
+    d.daily.map((x) => h("div", { class: "chart-col" }, h("i", { style: `height:${(x[key] / max) * 100}%`, "data-zero": x[key] === 0 ? "" : null }))),
+  );
+  const show = (e) => {
+    const r = bars.getBoundingClientRect();
+    const i = Math.min(values.length - 1, Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * values.length)));
+    [...bars.children].forEach((c, j) => c.classList.toggle("on", j === i));
+    tip.hidden = false;
+    tip.replaceChildren(h("span", { class: "muted" }, fmtDay(d.daily[i].day, { weekday: "short", month: "short", day: "numeric" })), h("b", {}, plural(values[i], label.toLowerCase().replace(/s$/, ""))));
+    const x = ((i + 0.5) / values.length) * r.width;
+    tip.style.left = `${Math.min(Math.max(x, 70), r.width - 70)}px`;
+  };
+  const hide = () => ((tip.hidden = true), [...bars.children].forEach((c) => c.classList.remove("on")));
+  bars.addEventListener("pointermove", show);
+  bars.addEventListener("pointerleave", hide);
+  const mid = d.daily[Math.floor(values.length / 2)].day;
+  return h(
+    "section",
+    { class: "panel chart", "aria-label": `${label} per day, ${fmtDay(d.from)} to ${fmtDay(d.to)}: ${values.reduce((a, b) => a + b, 0).toLocaleString()} in total, most on one day ${Math.max(...values).toLocaleString()}` },
+    h("header", {}, h("h2", {}, `${label} per day`), h("span", { class: "muted small" }, `peak ${Math.max(...values).toLocaleString()}`)),
+    h("div", { class: "chart-plot" }, h("span", { class: "chart-max mono" }, max.toLocaleString()), bars, tip),
+    h("div", { class: "chart-x mono" }, h("span", {}, fmtDay(d.from)), h("span", {}, fmtDay(mid)), h("span", {}, fmtDay(d.to))),
+    h(
+      "details",
+      { class: "chart-table" },
+      h("summary", {}, "Daily numbers"),
+      h(
+        "div",
+        { class: "table-wrap" },
+        h(
+          "table",
+          { class: "table" },
+          h("thead", {}, h("tr", {}, h("th", {}, "Day"), STAT_METRICS.map(([, l]) => h("th", {}, l)))),
+          h("tbody", {}, [...d.daily].reverse().map((x) => h("tr", {}, h("td", {}, fmtDay(x.day)), STAT_METRICS.map(([k]) => h("td", { class: "mono" }, x[k].toLocaleString()))))),
+        ),
+      ),
+    ),
+  );
 }
 
 // ------------------------------------------------------------------ data + live updates

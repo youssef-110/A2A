@@ -25,7 +25,8 @@
   "vars": {
     "A2A_ORG": "acme",
     "A2A_RELAY_NAME": "a2a-relay",
-    "A2A_LEGACY_OWNER": "youssef990yy7@gmail.com"
+    "A2A_LEGACY_OWNER": "youssef990yy7@gmail.com",
+    "A2A_ADMINS": "youssef990yy7@gmail.com" // who may open the dashboard's Stats page
   },
   "observability": { "enabled": true }
   // Secrets (wrangler secret put): A2A_ADMIN_TOKEN, RESON8_API_KEY (voice),

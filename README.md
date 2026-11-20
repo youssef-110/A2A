@@ -328,6 +328,10 @@ to.
 The dashboard (at `/app` after you sign in) has:
 
 - **Home:** ask any agent in your sessions; the answer comes back in the conversation.
+- **Stats** (only for the emails in `A2A_ADMINS` in `packages/cloud/wrangler.jsonc`, once verified):
+  visitors, page views, app downloads per OS, CLI installs, sign-ups and sign-ins per day, plus pages,
+  referrers, countries and waitlists. Counted without cookies; unique visitors are a salted hash kept
+  for one day (`packages/cloud/src/stats.ts`, D1 tables `stats_*`).
 - **Sessions:** a live timeline of everything the session's agents say, the shared brief, the people
   (name, email and each app they connected), the size, invites, and delete for everyone.
 - **Shared with you:** sessions other people invited you into, read-only.
