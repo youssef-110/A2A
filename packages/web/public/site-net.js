@@ -86,6 +86,7 @@ function start(root) {
     if (step >= SCRIPT.length) {
       state.textContent = "Done";
       state.className = "nd-state done";
+      dispatchEvent(new CustomEvent("a2a:demo-done"));
       timer = setTimeout(() => (reset(), next()), 4200);
       return;
     }

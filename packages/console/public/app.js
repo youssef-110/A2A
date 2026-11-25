@@ -1,4 +1,5 @@
 // A2A relay console. No build step: plain modules, DOM built with h(), live updates over SSE.
+import { ping } from "/ping.js";
 
 const S = {
   overview: null,
@@ -62,7 +63,11 @@ async function api(method, path, body) {
 }
 
 let toastTimer;
-function toast(msg) {
+// Ping brings the news, unless the person turned it off (the same switch as the hosted dashboard).
+ping.configure({ announce: false });
+function toast(msg, kind = "info", text) {
+  document.getElementById("live").textContent = msg;
+  if (ping.enabled) return ping.say({ kind, title: msg, text });
   document.querySelector(".toast")?.remove();
   const t = h("div", { class: "toast", role: "status" }, msg);
   document.body.append(t);
@@ -131,7 +136,7 @@ const ICONS = {
 const brandMark = () =>
   h("span", {
     class: "brand-mark",
-    html: '<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0e0e0f"/><circle cx="8.80" cy="5.20" r="1.38" fill="#26262a"/><circle cx="12.40" cy="5.20" r="1.38" fill="#3d95ff"/><circle cx="16.00" cy="5.20" r="1.38" fill="#3d95ff"/><circle cx="19.60" cy="5.20" r="1.38" fill="#3d95ff"/><circle cx="23.20" cy="5.20" r="1.38" fill="#26262a"/><circle cx="8.80" cy="8.80" r="1.38" fill="#3d95ff"/><circle cx="12.40" cy="8.80" r="1.38" fill="#26262a"/><circle cx="16.00" cy="8.80" r="1.38" fill="#26262a"/><circle cx="19.60" cy="8.80" r="1.38" fill="#26262a"/><circle cx="23.20" cy="8.80" r="1.38" fill="#3d95ff"/><circle cx="8.80" cy="12.40" r="1.38" fill="#26262a"/><circle cx="12.40" cy="12.40" r="1.38" fill="#26262a"/><circle cx="16.00" cy="12.40" r="1.38" fill="#26262a"/><circle cx="19.60" cy="12.40" r="1.38" fill="#26262a"/><circle cx="23.20" cy="12.40" r="1.38" fill="#3d95ff"/><circle cx="8.80" cy="16.00" r="1.38" fill="#26262a"/><circle cx="12.40" cy="16.00" r="1.38" fill="#26262a"/><circle cx="16.00" cy="16.00" r="1.38" fill="#26262a"/><circle cx="19.60" cy="16.00" r="1.38" fill="#3d95ff"/><circle cx="23.20" cy="16.00" r="1.38" fill="#26262a"/><circle cx="8.80" cy="19.60" r="1.38" fill="#26262a"/><circle cx="12.40" cy="19.60" r="1.38" fill="#26262a"/><circle cx="16.00" cy="19.60" r="1.38" fill="#3d95ff"/><circle cx="19.60" cy="19.60" r="1.38" fill="#26262a"/><circle cx="23.20" cy="19.60" r="1.38" fill="#26262a"/><circle cx="8.80" cy="23.20" r="1.38" fill="#26262a"/><circle cx="12.40" cy="23.20" r="1.38" fill="#3d95ff"/><circle cx="16.00" cy="23.20" r="1.38" fill="#26262a"/><circle cx="19.60" cy="23.20" r="1.38" fill="#26262a"/><circle cx="23.20" cy="23.20" r="1.38" fill="#26262a"/><circle cx="8.80" cy="26.80" r="1.38" fill="#3d95ff"/><circle cx="12.40" cy="26.80" r="1.38" fill="#3d95ff"/><circle cx="16.00" cy="26.80" r="1.38" fill="#3d95ff"/><circle cx="19.60" cy="26.80" r="1.38" fill="#3d95ff"/><circle cx="23.20" cy="26.80" r="1.38" fill="#3d95ff"/></svg>', // the 2 on a dot board, as in favicon.svg
+    html: '<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#cdff3c"/><g transform="translate(9 19) scale(.92)" fill="#0b0b0a"><rect x="17" y="18.6" width="16" height="4.6"/><path fill-rule="evenodd" d="M7 0h8l7 28h-6.4l-1.1-4.8H7.5L6.4 28H0Zm4 9.2-2.7 9.4h5.4Z"/><path fill-rule="evenodd" d="M35 0h8l7 28h-6.4l-1.1-4.8h-7L34.4 28H28Zm4 9.2-2.7 9.4h5.4Z"/></g></svg>', // the 2 on a dot board, as in favicon.svg
   });
 
 // A stable, low-key color per agent so a busy list is easy to scan.
@@ -424,7 +429,7 @@ async function loadDetail() {
     S.detail = await api("GET", `/v1/admin/messages/${encodeURIComponent(S.selected)}`);
     S.thread = await api("GET", `/v1/admin/threads/${encodeURIComponent(S.detail.thread_id)}`);
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
   const box = document.getElementById("detail");
   if (box) box.replaceChildren(detailView());
@@ -463,7 +468,7 @@ function reviewButtons(id) {
       toast(decision === "release" ? "Released. It's on its way." : "Rejected. The sender was told.");
       await refresh();
     } catch (e) {
-      toast(e.message);
+      toast(e.message, "error");
     }
   };
   return h("div", { class: "row", style: "margin-top:12px" }, h("button", { class: "btn", onclick: () => act("release") }, "Release"), h("button", { class: "btn danger", onclick: () => act("reject") }, "Reject"));
@@ -596,7 +601,7 @@ async function loadCall(address) {
     S.talk.log[address] = Object.assign(items, { loaded: true });
     if (!S.talk.thread[address] && items.length) S.talk.thread[address] = items.at(-1).thread_id;
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
   if (S.talk.to === address) renderCallLog();
 }
@@ -618,7 +623,7 @@ async function sendTalk(textOverride) {
     S.talk.thread[to] = r.thread_id;
   } catch (e) {
     Object.assign(item, { state: "blocked", reason_code: e.code });
-    toast(e.message);
+    toast(e.message, "error");
   }
   renderCallLog();
 }
@@ -664,7 +669,7 @@ async function startListening() {
       },
     });
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
 }
 
@@ -816,7 +821,7 @@ function viewInvites() {
           renderView();
           toast("Invite link created");
         } catch (err) {
-          toast(err.message);
+          toast(err.message, "error");
         }
       },
     },
@@ -904,7 +909,7 @@ async function loadInvites() {
   try {
     S.invites = (await api("GET", "/v1/admin/invites")).invites;
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
 }
 
@@ -917,7 +922,7 @@ function viewAgents() {
       toast(action === "approve" ? `${short(a.address)} approved` : action === "disable" ? `${short(a.address)} disabled` : `${short(a.address)} enabled`);
       await refresh();
     } catch (e) {
-      toast(e.message);
+      toast(e.message, "error");
     }
   };
   const me = S.overview?.relay?.console_address;
@@ -1006,7 +1011,7 @@ function viewPolicy() {
         h("div", { class: "stages" }, p.versions.map((v) => h("div", { class: "stage" }, h("span", { class: "stage-name" }, `v${v.version}`), h("span", {}, v.note || "No note"), h("span", { class: "muted" }, ago(v.created_at))))),
       );
     } catch (e) {
-      toast(e.message);
+      toast(e.message, "error");
     }
   }
   setTimeout(load, 0);
@@ -1128,7 +1133,7 @@ function viewAudit() {
           : [h("div", { class: "empty" }, "No events yet.")]),
       ),
     )
-    .catch((e) => toast(e.message));
+    .catch((e) => toast(e.message, "error"));
   return h("div", {}, pageHead("Audit log", "Sign-ins, approvals, policy changes, invites and messages read from this console."), list);
 }
 
@@ -1141,7 +1146,7 @@ async function refresh() {
     S.messages = list.messages;
     S.agents = agents.agents;
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
   renderShell();
 }
@@ -1173,8 +1178,10 @@ function connectEvents() {
   events.addEventListener("message", (e) => {
     const m = JSON.parse(e.data);
     const i = S.messages.findIndex((x) => x.id === m.id);
+    const prev = i >= 0 ? S.messages[i].state : null;
     if (i >= 0) S.messages[i] = m;
     else S.messages.unshift(m);
+    if ((m.state === "held" || m.state === "blocked") && prev !== m.state) toast(m.state === "held" ? "Held for your review" : "Blocked by the guard", m.state, `${nameOf(m.from)} to ${nameOf(m.to)}`);
     for (const log of Object.values(S.talk.log)) {
       const item = log.find((x) => x.id === m.id);
       if (item) Object.assign(item, { state: m.state, reason_code: m.reason_code });
@@ -1193,7 +1200,7 @@ function connectEvents() {
       speak(m.text ?? m.preview ?? "");
     } else {
       S.unreadTalk++;
-      toast(`${nameOf(m.from)} replied`);
+      toast(`${nameOf(m.from)} replied`, "received", m.text ?? m.preview);
       soon();
     }
   });

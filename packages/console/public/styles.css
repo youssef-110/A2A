@@ -4,20 +4,20 @@
    amber is held, red is blocked or an error. Paper in light, night in dark. */
 
 :root {
-  --bg: #f6f6f4;
+  --bg: #f3f2ec;
   --panel: #ffffff;
-  --sunken: #eeeeeb;
-  --ink: #111112;
+  --sunken: #e9e8e1;
+  --ink: #0c0c0b;
   --ink-2: #3a3a37;
   --ink-3: #63635d;
   --line: rgb(0 0 0 / 0.08);
   --line-2: rgb(0 0 0 / 0.13);
-  --accent: #0a5fd0;
+  --accent: #456e00;
   --accent-ink: #ffffff;
-  --accent-soft: rgb(10 95 208 / 0.08);
-  --accent-mid: rgb(10 95 208 / 0.2);
-  --allow: #0a5fd0;
-  --allow-bg: rgb(10 95 208 / 0.1);
+  --accent-soft: rgb(69 110 0 / 0.08);
+  --accent-mid: rgb(69 110 0 / 0.2);
+  --allow: #456e00;
+  --allow-bg: rgb(69 110 0 / 0.1);
   --hold: #985200;
   --hold-bg: rgb(152 82 0 / 0.1);
   --block: #c41e16;
@@ -25,7 +25,7 @@
   --redact: #3a3a37;
   --redact-bg: #e4e4e0;
   --wait: #63635d;
-  --wait-bg: #eeeeeb;
+  --wait-bg: #e9e8e1;
   --shadow-1: 0 0 0 1px rgb(0 0 0 / 0.13);
   --shadow-2: 0 24px 48px -16px rgb(0 0 0 / 0.25), 0 0 0 1px rgb(0 0 0 / 0.13);
   --font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -39,23 +39,23 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e0e0f; --panel: #141416; --sunken: #1b1b1e; --ink: #f4f4f1; --ink-2: #b8b8b2; --ink-3: #9b9b95;
+    --bg: #0b0b0a; --panel: #121211; --sunken: #1a1a18; --ink: #f2f1ea; --ink-2: #b0afa6; --ink-3: #8f8e86;
     --line: rgb(255 255 255 / 0.07); --line-2: rgb(255 255 255 / 0.12);
-    --accent: #3d95ff; --accent-ink: #0e0e0f; --accent-soft: rgb(61 149 255 / 0.1); --accent-mid: rgb(61 149 255 / 0.24);
-    --allow: #3d95ff; --allow-bg: rgb(61 149 255 / 0.12); --hold: #ffa424; --hold-bg: rgb(255 164 36 / 0.12);
-    --block: #ff6961; --block-bg: rgb(255 105 97 / 0.12); --redact: #b8b8b2; --redact-bg: rgb(255 255 255 / 0.08);
-    --wait: #9b9b95; --wait-bg: rgb(255 255 255 / 0.06);
+    --accent: #cdff3c; --accent-ink: #0b0b0a; --accent-soft: rgb(205 255 60 / 0.1); --accent-mid: rgb(205 255 60 / 0.24);
+    --allow: #cdff3c; --allow-bg: rgb(205 255 60 / 0.12); --hold: #ffad33; --hold-bg: rgb(255 173 51 / 0.12);
+    --block: #ff5a4e; --block-bg: rgb(255 90 78 / 0.12); --redact: #b0afa6; --redact-bg: rgb(255 255 255 / 0.08);
+    --wait: #8f8e86; --wait-bg: rgb(255 255 255 / 0.06);
     --shadow-1: 0 0 0 1px rgb(255 255 255 / 0.12); --shadow-2: 0 24px 48px -16px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.12);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0e0e0f; --panel: #141416; --sunken: #1b1b1e; --ink: #f4f4f1; --ink-2: #b8b8b2; --ink-3: #9b9b95;
+  --bg: #0b0b0a; --panel: #121211; --sunken: #1a1a18; --ink: #f2f1ea; --ink-2: #b0afa6; --ink-3: #8f8e86;
   --line: rgb(255 255 255 / 0.07); --line-2: rgb(255 255 255 / 0.12);
-  --accent: #3d95ff; --accent-ink: #0e0e0f; --accent-soft: rgb(61 149 255 / 0.1); --accent-mid: rgb(61 149 255 / 0.24);
-  --allow: #3d95ff; --allow-bg: rgb(61 149 255 / 0.12); --hold: #ffa424; --hold-bg: rgb(255 164 36 / 0.12);
-  --block: #ff6961; --block-bg: rgb(255 105 97 / 0.12); --redact: #b8b8b2; --redact-bg: rgb(255 255 255 / 0.08);
-  --wait: #9b9b95; --wait-bg: rgb(255 255 255 / 0.06);
+  --accent: #cdff3c; --accent-ink: #0b0b0a; --accent-soft: rgb(205 255 60 / 0.1); --accent-mid: rgb(205 255 60 / 0.24);
+  --allow: #cdff3c; --allow-bg: rgb(205 255 60 / 0.12); --hold: #ffad33; --hold-bg: rgb(255 173 51 / 0.12);
+  --block: #ff5a4e; --block-bg: rgb(255 90 78 / 0.12); --redact: #b0afa6; --redact-bg: rgb(255 255 255 / 0.08);
+  --wait: #8f8e86; --wait-bg: rgb(255 255 255 / 0.06);
   --shadow-1: 0 0 0 1px rgb(255 255 255 / 0.12); --shadow-2: 0 24px 48px -16px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.12);
   color-scheme: dark;
 }
@@ -92,8 +92,8 @@ svg { flex: none; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 16px; }
 .brand-mark { width: 28px; height: 28px; display: grid; place-items: center; flex: none; }
 .brand-mark svg { width: 28px; height: 28px; }
-.wordmark { width: 48px; height: auto; aspect-ratio: 17 / 7; fill: currentColor; }
-.wordmark .two { fill: var(--accent); }
+.wordmark { width: 50px; height: auto; aspect-ratio: 50 / 28; fill: currentColor; }
+.wordmark .link { fill: var(--accent); }
 .brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; line-height: 1.1; }
 .brand-org { color: var(--ink-3); font: 12px var(--mono); }
 .nav-btn {

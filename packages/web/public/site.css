@@ -1,38 +1,38 @@
-/* a2a utility pages: sign in, sign up, reset, link a computer, join, and the worker's small pages.
+/* A2A utility pages: sign in, sign up, reset, link a computer, join, and the worker's small pages.
    Built on docs/brand.md: night by default, paper under :root[data-theme="light"] (the pages read
-   "a2a-theme" from localStorage). Doto for the one display line per page, Geist for everything
-   else. Square controls, hairline borders, blue only for focus, links and live state. */
+   "a2a-theme" from localStorage). Condensed Archivo for the one display line per page, Geist for
+   everything else. Pill buttons, soft fields, lime for the primary action, focus, links and live state. */
 
-@font-face { font-family: "Doto"; src: url("/fonts/Doto-Variable.woff2") format("woff2"); font-weight: 400 900; font-display: swap; }
+@font-face { font-family: "Archivo"; src: url("/fonts/Archivo-Variable.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
 @font-face { font-family: "Geist"; src: url("/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 @font-face { font-family: "Geist Mono"; src: url("/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 
 :root {
-  --bg: #0e0e0f;
-  --surface: #141416;
-  --surface-2: #1b1b1e;
-  --board: #0a0a0b;
-  --ink: #f4f4f1;
-  --ink-2: #b8b8b2;
-  --ink-3: #9b9b95;
+  --bg: #0b0b0a;
+  --surface: #121211;
+  --surface-2: #1a1a18;
+  --board: #080807;
+  --ink: #f2f1ea;
+  --ink-2: #b0afa6;
+  --ink-3: #8f8e86;
   --hair: rgb(255 255 255 / 0.12);
   --hair-2: rgb(255 255 255 / 0.3);
-  --blue: #3d95ff;
-  --amber: #ffa424;
-  --danger: #ff6961;
-  --on-ink: #0e0e0f;
-  --dot: "Doto", "Geist Mono", ui-monospace, monospace;
+  --blue: #cdff3c; --lime: #cdff3c;
+  --amber: #ffad33;
+  --danger: #ff5a4e;
+  --on-ink: #0b0b0a;
+  --dot: "Archivo", "Arial Narrow", Impact, sans-serif;
   --sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: dark;
 }
 :root[data-theme="light"] {
-  --bg: #f6f6f4; --surface: #fff; --surface-2: #eeeeeb;
-  --ink: #111112; --ink-2: #3a3a37; --ink-3: #63635d;
+  --bg: #f3f2ec; --surface: #fff; --surface-2: #e9e8e1;
+  --ink: #0c0c0b; --ink-2: #3a3a37; --ink-3: #63635d;
   --hair: rgb(0 0 0 / 0.13); --hair-2: rgb(0 0 0 / 0.34);
-  --blue: #0a5fd0; --amber: #985200; --danger: #c41e16;
-  --on-ink: #f6f6f4;
+  --blue: #456e00; --amber: #985200; --danger: #c41e16;
+  --on-ink: #f3f2ec;
   color-scheme: light;
 }
 
@@ -40,7 +40,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; background: var(--bg); }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 400 15px/1.5 var(--sans); letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-::selection { background: var(--blue); color: #fff; }
+::selection { background: var(--lime); color: #0b0b0a; }
 a { color: inherit; text-underline-offset: 3px; }
 img, svg { display: block; }
 h1, h2, p { margin: 0; }
@@ -51,17 +51,18 @@ code, pre { font-family: var(--mono); font-feature-settings: "liga" 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* The one display line on each page: dot-matrix capitals, short. */
-h1 { font: 800 clamp(28px, 1.2rem + 2.2vw, 38px) / 1.04 var(--dot); text-transform: uppercase; letter-spacing: 0.01em; text-wrap: balance; overflow-wrap: anywhere; }
+h1 { font: 900 clamp(36px, 1.4rem + 2.8vw, 52px) / 0.9 var(--dot); font-stretch: 62%; text-transform: uppercase; letter-spacing: 0; text-wrap: balance; overflow-wrap: anywhere; }
 
-/* The wordmark: 17 x 7 dots, the 2 lit blue. */
-.logo { display: inline-flex; padding: 8px; color: var(--ink); border-radius: 2px; }
-.logo svg { width: 48px; height: auto; aspect-ratio: 17 / 7; fill: currentColor; }
-.logo .two { fill: var(--blue); }
+/* The mark: two A's whose crossbars join through a lime link. */
+.logo { display: inline-flex; padding: 8px; color: var(--ink); border-radius: 8px; }
+.logo svg { width: 50px; height: auto; aspect-ratio: 50 / 28; fill: currentColor; }
+.logo .link { fill: var(--lime); }
+:root[data-theme="light"] .logo .link { fill: #456e00; }
 
 /* ---------------------------------------------------------------- controls */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; padding: 0 22px;
-  border: 0; border-radius: 2px; background: var(--ink); color: var(--on-ink);
+  border: 0; border-radius: 999px; background: var(--lime); color: #0b0b0a;
   font: 500 14px/1 var(--sans); letter-spacing: -0.005em; text-decoration: none; white-space: nowrap; cursor: pointer;
   transition: opacity 160ms ease, box-shadow 160ms ease, transform 120ms var(--ease);
 }
@@ -72,7 +73,7 @@ h1 { font: 800 clamp(28px, 1.2rem + 2.2vw, 38px) / 1.04 var(--dot); text-transfo
 /* Sign in with a provider: ghost buttons, the email form carries the primary action. */
 .google {
   display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 46px; padding: 0 20px;
-  border-radius: 2px; background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--hair);
+  border-radius: 999px; background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--hair);
   font: 500 14px/1 var(--sans); letter-spacing: -0.005em; text-decoration: none; cursor: pointer;
   transition: opacity 160ms ease, box-shadow 160ms ease, transform 120ms var(--ease);
 }
@@ -105,13 +106,13 @@ h1 { font: 800 clamp(28px, 1.2rem + 2.2vw, 38px) / 1.04 var(--dot); text-transfo
 .field { display: grid; gap: 8px; }
 .field > span { font-size: 13px; color: var(--ink-3); }
 .input, .select {
-  width: 100%; min-height: 46px; padding: 0 14px; border: 1px solid var(--hair); border-radius: 2px;
+  width: 100%; min-height: 46px; padding: 0 16px; border: 1px solid var(--hair); border-radius: 12px;
   background: var(--surface); color: var(--ink); font: 400 16px var(--sans); letter-spacing: -0.01em;
   transition: border-color 160ms ease;
 }
 .input::placeholder { color: var(--ink-3); opacity: 1; }
 .input:hover, .select:hover { border-color: var(--hair-2); }
-.input:focus, .select:focus { outline: none; border-color: var(--blue); }
+.input:focus, .select:focus { outline: none; border-color: var(--lime); }
 .input:focus-visible, .select:focus-visible { outline: 2px solid var(--blue); outline-offset: -1px; }
 .input:user-invalid { border-color: var(--danger); }
 .input:disabled, .select:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -146,10 +147,9 @@ h1 { font: 800 clamp(28px, 1.2rem + 2.2vw, 38px) / 1.04 var(--dot); text-transfo
 .auth .row .btn { flex: 1; }
 
 /* Done: a small dark board with a check lit in blue. */
-.done-mark { justify-self: center; display: block; padding: 10px 12px; border-radius: 6px; background: var(--board); }
-.done-mark svg { width: 56px; height: 40px; }
-.done-mark circle { fill: #26262a; }
-.done-mark .on { fill: #3d95ff; }
+/* Done: Ping, pleased. */
+.done-mark { justify-self: center; display: block; width: 96px; height: 96px; }
+.done-mark svg { width: 100%; height: 100%; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }

@@ -77,8 +77,9 @@ export function createRelayServer(opts: HttpOptions): Server {
   async function serveStatic(url: URL, res: ServerResponse): Promise<boolean> {
     // /join/<code> is one page; it reads the code from the path.
     const rel = url.pathname === "/" ? "index.html" : url.pathname.startsWith("/join/") ? "join.html" : url.pathname.slice(1);
-    const file = normalizePath(join(consoleDir, rel));
-    if (!file.startsWith(consoleDir + sep) && file !== join(consoleDir, "index.html")) return false;
+    // Ping (the notifier) is one file shared with the hosted dashboard, so it is read from the web package.
+    const file = rel === "ping.js" ? join(consoleDir, "../../web/public/ping.js") : normalizePath(join(consoleDir, rel));
+    if (rel !== "ping.js" && !file.startsWith(consoleDir + sep) && file !== join(consoleDir, "index.html")) return false;
     try {
       const data = await readFile(file);
       res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream", "cache-control": "no-cache" });

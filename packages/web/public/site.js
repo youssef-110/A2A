@@ -1,443 +1,460 @@
-// a2a landing page. One rAF loop drives everything that moves: Lenis smoothing, the pinned story
-// (the board tilts, shows an invite, splits into one row per AI app), the halftone dissolves, the
-// key statements and the dot-matrix boards. Scenes are pure functions of scroll position, so they
-// run backwards as well as forwards. With reduced motion nothing is pinned or smoothed and every
-// board shows its final text.
-import { textCells } from "/dotfont.js";
+// A2A landing page. One rAF loop drives everything that follows the scroll: Lenis smoothing, the
+// header, the hero type spreading apart, the statement lighting word by word, the pinned stack of
+// three cards, the film growing to full width, both marquees and the footer mark. Each scene is a
+// pure function of scroll position, so it runs backwards as well as forwards. The hero's field of
+// relay dots has its own loop while it is on screen. With reduced motion nothing is pinned, smoothed
+// or moved, and every word is simply there.
+import { ping, Ping } from "/ping.js";
 
 const root = document.documentElement;
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const motion = !reduce && "IntersectionObserver" in window;
-if (motion) root.classList.add("motion");
+root.classList.add("js-ok");
+if (motion) root.classList.add("motion", "ready");
+else root.classList.remove("motion", "ready", "intro-on");
 
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
-const map = (v, a, b) => clamp((v - a) / (b - a));
 const lerp = (a, b, t) => a + (b - a) * t;
-const inOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-const easeIn = (t) => t * t * t;
-const RAD = Math.PI / 180;
+const outExpo = (t) => (t >= 1 ? 1 : 1 - 2 ** (-10 * t));
+const outCubic = (t) => 1 - (1 - t) ** 3;
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const fine = matchMedia("(hover: hover) and (pointer: fine)").matches;
 
-// ---------------------------------------------------------------- dot-matrix strips
-// A strip is one row of a message board: 96 by 9 dots, one line of up to 15 characters.
-const COLS = 96;
-const ROWS = 9;
-const INK = { off: "#222225", white: "#f1f1ec", dim: "#7a7a73", blue: "#3d95ff", amber: "#ffa424" };
-const FADE = 150;
-const sprites = new Map();
-function sprite(color, p) {
-  const key = `${color}${Math.round(p * 10)}`;
-  if (sprites.has(key)) return sprites.get(key);
-  const s = Math.ceil(p * 2);
-  const c = Object.assign(document.createElement("canvas"), { width: s, height: s });
+// ---------------------------------------------------------------- sound (off on every visit)
+const sfx = {};
+let soundOn = false;
+const play = (name) => {
+  if (!soundOn) return;
+  sfx[name] ??= Object.assign(new Audio(`/media/sfx/${name}.mp3`), { volume: 0.45 });
+  sfx[name].currentTime = 0;
+  sfx[name].play().catch(() => {});
+};
+const SOUND = { sent: "send", received: "deliver", done: "deliver", joined: "click", held: "held", blocked: "held", error: "held" };
+const say = (m) => {
+  ping.say(m);
+  play(SOUND[m.kind] ?? "click");
+};
+
+// ---------------------------------------------------------------- words
+/** Wrap every word of an element in a mask and a moving span, keeping inline elements and <br>. */
+function splitWords(el, cls = "w") {
+  let i = 0;
+  const walk = (node) => {
+    for (const child of [...node.childNodes]) {
+      if (child.nodeType === 3) {
+        const parts = child.textContent.split(/(\s+)/);
+        const frag = document.createDocumentFragment();
+        for (const part of parts) {
+          if (!part) continue;
+          if (/^\s+$/.test(part)) frag.append(" ");
+          else if (cls === "w") {
+            const m = document.createElement("span");
+            m.className = "wm";
+            const w = document.createElement("span");
+            w.className = "w";
+            w.style.setProperty("--i", i++);
+            w.textContent = part;
+            m.append(w);
+            frag.append(m);
+          } else {
+            const w = document.createElement("span");
+            w.className = cls;
+            w.textContent = part;
+            frag.append(w);
+            i++;
+          }
+        }
+        child.replaceWith(frag);
+      } else if (child.nodeType === 1 && child.tagName !== "BR" && !child.classList.contains("inline-ping")) walk(child);
+      else if (child.nodeType === 1 && child.classList.contains("inline-ping") && cls !== "w") child.classList.add(cls), i++;
+    }
+  };
+  walk(el);
+  return i;
+}
+
+if (motion) {
+  $$(".split").forEach((el) => splitWords(el));
+  $$(".hero .hl .w").forEach((w, i) => w.style.setProperty("--i", i));
+  const io = new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && (e.target.classList.add("in"), io.unobserve(e.target))), { rootMargin: "0px 0px -14% 0px" });
+  $$(".split").forEach((el) => io.observe(el));
+}
+
+// ---------------------------------------------------------------- intro, then the hero arrives
+const hero = $("#top");
+let heroInAt = 0;
+function heroIn() {
+  hero.classList.add("in");
+  heroInAt = performance.now();
+}
+if (motion && root.classList.contains("intro-on")) {
+  const intro = $("#intro");
+  const count = $("#intro-count");
+  const t0 = performance.now();
+  const ready = Promise.race([document.fonts?.ready ?? Promise.resolve(), new Promise((r) => setTimeout(r, 900))]);
+  $(".intro-mark").animate([{ opacity: 0, transform: "translateY(14px) scale(.92)", filter: "blur(6px)" }, { opacity: 1, transform: "none", filter: "blur(0)" }], { duration: 700, easing: "cubic-bezier(.16,1,.3,1)", fill: "both" });
+  const tick = () => {
+    const p = clamp((performance.now() - t0) / 750);
+    count.textContent = String(Math.round(outCubic(p) * 100)).padStart(2, "0");
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  ready.then(() => {
+    const wait = Math.max(0, 820 - (performance.now() - t0));
+    setTimeout(() => {
+      try {
+        sessionStorage.setItem("a2a-intro", "1");
+      } catch {}
+      const lift = intro.animate([{ clipPath: "inset(0 0 0 0)" }, { clipPath: "inset(0 0 100% 0)" }], { duration: 900, easing: "cubic-bezier(.76,0,.24,1)", fill: "forwards" });
+      $(".intro-mark").animate([{ transform: "none" }, { transform: "translateY(-40px)", opacity: 0 }], { duration: 600, easing: "cubic-bezier(.76,0,.24,1)", fill: "forwards" });
+      setTimeout(heroIn, 280);
+      lift.finished.then(() => root.classList.remove("intro-on"));
+    }, wait);
+  });
+} else if (motion) {
+  Promise.race([document.fonts?.ready ?? Promise.resolve(), new Promise((r) => setTimeout(r, 500))]).then(() => requestAnimationFrame(heroIn));
+} else heroIn();
+
+// ---------------------------------------------------------------- the hero field: relay dots and packets
+const field = (() => {
+  const c = $("#field");
+  if (!c) return null;
   const g = c.getContext("2d");
-  const m = s / 2;
-  if (color !== INK.off) {
-    // A lit LED: a soft spill around a solid core.
-    const halo = g.createRadialGradient(m, m, p * 0.3, m, m, p * 0.8);
-    halo.addColorStop(0, `${color}38`);
-    halo.addColorStop(1, `${color}00`);
-    g.fillStyle = halo;
-    g.fillRect(0, 0, s, s);
-  }
-  g.fillStyle = color;
-  g.beginPath();
-  g.arc(m, m, p * 0.37, 0, Math.PI * 2);
-  g.fill();
-  sprites.set(key, c);
-  return c;
-}
+  const GAP = 26;
+  let w = 0, h = 0, dpr = 1, cols = 0, rows = 0, ox = 0, oy = 0;
+  let heat = new Float32Array(0);
+  const packets = [];
+  const mouse = { x: -9999, y: -9999, a: 0 };
+  let visible = true;
+  let last = 0;
+  let spawnIn = 400;
+  let fade = 1;
 
-const busy = new Set();
-class Strip {
-  constructor(canvas) {
-    this.c = canvas;
-    this.g = canvas.getContext("2d");
-    const n = COLS * ROWS;
-    this.level = new Float32Array(n);
-    this.from = new Float32Array(n);
-    this.to = new Uint8Array(n);
-    this.start = new Float64Array(n);
-    this.color = new Array(n).fill(INK.white);
-    this.key = "";
-  }
-  resize() {
-    const w = this.c.clientWidth;
-    if (!w) return;
-    const dpr = Math.min(2, devicePixelRatio || 1);
-    this.p = (w / COLS) * dpr;
-    this.c.width = Math.round(w * dpr);
-    this.c.height = Math.round(this.p * ROWS);
-    this.base = document.createElement("canvas");
-    Object.assign(this.base, { width: this.c.width, height: this.c.height });
-    const off = sprite(INK.off, this.p);
-    const bg = this.base.getContext("2d");
-    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) bg.drawImage(off, (x + 0.5) * this.p - off.width / 2, (y + 0.5) * this.p - off.height / 2);
-    this.draw();
-  }
-  /** colors: one INK name for the line, or an array with one name per character. */
-  set(text = "", colors = "white", { align = "left", instant = false, delay = 0 } = {}) {
-    const t = text.toUpperCase().slice(0, 15);
-    const key = `${t}|${align}|${colors}`;
-    if (key === this.key) return;
-    this.key = key;
-    const width = Math.max(0, t.length * 6 - 1);
-    const x0 = align === "center" ? Math.floor((COLS - width) / 2) : 3;
-    const next = new Uint8Array(COLS * ROWS);
-    const tint = new Array(COLS * ROWS);
-    for (const [x, y, i] of textCells(t)) {
-      const at = (y + 1) * COLS + x0 + x;
-      next[at] = 1;
-      tint[at] = INK[Array.isArray(colors) ? colors[i] ?? "white" : colors];
+  const size = () => {
+    const r = c.getBoundingClientRect();
+    dpr = Math.min(2, devicePixelRatio || 1);
+    w = r.width;
+    h = r.height;
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+    cols = Math.ceil(w / GAP) + 1;
+    rows = Math.ceil(h / GAP) + 1;
+    ox = ((w % GAP) / 2) | 0;
+    oy = ((h % GAP) / 2) | 0;
+    heat = new Float32Array(cols * rows);
+    packets.length = 0;
+    if (!motion) draw(0);
+  };
+
+  const spawn = () => {
+    const vertical = Math.random() < 0.28;
+    const len = vertical ? rows : cols;
+    const lane = Math.floor(Math.random() * (vertical ? cols : rows));
+    const a = Math.floor(Math.random() * len * 0.5);
+    const b = Math.min(len - 1, a + 6 + Math.floor(Math.random() * len * 0.6));
+    const fwd = Math.random() < 0.6;
+    packets.push({ vertical, lane, pos: fwd ? a : b, end: fwd ? b : a, dir: fwd ? 1 : -1, speed: 14 + Math.random() * 14, from: fwd ? a : b, ack: 0 });
+  };
+
+  function draw(dt) {
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const decay = dt * 1.25;
+    // Packets move first and leave heat behind them.
+    for (let i = packets.length - 1; i >= 0; i--) {
+      const p = packets[i];
+      if (p.ack > 0) {
+        p.ack -= dt;
+        if (p.ack <= 0) packets.splice(i, 1);
+        continue;
+      }
+      const prev = p.pos;
+      p.pos += p.dir * p.speed * dt;
+      const lo = Math.round(Math.min(prev, p.pos));
+      const hi = Math.round(Math.max(prev, p.pos));
+      for (let k = lo; k <= hi; k++) {
+        const x = p.vertical ? p.lane : k;
+        const y = p.vertical ? k : p.lane;
+        if (x >= 0 && y >= 0 && x < cols && y < rows) heat[y * cols + x] = 1;
+      }
+      if ((p.dir > 0 && p.pos >= p.end) || (p.dir < 0 && p.pos <= p.end)) {
+        p.pos = p.end;
+        p.ack = 0.45;
+      }
     }
-    const now = performance.now();
-    for (let i = 0; i < next.length; i++) {
-      const recolor = next[i] && this.to[i] && tint[i] !== this.color[i];
-      if (next[i] === this.to[i] && !recolor) continue;
-      this.from[i] = recolor ? 0 : this.level[i];
-      this.to[i] = next[i];
-      if (next[i]) this.color[i] = tint[i];
-      // The change sweeps left to right like a board refreshing, with a little scatter per dot.
-      this.start[i] = instant ? 0 : now + delay + (i % COLS) * 4 + Math.random() * 70;
+    const mx = mouse.x, my = mouse.y, R = 170, R2 = R * R;
+    for (let y = 0; y < rows; y++) {
+      const py = oy + y * GAP;
+      for (let x = 0; x < cols; x++) {
+        const px = ox + x * GAP;
+        const i = y * cols + x;
+        let hv = heat[i];
+        if (hv > 0) heat[i] = hv = Math.max(0, hv - decay);
+        const dx = px - mx, dy = py - my;
+        const d2 = dx * dx + dy * dy;
+        const torch = d2 < R2 ? (1 - Math.sqrt(d2) / R) ** 2 * mouse.a : 0;
+        if (hv > 0.02) {
+          g.fillStyle = `rgba(205,255,60,${(0.12 + hv * 0.75) * fade})`;
+          const s = 2 + hv * 1.6;
+          g.fillRect(px - s / 2, py - s / 2, s, s);
+        } else {
+          g.fillStyle = `rgba(242,241,234,${(0.075 + torch * 0.42) * fade})`;
+          const s = 2 + torch * 1.2;
+          g.fillRect(px - s / 2, py - s / 2, s, s);
+        }
+      }
     }
-    busy.add(this);
-  }
-  step(now) {
-    let active = false;
-    for (let i = 0; i < this.to.length; i++) {
-      if (this.level[i] === this.to[i]) continue;
-      const k = this.start[i] ? clamp((now - this.start[i]) / FADE) : 1;
-      this.level[i] = this.from[i] + (this.to[i] - this.from[i]) * k;
-      if (k < 1) active = true;
-    }
-    this.draw();
-    return active;
-  }
-  draw() {
-    if (!this.base) return;
-    const { g, p } = this;
-    g.clearRect(0, 0, this.c.width, this.c.height);
-    g.drawImage(this.base, 0, 0);
-    for (let i = 0; i < this.level.length; i++) {
-      const v = this.level[i];
-      if (v < 0.02) continue;
-      const s = sprite(this.color[i], p);
-      g.globalAlpha = v;
-      g.drawImage(s, ((i % COLS) + 0.5) * p - s.width / 2, (Math.floor(i / COLS) + 0.5) * p - s.height / 2);
-    }
-    g.globalAlpha = 1;
-  }
-}
-const tickBoards = (now) => {
-  for (const s of busy) if (!s.step(now)) busy.delete(s);
-};
-
-/** Five strips that read as one board. lines: [text, colors, align] per row. */
-class Panel {
-  constructor(el) {
-    this.strips = [...el.querySelectorAll("canvas")].map((c) => new Strip(c));
-  }
-  set(lines, opts = {}) {
-    this.strips.forEach((s, i) => {
-      const [text = "", colors = "white", align = "left"] = lines[i] ?? [];
-      s.set(text, colors, { align, instant: opts.instant, delay: (opts.delay ?? 0) + i * 70 });
-    });
-  }
-  resize() {
-    this.strips.forEach((s) => s.resize());
-  }
-}
-
-// ---------------------------------------------------------------- the story
-const HERO_Q = [["RILEY-CLAUDE", "blue"], ["ASK THEO WHICH"], ["MCP SERVERS"], ["THEY HAVE"], ["SENDING", "dim"]];
-const HERO_A = [["THEO-CODEX", "blue"], ["GITHUB,"], ["FILESYSTEM AND"], ["APIFY."], ["ANSWERED ~", "blue"]];
-const INVITE = [["NEW SESSION", "dim"], ["LAUNCH TEAM"], [""], ["INVITE LINK", "dim"], ["/JOIN/K7M4XT", "blue"]];
-const APPS = ["CLAUDE CODE", "CURSOR", "CODEX", "ANTIGRAVITY", "GEMINI CLI"].map((t) => [t, "white", "center"]);
-const KEYS = [
-  [["ED25519 KEY", "blue"], ["MADE ON THIS"], ["COMPUTER"], [""], ["RELAY HOLDS 0", "dim"]],
-  [["SENDER", "dim"], ["SIGNATURE OK", "blue"], [""], ["RELAY", "dim"], ["COUNTERSIGNED", "blue"]],
-  [["GUARD CHECK", "dim"], ["ABOUT 1 MS"], [""], ["ASK AND ANSWER", "dim"], ["ABOUT 150 MS"]],
-];
-
-const stage = document.getElementById("how");
-const pin = document.getElementById("stage-pin");
-const rig = document.getElementById("rig");
-const housing = document.getElementById("housing");
-const stripEls = [...rig.querySelectorAll(".strip")];
-const board = new Panel(rig);
-const caps = [...stage.querySelectorAll(".cap")];
-const hd = document.getElementById("hd");
-
-let W = innerWidth;
-let H = innerHeight;
-let BW = 640;
-let SH = 60;
-const GAP = 4;
-function sizeStage() {
-  W = innerWidth;
-  H = innerHeight;
-  // The board fills at most 42% of the screen height, so the caption under it always fits.
-  BW = Math.round(Math.min(640, W - 40, (0.42 * H - 40) / (5 * 9 / 96)));
-  SH = (BW * 9) / 96;
-  rig.style.setProperty("--bw", `${BW}px`);
-  rig.style.setProperty("--sh", `${SH}px`);
-  rig.style.setProperty("--hh", `${5 * SH + 4 * GAP + 24}px`);
-}
-
-// Where each row lands when the board splits: around the caption, never over it.
-function scatter(i) {
-  if (W < 760) {
-    const ys = [0.15, 0.25, 0.71, 0.81, 0.91];
-    const s = Math.min(0.78, (W - 48) / BW);
-    return { x: [-0.06, 0.07, -0.05, 0.06, -0.03][i] * W, y: (ys[i] - 0.43) * H, z: 0, rx: [10, 8, -8, -10, -12][i], ry: [12, -14, 10, -12, 8][i], rz: [-4, 3, 3, -3, 2][i], s };
-  }
-  const S = [
-    { x: -1, y: -0.27, rx: 16, ry: 24, rz: -8, s: 0.54 },
-    { x: 1, y: -0.3, rx: 12, ry: -26, rz: 7, s: 0.48 },
-    { x: -1, y: 0.13, rx: -14, ry: 20, rz: 5, s: 0.5 },
-    { x: 1, y: 0.11, rx: -10, ry: -22, rz: -6, s: 0.54 },
-    { x: 0, y: 0.34, rx: -20, ry: 8, rz: 3, s: 0.46 },
-  ][i];
-  const side = W / 2 - 250 - 24; // room beside a 500px caption
-  const s = S.x ? Math.min(S.s, side / BW) : S.s;
-  const x = S.x * Math.max(0.3 * W, 250 + (BW * s) / 2);
-  return { x, y: S.y * H, z: 0, rx: S.rx, ry: S.ry, rz: S.rz, s };
-}
-
-const DARK = [14, 14, 15];
-const LIGHT = [246, 246, 244];
-let stageTone = "dark";
-let band = -1;
-let introDone = false;
-const setCap = (el, v) => {
-  el.style.opacity = v;
-  el.style.filter = v < 0.999 ? `blur(${((1 - v) * 12).toFixed(2)}px)` : "none";
-  el.style.transform = `translateY(${((1 - v) * 18).toFixed(1)}px)`;
-  el.style.visibility = v < 0.001 ? "hidden" : "visible";
-};
-const tf = (P) => `translate3d(${P.x.toFixed(1)}px,${P.y.toFixed(1)}px,${P.z.toFixed(1)}px) rotateX(${P.rx.toFixed(2)}deg) rotateY(${P.ry.toFixed(2)}deg) rotateZ(${P.rz.toFixed(2)}deg) scale(${P.s.toFixed(4)})`;
-
-function updateStage(p) {
-  // The page turns from night to paper as the board tips back.
-  const bg = inOut(map(p, 0.05, 0.17));
-  const c = DARK.map((d, k) => Math.round(lerp(d, LIGHT[k], bg)));
-  const l = Math.round(lerp(255, 0, bg));
-  pin.style.backgroundColor = `rgb(${c})`;
-  pin.style.setProperty("--line", `rgb(${l} ${l} ${l} / ${lerp(0.07, 0.075, bg).toFixed(3)})`);
-  stageTone = bg > 0.5 ? "light" : "dark";
-
-  setCap(caps[0], 1 - map(p, 0.025, 0.085));
-  setCap(caps[1], Math.min(map(p, 0.15, 0.21), 1 - map(p, 0.29, 0.345)));
-  // On phones the rows cross the caption on their way out, so it waits until they have passed.
-  const capIn = W < 760 ? [0.55, 0.62] : [0.4, 0.47];
-  setCap(caps[2], Math.min(map(p, ...capIn), 1 - map(p, 0.83, 0.91)));
-
-  const tilt = inOut(map(p, 0.05, 0.25));
-  const split = map(p, 0.33, 0.64);
-  const exit = easeIn(map(p, 0.76, 0.96));
-  const rx = lerp(0, 24, tilt);
-  const s = lerp(1, 0.9, tilt);
-  const y0 = lerp(0, -0.06 * H, tilt);
-  const gone = inOut(map(split, 0, 0.35));
-  housing.style.transform = `translate3d(0,${y0.toFixed(1)}px,0) rotateX(${rx.toFixed(2)}deg) scale(${(s * (1 + gone * 0.08)).toFixed(4)})`;
-  housing.style.opacity = 1 - gone;
-
-  stripEls.forEach((el, i) => {
-    const local = (i - 2) * (SH + GAP);
-    const J = { x: 0, y: y0 + local * Math.cos(rx * RAD) * s, z: local * Math.sin(rx * RAD) * s, rx, ry: 0, rz: 0, s };
-    const T = scatter(i);
-    const t = inOut(clamp(split * 1.35 - i * 0.08));
-    const P = Object.fromEntries(Object.keys(J).map((k) => [k, lerp(J[k], T[k], t)]));
-    P.z += Math.sin(t * Math.PI) * (i - 2) * 70; // rows part in depth mid-flight, so they never cut through each other
-    if (exit > 0) {
-      P.y -= exit * (0.6 * H + i * 50);
-      P.rz += exit * T.rz * 1.5;
-      P.rx += exit * 25;
-    }
-    el.style.transform = tf(P);
-    el.style.opacity = 1 - map(exit, 0.45, 1);
-  });
-
-  const b = p < 0.17 ? 0 : p < 0.37 ? 1 : 2;
-  if (b !== band && (b > 0 || introDone)) {
-    band = b;
-    board.set(b === 0 ? HERO_A : b === 1 ? INVITE : APPS);
-  }
-}
-
-// ---------------------------------------------------------------- the key statements
-const keys = document.getElementById("security");
-const keysPanelEl = document.getElementById("keys-panel");
-const keysPanel = new Panel(keysPanelEl);
-const stmts = [...keys.querySelectorAll(".stmt")];
-let keysIdx = -1;
-function updateKeys(p) {
-  setCap(stmts[0], 1 - map(p, 0.3, 0.36));
-  setCap(stmts[1], Math.min(map(p, 0.37, 0.43), 1 - map(p, 0.63, 0.69)));
-  setCap(stmts[2], map(p, 0.7, 0.76));
-  keysPanelEl.style.transform = `perspective(1400px) rotateX(${lerp(12, -8, p).toFixed(2)}deg) rotateY(${lerp(-10, 10, p).toFixed(2)}deg)`;
-  const idx = p < 0.365 ? 0 : p < 0.695 ? 1 : 2;
-  if (idx !== keysIdx) {
-    keysIdx = idx;
-    keysPanel.set(KEYS[idx]);
-  }
-}
-
-// ---------------------------------------------------------------- halftone dissolves
-const dissolves = [...document.querySelectorAll(".dissolve")].map((el) => ({ el, c: el.querySelector("canvas"), p: -1 }));
-function sizeDissolve(d) {
-  const dpr = Math.min(2, devicePixelRatio || 1);
-  const w = d.el.clientWidth;
-  const h = d.el.clientHeight;
-  d.c.width = Math.round(w * dpr);
-  d.c.height = Math.round(h * dpr);
-  d.cell = (W < 760 ? 16 : 22) * dpr;
-  d.cols = Math.ceil(d.c.width / d.cell);
-  d.rows = Math.ceil(d.c.height / d.cell);
-  d.jit = Float32Array.from({ length: d.cols * d.rows }, () => Math.random());
-  d.color = d.el.dataset.to === "dark" ? `rgb(${DARK})` : `rgb(${LIGHT})`;
-  d.p = -1;
-}
-function drawDissolve(d, p) {
-  if (Math.abs(p - d.p) < 0.002) return;
-  d.p = p;
-  const g = d.c.getContext("2d");
-  const { cell, cols, rows } = d;
-  g.clearRect(0, 0, d.c.width, d.c.height);
-  g.fillStyle = d.color;
-  const front = 0.1 + p * 1.25; // how far up the band the next page has reached
-  for (let r = 0; r < rows; r++) {
-    const rowF = (r + 0.5) / rows;
-    for (let k = 0; k < cols; k++) {
-      const v = clamp((rowF - (1 - front)) / 0.38 + (d.jit[r * cols + k] - 0.5) * 0.4);
-      if (v <= 0.04) continue;
-      g.beginPath();
-      g.arc((k + 0.5) * cell, (r + 0.5) * cell, v * cell * 0.72, 0, Math.PI * 2);
-      g.fill();
+    // The two ends of each packet: where it left and where it lands.
+    for (const p of packets) {
+      for (const [k, on] of [[p.from, 0.5], [p.end, p.ack > 0 ? 1 : 0.35]]) {
+        const x = p.vertical ? p.lane : k;
+        const y = p.vertical ? k : p.lane;
+        const s = 6;
+        g.fillStyle = `rgba(205,255,60,${on * fade})`;
+        g.fillRect(ox + x * GAP - s / 2, oy + y * GAP - s / 2, s, s);
+      }
     }
   }
-  g.fillRect(0, d.c.height - cell * 0.5, d.c.width, cell * 0.5);
-}
 
-// ---------------------------------------------------------------- scroll loop
-let lenis = null;
-let tops = [];
-const toned = [...document.querySelectorAll("main > [data-tone], .ft")];
-function measure() {
-  const y = scrollY;
-  tops = toned.map((el) => {
-    const r = el.getBoundingClientRect();
-    return { el, top: r.top + y, bottom: r.bottom + y };
-  });
-  for (const d of dissolves) d.top = d.el.getBoundingClientRect().top + y;
-  stage.top = stage.getBoundingClientRect().top + y;
-  stage.h = stage.offsetHeight;
-  keys.top = keys.getBoundingClientRect().top + y;
-  keys.h = keys.offsetHeight;
-}
-const progress = (el, y) => clamp((y - el.top) / Math.max(1, el.h - H));
-let lastY = NaN;
-let dirty = true;
-function update(y) {
+  const loop = (t) => {
+    if (!visible) return;
+    const dt = Math.min(0.05, (t - (last || t)) / 1000);
+    last = t;
+    spawnIn -= dt * 1000;
+    if (spawnIn <= 0 && packets.length < 7) {
+      spawn();
+      spawnIn = 260 + Math.random() * 700;
+    }
+    mouse.a = lerp(mouse.a, mouse.x > -999 ? 1 : 0, 0.08);
+    draw(dt);
+    requestAnimationFrame(loop);
+  };
+
+  size();
+  addEventListener("resize", () => size());
   if (motion) {
-    if (y < stage.top + stage.h) updateStage(progress(stage, y));
-    if (y > keys.top - H && y < keys.top + keys.h) updateKeys(progress(keys, y));
-    for (const d of dissolves) {
-      const top = d.top - y;
-      if (top < H && top > -200) drawDissolve(d, clamp((H * 0.92 - top) / (H * 0.62)));
-    }
+    hero.addEventListener("pointermove", (e) => {
+      const r = c.getBoundingClientRect();
+      mouse.x = e.clientX - r.left;
+      mouse.y = e.clientY - r.top;
+    }, { passive: true });
+    hero.addEventListener("pointerleave", () => ((mouse.x = -9999), (mouse.y = -9999)));
+    new IntersectionObserver(([e]) => {
+      const was = visible;
+      visible = e.isIntersecting && !document.hidden;
+      if (visible && !was) (last = 0), requestAnimationFrame(loop);
+    }).observe(c);
+    document.addEventListener("visibilitychange", () => {
+      const was = visible;
+      visible = !document.hidden;
+      if (visible && !was) (last = 0), requestAnimationFrame(loop);
+    });
+    requestAnimationFrame(loop);
   }
-  // The header takes the tone of whatever is under it.
-  const line = y + 32;
-  const under = tops.find((t) => line >= t.top && line < t.bottom);
-  const tone = under ? (under.el === stage && motion ? stageTone : under.el.dataset.tone) : hd.dataset.tone;
-  if (hd.dataset.tone !== tone) hd.dataset.tone = tone;
-}
-function loop(now) {
-  lenis?.raf(now);
-  const y = scrollY;
-  if (y !== lastY || dirty) {
-    lastY = y;
-    dirty = false;
-    update(y);
-  }
-  tickBoards(now);
-  requestAnimationFrame(loop);
+  return { set fade(v) { fade = v; } };
+})();
+
+// ---------------------------------------------------------------- statement words
+const statement = $("#statement");
+let words = [];
+if (statement && motion) {
+  splitWords(statement, "sw");
+  words = $$(".sw", statement);
 }
 
-const panels = [board, keysPanel];
-function layout() {
-  sizeStage();
-  dissolves.forEach(sizeDissolve);
-  if (!motion) dissolves.forEach((d) => drawDissolve(d, 0.5)); // a still halftone edge
-  panels.forEach((p) => p.resize());
-  measure();
-  dirty = true;
+// ---------------------------------------------------------------- marquees
+function marquee(track, base) {
+  if (!track) return null;
+  track.append(...[...track.children].map((n) => n.cloneNode(true)));
+  return { track, base, x: 0, half: 0, skew: 0 };
 }
-let rt;
-addEventListener("resize", () => {
-  clearTimeout(rt);
-  rt = setTimeout(layout, 120);
-});
-document.fonts?.ready.then(() => (measure(), (dirty = true)));
-new ResizeObserver(() => (measure(), (dirty = true))).observe(document.body);
+const marquees = motion ? [marquee($("#mq"), 70), marquee($("#ping-ticker"), 55)].filter(Boolean) : [];
+
+// ---------------------------------------------------------------- scroll scenes
+const hd = $("#hd");
+const lines = $$(".hl");
+const how = $("#how");
+const cards = $$("#how-stack .card");
+const howN = $("#how-n");
+const howBar = $("#how-bar");
+const filmIn = $("#film-in");
+const ftMark = $("#ft-mark");
+const toned = $$("main > [data-tone], .ft");
+
+let lenis = null;
+let H = innerHeight;
+let W = innerWidth;
+let pinned = false;
+const pos = new Map();
+function measure() {
+  H = innerHeight;
+  W = innerWidth;
+  pinned = motion && W >= 1000;
+  how?.classList.toggle("pinned", pinned);
+  const y = scrollY;
+  for (const el of [hero, statement, how, filmIn, ftMark?.closest(".ft"), ...toned]) {
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    pos.set(el, { top: r.top + y, h: r.height });
+  }
+  for (const m of marquees) m.half = m.track.scrollWidth / 2;
+  if (!pinned) cards.forEach((c) => ((c.style.transform = ""), c.style.removeProperty("--dim")));
+}
+
+let lastY = scrollY;
+let lastIdx = -1;
+let pingedHow = false;
+let away = false;
+function scenes(y, dy) {
+  // Header: solid once the page moves, out of the way while reading down, back on the way up.
+  hd.classList.toggle("solid", y > 24);
+  if (y > 240 && dy > 6 && !away) (away = true), hd.classList.add("away");
+  else if ((dy < -6 || y < 240) && away) (away = false), hd.classList.remove("away");
+  const probeY = y + 34;
+  for (const el of toned) {
+    const p = pos.get(el);
+    if (p && probeY >= p.top && probeY < p.top + p.h) {
+      if (hd.dataset.tone !== el.dataset.tone) hd.dataset.tone = el.dataset.tone;
+      break;
+    }
+  }
+  if (!motion) return;
+
+  // Hero: the three lines drift apart as you leave.
+  const hp = pos.get(hero);
+  if (hp && y < hp.h + 50) {
+    const p = clamp(y / hp.h);
+    const e = p * p * 0.6 + p * 0.4;
+    lines[0] && (lines[0].style.transform = `translate3d(${(-e * 14).toFixed(2)}vw,0,0)`);
+    lines[1] && (lines[1].style.transform = `translate3d(${(e * 10).toFixed(2)}vw,0,0)`);
+    lines[2] && (lines[2].style.transform = `translate3d(${(-e * 7).toFixed(2)}vw,0,0)`);
+    if (field) field.fade = 1 - p * 0.9;
+  }
+
+  // Statement: words light up in reading order.
+  const sp = pos.get(statement);
+  if (sp && words.length) {
+    const p = clamp((y + H * 0.82 - sp.top) / (sp.h + H * 0.3));
+    const n = words.length;
+    const head = p * (n + 8);
+    for (let i = 0; i < n; i++) {
+      const o = 0.16 + 0.84 * clamp((head - i) / 8);
+      if (words[i]._o !== o) (words[i]._o = o), words[i].style.setProperty("--o", o.toFixed(3));
+    }
+  }
+
+  // How it works: each card slides up over the last, which steps back.
+  const wp = pos.get(how);
+  if (pinned && wp) {
+    const p = clamp((y - wp.top) / Math.max(1, wp.h - H));
+    const n = cards.length;
+    const f = clamp(p * 1.18) * (n - 1);
+    const stackH = cards[0]?.offsetHeight || 500;
+    cards.forEach((card, i) => {
+      const t = i === 0 ? 1 : clamp(f - (i - 1));
+      const k = clamp(f - i);
+      const ty = (1 - outCubic(t)) * (stackH + 120) - k * 34;
+      const s = 1 - k * 0.075;
+      const r = (1 - t) * 3;
+      card.style.transform = `translate3d(0,${ty.toFixed(1)}px,0) scale(${s.toFixed(4)}) rotate(${r.toFixed(2)}deg)`;
+      card.style.setProperty("--dim", (k * 0.6).toFixed(3));
+    });
+    const idx = Math.min(n - 1, Math.round(f));
+    howBar.style.transform = `scaleX(${((f + 1) / n).toFixed(3)})`;
+    if (idx !== lastIdx) {
+      const down = idx > lastIdx;
+      lastIdx = idx;
+      howN.textContent = String(idx + 1).padStart(2, "0");
+      howN.animate([{ transform: `translateY(${down ? 40 : -40}%)`, opacity: 0, filter: "blur(4px)" }, { transform: "none", opacity: 1, filter: "blur(0)" }], { duration: 500, easing: "cubic-bezier(.16,1,.3,1)" });
+      if (idx === n - 1 && !pingedHow) {
+        pingedHow = true;
+        say({ kind: "sent", title: "Sent to theo-codex", text: "Which MCP servers do you have?" });
+        setTimeout(() => say({ kind: "received", title: "theo-codex replied", text: "GitHub, filesystem and Apify." }), 1500);
+      }
+    }
+  }
+
+  // Film: grows from a framed picture to the full width.
+  const fp = pos.get(filmIn);
+  if (fp) {
+    const p = clamp((y + H - fp.top) / (H * 0.95));
+    const s = 0.84 + 0.16 * outCubic(p);
+    filmIn.style.transform = `scale(${s.toFixed(4)})`;
+  }
+
+  // Footer mark rises into place.
+  const ft = ftMark && pos.get(ftMark.closest(".ft"));
+  if (ft) {
+    const p = clamp((y + H - ft.top) / ft.h);
+    ftMark.style.setProperty("--fy", `${((1 - outCubic(p)) * 45).toFixed(2)}%`);
+  }
+}
+
+let velocity = 0;
+let lastT = 0;
+let dirty = true;
+function frame(t) {
+  lenis?.raf(t);
+  const dt = Math.min(0.05, (t - (lastT || t)) / 1000);
+  lastT = t;
+  const y = lenis ? lenis.scroll : scrollY;
+  const dy = y - lastY;
+  if (dy !== 0 || dirty) {
+    scenes(y, dy);
+    dirty = false;
+  }
+  velocity = lerp(velocity, dy, 0.12);
+  lastY = y;
+  for (const m of marquees) {
+    if (!m.half) continue;
+    const dir = velocity < -0.2 ? -1 : 1;
+    m.x -= (m.base * dt + Math.abs(velocity) * 0.55) * dir;
+    if (m.x <= -m.half) m.x += m.half;
+    if (m.x > 0) m.x -= m.half;
+    m.skew = lerp(m.skew, clamp(-velocity * 0.18, -7, 7), 0.15);
+    m.track.style.transform = `translate3d(${m.x.toFixed(2)}px,0,0) skewX(${m.skew.toFixed(2)}deg)`;
+  }
+  requestAnimationFrame(frame);
+}
 
 if (motion && window.Lenis) {
-  lenis = new window.Lenis({ lerp: 0.085, wheelMultiplier: 0.9, smoothWheel: true });
-  // In-page links glide instead of jumping.
+  lenis = new window.Lenis({ lerp: 0.09, wheelMultiplier: 0.95, smoothWheel: true });
   document.addEventListener("click", (e) => {
     const a = e.target.closest('a[href^="#"]');
     const target = a && a.getAttribute("href").length > 1 && document.querySelector(a.getAttribute("href"));
     if (!target) return;
     e.preventDefault();
-    lenis.scrollTo(target, { offset: target.id === "main" ? 0 : -8, duration: 1.4 });
-    if (target.id === "main") target.focus?.({ preventScroll: true });
+    lenis.scrollTo(target, { offset: target.id === "main" || target.id === "top" ? 0 : -10, duration: 1.5 });
   });
 }
+measure();
+addEventListener("resize", () => {
+  clearTimeout(measure.t);
+  measure.t = setTimeout(() => (measure(), (dirty = true)), 120);
+});
+document.fonts?.ready.then(() => (measure(), (dirty = true)));
+new ResizeObserver(() => (measure(), (dirty = true))).observe(document.body);
+requestAnimationFrame(frame);
 
-layout();
-requestAnimationFrame(loop);
-
-// The board's first message types itself in, then the answer comes back. Under five seconds, once.
-if (motion) {
-  setTimeout(() => {
-    if (band <= 0) board.set(HERO_Q);
-    setTimeout(() => {
-      introDone = true;
-      if (band <= 0) {
-        band = 0;
-        board.set(HERO_A);
-      }
-    }, 2300);
-  }, 450);
-} else {
-  introDone = true;
-  board.set(HERO_A, { instant: true });
-  keysPanel.set(KEYS[0], { instant: true });
+// ---------------------------------------------------------------- magnetic buttons
+if (motion && fine) {
+  for (const b of $$(".magnet")) {
+    b.style.transition = "transform .6s cubic-bezier(.16,1,.3,1)";
+    b.addEventListener("pointermove", (e) => {
+      const r = b.getBoundingClientRect();
+      const dx = (e.clientX - r.left - r.width / 2) / r.width;
+      const dy = (e.clientY - r.top - r.height / 2) / r.height;
+      b.style.transform = `translate3d(${(dx * 10).toFixed(1)}px,${(dy * 8).toFixed(1)}px,0)`;
+    });
+    b.addEventListener("pointerleave", () => (b.style.transform = ""));
+  }
 }
 
-// Headings and leads ease out of a blur when they arrive.
-if (motion) {
-  const io = new IntersectionObserver(
-    (es) => es.forEach((e) => e.isIntersecting && (e.target.classList.add("in"), io.unobserve(e.target))),
-    { rootMargin: "0px 0px -12% 0px" },
-  );
-  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
-}
-
-// ---------------------------------------------------------------- sound
-// Off on every visit. One state for the header switch and the film's: on, the film is unmuted and
-// the guard box makes three small sounds.
-const soundBtn = document.getElementById("sound");
-const filmSound = document.getElementById("film-sound");
-const video = document.getElementById("film-video");
-const sfx = {};
-let soundOn = false;
-const play = (name) => {
-  if (!soundOn) return;
-  sfx[name] ??= Object.assign(new Audio(`/media/sfx/${name}.mp3`), { volume: 0.5 });
-  sfx[name].currentTime = 0;
-  sfx[name].play().catch(() => {});
-};
+// ---------------------------------------------------------------- sound switch
+const soundBtn = $("#sound");
+const filmSound = $("#film-sound");
+const video = $("#film-video");
 const setSound = (on) => {
   soundOn = on;
   soundBtn?.setAttribute("aria-pressed", String(on));
@@ -447,7 +464,7 @@ const setSound = (on) => {
     filmSound.textContent = on ? "Sound on" : "Sound off";
   }
   if (video) video.muted = !on;
-  if (on) document.getElementById("film-big")?.setAttribute("hidden", "");
+  if (on) $("#film-big")?.setAttribute("hidden", "");
 };
 for (const b of [soundBtn, filmSound]) {
   if (!b) continue;
@@ -460,20 +477,20 @@ for (const b of [soundBtn, filmSound]) {
 
 // ---------------------------------------------------------------- the film
 // A muted preview plays while it is on screen; "Play with sound" starts it over with the narration.
-const filmBox = document.getElementById("film-box");
+const filmBox = $("#film-box");
 if (filmBox && video) {
-  const big = document.getElementById("film-big");
-  const playBtn = document.getElementById("film-play");
-  const cc = document.getElementById("film-cc");
-  const chapters = [...filmBox.querySelectorAll(".chapters button")];
+  const big = $("#film-big");
+  const playBtn = $("#film-play");
+  const cc = $("#film-cc");
+  const chapters = $$(".chapters button", filmBox);
   video.removeAttribute("controls");
   video.muted = true;
-  document.getElementById("film-bar").hidden = false;
+  $("#film-bar").hidden = false;
   big.hidden = false;
   const track = video.textTracks[0];
   if (track) track.mode = "hidden";
 
-  let wanted = !reduce; // reduced motion: nothing plays until asked
+  let wanted = !reduce;
   let visible = false;
   const sync = () => {
     const run = wanted && visible && document.visibilityState === "visible";
@@ -528,52 +545,45 @@ if (filmBox && video) {
   document.addEventListener("visibilitychange", sync);
 }
 
-// ---------------------------------------------------------------- the guard board
-const probe = document.getElementById("probe");
+// ---------------------------------------------------------------- the guard
+const probe = $("#probe");
 if (probe) {
-  const text = document.getElementById("probe-text");
-  const verdict = document.getElementById("verdict");
-  const ms = document.getElementById("probe-ms");
-  const send = document.getElementById("probe-send");
-  const panel = new Panel(document.getElementById("guard-panel"));
-  panels.push(panel);
-  panel.resize();
+  const text = $("#probe-text");
+  const verdict = $("#verdict");
+  const ms = $("#probe-ms");
+  const send = $("#probe-send");
+  const readout = $("#readout");
+  const roV = $("#ro-v");
+  const roMsg = $("#ro-msg");
   probe.querySelector(".samples").hidden = false;
   probe.querySelector(".probe-foot").hidden = false;
 
   let guard = null;
   const load = () => (guard ??= import("/guard-demo.js"));
   const LABEL = { delivered: "Delivered.", masked: "Masked, then delivered.", held: "Held for review." };
+  const WORD = { delivered: "Delivered", masked: "Masked", held: "Held" };
   const AFTER = {
     delivered: "Nothing sensitive, so it reaches Riley’s agent right away.",
     masked: "The rest is delivered; the key never reaches Riley’s agent.",
     held: "Riley releases or rejects it on the dashboard’s Review page.",
   };
-  const BOARD = { delivered: ["DELIVERED ~", "blue"], masked: ["MASKED + SENT", "blue"], held: ["HELD FOR REVIEW", "amber"] };
 
-  // Wrap the checked message into three board rows, flagged words in amber, masked ones as dots.
-  const rows = (r) => {
-    const chars = [...r.text].map((ch, i) => {
-      const s = r.spans.find((x) => i >= x.start && i < x.end);
-      return s?.kind === "masked" ? ["•", "blue"] : [ch === "\n" ? " " : ch, s ? "amber" : "white"];
-    });
-    const lines = [[]];
-    let word = [];
-    const flush = () => {
-      // Words move to the next row whole; a word longer than a row (a key, a URL) is cut across rows.
-      while (word.length) {
-        let cur = lines[lines.length - 1];
-        if (cur.length + (cur.length ? 1 : 0) + Math.min(word.length, 15) > 15) lines.push((cur = []));
-        if (cur.length) cur.push([" ", "white"]);
-        cur.push(...word.splice(0, 15 - cur.length));
-      }
-    };
-    for (const c of chars) c[0] === " " ? flush() : word.push(c);
-    flush();
-    const out = lines.filter((l) => l.length).slice(0, 4);
-    if (out.length > 3) out.length = 3, out[2] = [...out[2].slice(0, 12), [".", "white"], [".", "white"], [".", "white"]];
-    while (out.length < 3) out.push([]);
-    return out.map((l) => [l.map((c) => c[0]).join(""), l.map((c) => c[1])]);
+  // The checked message, with flagged words marked and masked ones replaced by dots.
+  const render = (r) => {
+    const out = document.createDocumentFragment();
+    let at = 0;
+    const spans = [...r.spans].sort((a, b) => a.start - b.start);
+    for (const s of spans) {
+      if (s.start < at) continue;
+      if (s.start > at) out.append(r.text.slice(at, s.start));
+      if (s.kind === "masked") {
+        const m = Object.assign(document.createElement("span"), { className: "mask", textContent: "•".repeat(Math.min(14, s.end - s.start)) });
+        out.append(m);
+      } else out.append(Object.assign(document.createElement("mark"), { textContent: r.text.slice(s.start, s.end) }));
+      at = s.end;
+    }
+    if (at < r.text.length) out.append(r.text.slice(at));
+    roMsg.replaceChildren(out);
   };
 
   let busyCheck = false;
@@ -585,19 +595,21 @@ if (probe) {
     try {
       const { check } = await load();
       const r = check(message);
-      if (!opts.silent) play("send");
-      panel.set([["THEO-CODEX >", "dim"], ...rows(r), [""]], { instant: opts.instant });
+      render(r);
+      roV.textContent = WORD[r.verdict];
+      roV.dataset.v = r.verdict;
+      readout.classList.remove("flash");
+      void readout.offsetWidth;
+      readout.classList.add("flash");
       const b = Object.assign(document.createElement("b"), { textContent: LABEL[r.verdict] });
       b.dataset.v = r.verdict;
       verdict.replaceChildren(b, ` ${r.reasons.length ? `${r.reasons.join(". ")}. ` : ""}${AFTER[r.verdict]}`);
       ms.textContent = `Checked in ${r.ms < 1 ? r.ms.toFixed(2) : r.ms.toFixed(1)} ms in this browser`;
-      setTimeout(
-        () => {
-          panel.strips[4].set(...BOARD[r.verdict]);
-          if (!opts.silent) play(r.verdict === "held" ? "held" : "deliver");
-        },
-        opts.instant ? 0 : 650,
-      );
+      if (!opts.silent) {
+        if (r.verdict === "held") say({ kind: "held", title: "Held for review", text: r.reasons[0] ? `${r.reasons[0]}.` : "theo-codex sent something sensitive." });
+        else if (r.verdict === "masked") say({ kind: "sent", label: "Masked", title: "Delivered to riley-claude", text: "The key was masked on the way." });
+        else say({ kind: "received", label: "Delivered", title: "Delivered to riley-claude", text: message });
+      }
     } catch {
       verdict.textContent = "The guard check could not load. Reload the page to try again.";
     } finally {
@@ -609,7 +621,7 @@ if (probe) {
     e.preventDefault();
     run();
   });
-  for (const b of probe.querySelectorAll(".sample")) {
+  for (const b of $$(".sample", probe)) {
     b.addEventListener("click", () => {
       text.value = b.textContent;
       run();
@@ -622,25 +634,59 @@ if (probe) {
     }
   });
   // The first message runs by itself when the box comes into view.
-  const seen = new IntersectionObserver(([e]) => e.isIntersecting && (seen.disconnect(), run({ silent: true, instant: !motion })), { threshold: 0.35 });
-  seen.observe(document.getElementById("guard-panel"));
+  const seen = new IntersectionObserver(([e]) => e.isIntersecting && (seen.disconnect(), run({ silent: true })), { threshold: 0.3 });
+  seen.observe(readout);
 }
 
-// ---------------------------------------------------------------- the last board
-const closeEl = document.getElementById("close-panel");
-if (closeEl) {
-  const closePanel = new Panel(closeEl);
-  panels.push(closePanel);
-  closePanel.resize();
-  const LINES = [["SESSION READY", "blue"], [""], ["SEND THE LINK"], ["TO THEO"], [""]];
-  if (!motion) closePanel.set(LINES, { instant: true });
-  else new IntersectionObserver(([e], o) => e.isIntersecting && (o.disconnect(), closePanel.set(LINES)), { threshold: 0.5 }).observe(closeEl);
+// ---------------------------------------------------------------- numbers count up
+const nums = $$("[data-count]");
+if (nums.length && motion) {
+  const io = new IntersectionObserver((es) => {
+    for (const e of es) {
+      if (!e.isIntersecting) continue;
+      io.unobserve(e.target);
+      const el = e.target;
+      const to = Number(el.dataset.count);
+      const t0 = performance.now();
+      const d = to > 10 ? 1400 : 700;
+      const step = (t) => {
+        const p = clamp((t - t0) / d);
+        el.textContent = String(Math.round(outExpo(p) * to));
+        if (p < 1) requestAnimationFrame(step);
+      };
+      el.textContent = "0";
+      requestAnimationFrame(step);
+    }
+  }, { threshold: 0.6 });
+  nums.forEach((n) => io.observe(n));
+}
+
+// ---------------------------------------------------------------- meet Ping
+const stage = $("#ping-stage");
+if (stage) {
+  const big = new Ping({ inline: stage }).configure({ announce: true });
+  big.mount();
+  const LINES = {
+    sent: { title: "Sent to theo-codex", text: "Which MCP servers do you have?" },
+    received: { title: "theo-codex replied", text: "GitHub, filesystem and Apify." },
+    held: { title: "Held for review", text: "wren-cursor asked for an API key." },
+    done: { title: "Task done", text: "Everyone agreed: ship the launch page." },
+    blocked: { title: "Blocked", text: "A message tried to send data to an outside address." },
+  };
+  for (const b of $$("[data-ping]")) {
+    b.addEventListener("click", () => {
+      const kind = b.dataset.ping;
+      big.say({ kind, ...LINES[kind] });
+      play(SOUND[kind]);
+    });
+  }
+  new IntersectionObserver(([e], o) => e.isIntersecting && (o.disconnect(), setTimeout(() => big.say({ kind: "joined", title: "Hi, I’m Ping.", text: "Press a button and I’ll show you what I do." }), 500)), { threshold: 0.5 }).observe(stage);
 }
 
 // ---------------------------------------------------------------- code tabs and copy
-const code = document.getElementById("code");
+const code = $("#code");
 if (code) {
-  const tabs = [...code.querySelectorAll('[role="tab"]')];
+  const tabs = $$('[role="tab"]', code);
   const select = (tab, focus) => {
     for (const t of tabs) {
       const on = t === tab;
@@ -667,6 +713,7 @@ if (code) {
         await navigator.clipboard.writeText(shown.textContent.trim());
         copy.textContent = "Copied";
         copy.classList.add("done");
+        say({ kind: "done", label: "Copied", title: "On your clipboard", text: "Paste it into your editor or terminal." });
       } catch {
         getSelection()?.selectAllChildren(shown);
         copy.textContent = "Press Ctrl+C";
@@ -678,22 +725,24 @@ if (code) {
 }
 
 // ---------------------------------------------------------------- download for this OS
-// The header and the closing section download the build for the visitor's computer. Phones, tablets
-// and anything unrecognised scroll to the list of all three instead (that is also the no-script default).
+// Phones, tablets and anything unrecognised scroll to the list of all three instead.
 function desktopOs() {
   const ua = navigator.userAgent;
   if (navigator.userAgentData?.mobile || /iPhone|iPad|iPod|Android|CrOS/.test(ua)) return null;
-  if (/Macintosh|Mac OS X/.test(ua)) return navigator.maxTouchPoints > 0 ? null : "mac"; // iPad Safari says Macintosh; Macs have no touch screen
+  if (/Macintosh|Mac OS X/.test(ua)) return navigator.maxTouchPoints > 0 ? null : "mac"; // iPad Safari says Macintosh
   if (/Windows NT/.test(ua)) return "windows";
   if (/Linux|X11/.test(ua)) return "linux";
   return null;
 }
 const os = desktopOs();
 if (os) {
-  for (const id of ["hd-dl", "dl-primary"]) document.getElementById(id)?.setAttribute("href", `/download/${os}`);
-  const label = document.getElementById("dl-label");
-  if (label) label.textContent = `Download for ${{ windows: "Windows", mac: "Mac", linux: "Linux" }[os]}`;
-  document.querySelector(`.platform[data-os="${os}"]`)?.setAttribute("aria-current", "true");
+  const name = { windows: "Windows", mac: "Mac", linux: "Linux" }[os];
+  for (const id of ["hd-dl", "dl-primary", "dl-hero"]) $(`#${id}`)?.setAttribute("href", `/download/${os}`);
+  const label = $("#dl-label");
+  if (label) label.textContent = `Download for ${name}`;
+  const heroLabel = $("#dl-hero-label");
+  if (heroLabel) heroLabel.textContent = `Download for ${name}`;
+  $(`.platform[data-os="${os}"]`)?.setAttribute("aria-current", "true");
 }
 
 // ---------------------------------------------------------------- The Relay
@@ -702,35 +751,41 @@ function signup(form, { source, ok, already }) {
   const email = form.querySelector('input[type="email"]');
   const msg = form.querySelector(".news-msg");
   const button = form.querySelector('button[type="submit"]');
-  const say = (t, kind) => {
+  const show = (t, kind) => {
     msg.textContent = t;
     msg.className = `news-msg ${kind}`;
   };
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) return say("Enter an email address like you@company.com.", "bad");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) return show("Enter an email address like you@company.com.", "bad");
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     try {
       const res = await fetch("/news/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.value.trim(), source: source() }) });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "That didn’t go through. Check your connection and try again.");
-      say(data.already ? already() : ok(), "ok");
+      show(data.already ? already() : ok(), "ok");
+      if (!data.already) say({ kind: "received", label: "Subscribed", title: "You’re on The Relay", text: "A welcome note is on its way." });
       email.value = "";
     } catch (err) {
-      say(err.message, "bad");
+      show(err.message, "bad");
     } finally {
       button.disabled = false;
       button.removeAttribute("aria-busy");
     }
   });
 }
-signup(document.getElementById("news-form"), {
+signup($("#news-form"), {
   source: () => "home",
   ok: () => "You’re in. A welcome note is on its way.",
   already: () => "You’re already subscribed.",
 });
 
-// ---------------------------------------------------------------- the footer mark lights up
-const ftMark = document.getElementById("ft-mark");
-if (ftMark && motion) new IntersectionObserver(([e], o) => e.isIntersecting && (o.disconnect(), ftMark.classList.add("in")), { threshold: 0.4 }).observe(ftMark);
+// The task demo tells Ping once when everyone agrees.
+addEventListener("a2a:demo-done", () => {
+  try {
+    if (sessionStorage.getItem("a2a-demo-done")) return;
+    sessionStorage.setItem("a2a-demo-done", "1");
+  } catch {}
+  say({ kind: "done", title: "Task done", text: "Everyone agreed: ship the launch page." });
+});

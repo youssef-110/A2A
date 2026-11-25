@@ -1,6 +1,6 @@
 // A2A dashboard. No build step: plain modules, DOM built with h(), live updates over SSE.
 import { createNetwork } from "/netviz.js";
-import { glyph, textCells } from "/dotfont.js";
+import { ping } from "/ping.js";
 // Every relay call goes to /api/w/<workspace>/..., which the Worker allows only for members.
 
 const S = {
@@ -77,8 +77,12 @@ async function api(method, path, body) {
   return data;
 }
 
+// Ping brings the news: every notice on the page is a line from Ping, unless the person turned it off.
+ping.configure({ announce: false });
 let toastTimer;
-function toast(msg) {
+function toast(msg, kind = "info", text) {
+  document.getElementById("live").textContent = msg;
+  if (ping.enabled) return ping.say({ kind, title: msg, text });
   document.querySelector(".toast")?.remove();
   const t = h("div", { class: "toast", role: "status" }, msg);
   document.body.append(t);
@@ -182,6 +186,7 @@ const ICONS = {
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>',
   download:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+  ping: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 9 6.6 3.8 10 7M18.5 9l-1.1-5.2L14 7"/><rect x="3.5" y="7" width="17" height="13" rx="6"/><path d="M9.5 12.5v1.5M14.5 12.5v1.5"/></svg>',
   sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>',
   logout:
@@ -220,15 +225,10 @@ const ICONS = {
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
 };
 
-// The wordmark: "A2A" in the 5x7 dot font, the "2" (the relay) lit blue through .two in app.css.
-const LOGO_MARK = `<svg viewBox="0 0 17 7" fill="currentColor" aria-hidden="true">${textCells("A2A")
-  .map(([x, y, i]) => `<circle cx="${x + 0.5}" cy="${y + 0.5}" r=".42"${i === 1 ? ' class="two"' : ""}/>`)
-  .join("")}</svg>`;
-// The small mark, as favicon.svg: the "2" alone on a dark 5x7 board, which stays dark in both themes.
-const TWO = new Set(glyph("2").map(([x, y]) => `${x},${y}`));
-const SMALL_MARK = `<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0a0a0b"/>${Array.from({ length: 35 }, (_, n) => [n % 5, Math.floor(n / 5)])
-  .map(([x, y]) => `<circle cx="${(8.8 + x * 3.6).toFixed(2)}" cy="${(5.2 + y * 3.6).toFixed(2)}" r="1.38" fill="${TWO.has(`${x},${y}`) ? "#3d95ff" : "#26262a"}"/>`)
-  .join("")}</svg>`;
+// The mark: two A's whose crossbars join through a lime link (the relay), lit through .link in app.css.
+const LOGO_MARK = `<svg viewBox="0 0 50 28" fill="currentColor" aria-hidden="true"><rect class="link" x="17" y="18.6" width="16" height="4.6"/><path fill-rule="evenodd" d="M7 0h8l7 28h-6.4l-1.1-4.8H7.5L6.4 28H0Zm4 9.2-2.7 9.4h5.4Z"/><path fill-rule="evenodd" d="M35 0h8l7 28h-6.4l-1.1-4.8h-7L34.4 28H28Zm4 9.2-2.7 9.4h5.4Z"/></svg>`;
+// The small mark, as favicon.svg: the same two A's in black on a lime tile, in both themes.
+const SMALL_MARK = `<svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="15" fill="#cdff3c"/><g transform="translate(9 19) scale(.92)" fill="#0b0b0a"><rect x="17" y="18.6" width="16" height="4.6"/><path fill-rule="evenodd" d="M7 0h8l7 28h-6.4l-1.1-4.8H7.5L6.4 28H0Zm4 9.2-2.7 9.4h5.4Z"/><path fill-rule="evenodd" d="M35 0h8l7 28h-6.4l-1.1-4.8h-7L34.4 28H28Zm4 9.2-2.7 9.4h5.4Z"/></g></svg>`;
 const brandMark = () =>
   h("span", {
     class: "brand-mark",
@@ -604,7 +604,7 @@ async function loadDetail() {
   try {
     S.thread = await api("GET", `/v1/admin/threads/${encodeURIComponent(S.selected)}`);
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
   document.getElementById("detail")?.replaceChildren(detailView());
 }
@@ -662,10 +662,10 @@ function reviewButtons(id) {
   const act = async (decision) => {
     try {
       await api("POST", `/v1/admin/messages/${encodeURIComponent(id)}/review`, { decision });
-      toast(decision === "release" ? "Released. It's on its way." : "Rejected. The sender was told.");
+      toast(decision === "release" ? "Released. It's on its way." : "Rejected. The sender was told.", decision === "release" ? "sent" : "info");
       await refresh();
     } catch (e) {
-      toast(e.message);
+      toast(e.message, "error");
     }
   };
   return h(
@@ -889,7 +889,7 @@ async function loadCall(address) {
     S.talk.log[address] = Object.assign(items, { loaded: true });
     if (!S.talk.thread[address] && items.length) S.talk.thread[address] = items.at(-1).thread_id;
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
   if (S.talk.to === address) renderCallLog();
 }
@@ -912,11 +912,13 @@ async function sendTalk(textOverride) {
   try {
     const r = await api("POST", "/v1/admin/console/send", { to, text, thread_id: S.talk.thread[to] || undefined, session: S.view === "session" ? S.session : undefined });
     Object.assign(item, { id: r.id, thread_id: r.thread_id, state: r.state, reason_code: r.reason_code });
+    if (r.state === "held") toast("Held for review", "held", `Your message to ${nameOf(to)} waits on the Review page.`);
+    else if (r.state !== "blocked") toast(`Sent to ${nameOf(to)}`, "sent", text);
     S.talk.thread[to] = r.thread_id;
     if (["delivered", "queued", "screening"].includes(r.state)) S.talk.waiting[to] = true;
   } catch (e) {
     Object.assign(item, { state: "blocked", reason_code: e.code });
-    toast(e.message);
+    toast(e.message, "error");
   }
   renderCallLog();
 }
@@ -956,7 +958,7 @@ async function startListening() {
       },
     });
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
 }
 
@@ -1094,7 +1096,7 @@ function viewAgents() {
       toast(action === "approve" ? `${short(a.address)} approved` : action === "disable" ? `${short(a.address)} disabled` : `${short(a.address)} enabled`);
       await refresh();
     } catch (e) {
-      toast(e.message);
+      toast(e.message, "error");
     }
   };
   const me = S.overview?.relay?.console_address;
@@ -1215,7 +1217,7 @@ function viewPolicy() {
         ),
       );
     } catch (e) {
-      toast(e.message);
+      toast(e.message, "error");
     }
   }
   setTimeout(load, 0);
@@ -1369,7 +1371,7 @@ function viewAudit() {
           : [h("div", { class: "empty" }, "No events yet.")]),
       ),
     )
-    .catch((e) => toast(e.message));
+    .catch((e) => toast(e.message, "error"));
   return h("div", {}, pageHead("Audit log", "Sign-ins, approvals, policy changes, invites and messages read from this console."), list);
 }
 
@@ -1512,7 +1514,7 @@ async function refresh() {
     S.messages = list.messages;
     S.agents = agents.agents;
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
   renderShell();
 }
@@ -1552,6 +1554,7 @@ function connectEvents() {
   events.addEventListener("message", (e) => {
     const m = JSON.parse(e.data);
     const i = S.messages.findIndex((x) => x.id === m.id);
+    const prev = i >= 0 ? S.messages[i].state : null;
     if (i >= 0) S.messages[i] = m;
     else S.messages.unshift(m);
     for (const log of Object.values(S.talk.log)) {
@@ -1562,6 +1565,11 @@ function connectEvents() {
     if (S.selected === m.thread_id && (S.view === "traffic" || S.view === "review")) loadDetail();
     const onMap = (S.view === "session" && S.sessionTab === "map") || S.view === "network";
     if (onMap && (m.state === "screening" || m.state === "blocked" || m.state === "held")) pulse(m);
+    if ((m.state === "held" || m.state === "blocked") && prev !== m.state) {
+      const who = `${nameOf(m.from)} to ${nameOf(m.to)}`;
+      if (m.state === "held") toast("Held for your review", "held", who);
+      else toast("Blocked by the guard", "blocked", who);
+    }
     if (S.view === "session" && S.sessionData && !S.sessionData.error) {
       clearTimeout(S.sessionReload);
       S.sessionReload = setTimeout(loadSession, 400);
@@ -1577,7 +1585,7 @@ function connectEvents() {
     if ((S.view === "talk" || S.view === "session") && S.talk.to === m.from) {
       renderCallLog();
     } else {
-      toast(`${nameOf(m.from)} replied`);
+      toast(`${nameOf(m.from)} replied`, "received", m.text ?? m.preview);
       soon();
     }
   });
@@ -1586,13 +1594,16 @@ function connectEvents() {
     // A renamed agent replaces its old entry instead of showing up twice.
     if (a.renamed_from) S.agents = S.agents.filter((x) => x.address !== a.renamed_from);
     const i = S.agents.findIndex((x) => x.address === a.address);
+    if (i < 0 && !a.renamed_from) toast(`${a.display_name || short(a.address)} joined`, "joined");
     if (i >= 0) S.agents[i] = { ...S.agents[i], ...a };
     else S.agents.push(a);
     if (a.renamed_from && S.view === "settings") renderView();
     soon();
   });
   events.addEventListener("policy", () => refresh());
-  events.addEventListener("task", () => {
+  events.addEventListener("task", (e) => {
+    const ev = JSON.parse(e.data || "{}");
+    if (ev.kind === "done" && ev.actor === "relay") toast("Task done", "done", "Everyone agreed. The report is ready.");
     if (S.view === "session") soonExtras();
     api("GET", "/v1/admin/tasks")
       .then((r) => ((S.allTasks = r.tasks), S.view === "network" ? drawMap() : soon()))
@@ -1677,7 +1688,7 @@ function emailInvite(url) {
       toast(`Invite sent to ${address}`);
       to.value = "";
     } catch (err) {
-      toast(err.message);
+      toast(err.message, "error");
     } finally {
       send.disabled = false;
     }
@@ -1742,7 +1753,7 @@ function newWorkspaceDialog() {
             dlg.close();
             switchWorkspace(ws.slug);
           } catch (err) {
-            toast(err.message);
+            toast(err.message, "error");
           }
         },
       },
@@ -1795,6 +1806,10 @@ function accountMenu(anchor) {
       h("div", { class: "menu-h" }, S.me?.email ?? ""),
       menuItem("settings", "Settings", () => go("settings")),
       menuItem(dark ? "sun" : "moon", dark ? "Light theme" : "Dark theme", () => setTheme(dark ? "light" : "dark")),
+      menuItem("ping", ping.enabled ? "Turn Ping off" : "Turn Ping on", () => {
+        ping.enabled = !ping.enabled;
+        if (ping.enabled) toast("Ping is on", "joined", "I'll show up when something happens.");
+      }),
       window.a2aDesktop ? null : menuItem("download", "Get the desktop app", () => (location.href = "/#desktop")),
       h("a", { role: "menuitem", href: "/docs", target: "_blank", rel: "noopener" }, h("span", { html: ICONS.doc }), "Docs"),
       h("hr"),
@@ -1844,7 +1859,7 @@ async function loadSessions() {
     S.sessions = (await api("GET", "/v1/admin/sessions")).sessions;
   } catch (e) {
     S.sessions = [];
-    if (e.status !== 404) toast(e.message);
+    if (e.status !== 404) toast(e.message, "error");
   }
 }
 
@@ -1891,8 +1906,8 @@ function drawApprovals() {
 function announceApprovals(fresh) {
   if (!fresh.length) return;
   const text = fresh.length === 1 ? `${short(fresh[0].agent)} needs your OK` : `${fresh.length} agents need your OK`;
-  toast(text);
-  if (document.hidden && window.Notification?.permission === "granted") new Notification("a2a", { body: `${text}: ${fresh[0].action}`, tag: "a2a-approval" });
+  toast(text, "held", fresh[0].action);
+  if (document.hidden && window.Notification?.permission === "granted") new Notification("A2A", { body: `${text}: ${fresh[0].action}`, tag: "a2a-approval" });
 }
 
 async function decideApproval(a, decision) {
@@ -1902,7 +1917,7 @@ async function decideApproval(a, decision) {
     await api("POST", a.workspace ? `/api/shared/${a.workspace.slug}/approvals/${encodeURIComponent(a.id)}` : `/v1/admin/approvals/${encodeURIComponent(a.id)}`, { decision });
     toast(decision === "approve" ? `Approved once. ${short(a.agent)} goes on.` : `Denied. ${short(a.agent)} was told.`);
   } catch (err) {
-    toast(err.message);
+    toast(err.message, "error");
     await loadApprovals();
     drawApprovals();
   }
@@ -2112,7 +2127,7 @@ function newSessionDialog() {
             h("div", { class: "dialog-actions" }, h("button", { class: "btn", type: "button", onclick: () => (dlg.close(), openSession(s.id)) }, "Open session")),
           );
         } catch (err) {
-          toast(err.message);
+          toast(err.message, "error");
         }
       },
     },
@@ -2163,7 +2178,7 @@ async function loadSession() {
     const guests = S.sessionData.members.filter((m) => m.role === "guest");
     if (!guests.some((g) => g.address === S.talk.to)) S.talk.to = guests.find((g) => g.online)?.address ?? guests[0]?.address ?? null;
   } catch (e) {
-    if (e.status !== 404) toast(e.message);
+    if (e.status !== 404) toast(e.message, "error");
     S.sessionData = { error: true };
   }
   if (S.sessionPerms === null || S.sessionPerms === undefined) loadSessionExtras();
@@ -2247,7 +2262,7 @@ function autoReplySection(members, sessionId, endpoint, reload) {
       toast(on ? `Putting ${appOf(m) ?? short(m.address)} on the team…` : `Taking ${appOf(m) ?? short(m.address)} off the team…`);
     } catch (err) {
       delete S.autoPending[`${m.address} ${sessionId}`];
-      toast(err.message);
+      toast(err.message, "error");
     }
     // The computer answers within a moment; refresh even if no live event arrives.
     setTimeout(() => (delete S.autoPending[`${m.address} ${sessionId}`], reload()), 2500);
@@ -2407,7 +2422,7 @@ function viewSession() {
       openDialog(`Invite people to ${d.name}`, h("p", {}, `${d.people} of ${d.max_members} places taken. Everyone signs in with Google or email.`), inviteSteps(url, d.name));
       if (!liveInvite) loadSession();
     } catch (err) {
-      toast(err.message);
+      toast(err.message, "error");
     }
   };
   const remove = async () => {
@@ -2431,7 +2446,7 @@ function viewSession() {
                 await loadSessions();
                 go("sessions");
               } catch (err) {
-                toast(err.message);
+                toast(err.message, "error");
               }
             },
           },
@@ -2449,7 +2464,7 @@ function viewSession() {
       loadSession();
       loadSessions().then(renderSide);
     } catch (err) {
-      toast(err.message);
+      toast(err.message, "error");
     }
   };
 
@@ -2637,7 +2652,7 @@ async function savePermissions(patch, msg) {
     toast(msg ?? S.sessionPerms.summary);
     refreshSessionBody();
   } catch (err) {
-    toast(err.message);
+    toast(err.message, "error");
   }
 }
 
@@ -2749,7 +2764,7 @@ function missionCard(d) {
       toast(`Sent to ${nameOf(r.to)}. It will split the work and hand it out.`);
       refreshSessionBody();
     } catch (err) {
-      toast(err.message);
+      toast(err.message, "error");
     }
   };
   return h(
@@ -2780,7 +2795,7 @@ function taskCard(t) {
       toast("Task stopped");
       loadSessionExtras();
     } catch (err) {
-      toast(err.message);
+      toast(err.message, "error");
     }
   };
   const voted = new Map(t.votes.map((v) => [v.address, v]));
@@ -3068,7 +3083,7 @@ function viewShared() {
       await loadShared();
       go("sessions");
     } catch (err) {
-      toast(err.message);
+      toast(err.message, "error");
     }
   };
   return {
@@ -3128,7 +3143,7 @@ function agentNameForm() {
           const res = await api("POST", "/v1/admin/rename", { name: input.value });
           toast(`Renaming ${res.asked} ${res.asked === 1 ? "agent" : "agents"} on your computer…${res.offline ? ` ${res.offline} offline ${res.offline === 1 ? "one keeps" : "ones keep"} the old name.` : ""}`);
         } catch (err) {
-          toast(err.message);
+          toast(err.message, "error");
         }
       },
     },
@@ -3168,7 +3183,7 @@ function viewSettings() {
               toast("Workspace renamed");
               renderShell();
             } catch (err) {
-              toast(err.message);
+              toast(err.message, "error");
             }
           },
         },

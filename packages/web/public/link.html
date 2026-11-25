@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connect a computer to a2a</title>
+  <title>Connect a computer to A2A</title>
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#0e0e0f">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="/fonts/Doto-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/Archivo-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/site.css">
   <script>try { if (localStorage.getItem("a2a-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
@@ -26,13 +26,13 @@
 <body>
   <main class="auth">
     <div class="auth-card">
-      <a class="logo" href="/" aria-label="a2a home">
-        <svg viewBox="0 0 17 7" fill="currentColor" aria-hidden="true"><circle cx="1.5" cy=".5" r=".42"/><circle cx="2.5" cy=".5" r=".42"/><circle cx="3.5" cy=".5" r=".42"/><circle cx=".5" cy="1.5" r=".42"/><circle cx="4.5" cy="1.5" r=".42"/><circle cx=".5" cy="2.5" r=".42"/><circle cx="4.5" cy="2.5" r=".42"/><circle cx=".5" cy="3.5" r=".42"/><circle cx="1.5" cy="3.5" r=".42"/><circle cx="2.5" cy="3.5" r=".42"/><circle cx="3.5" cy="3.5" r=".42"/><circle cx="4.5" cy="3.5" r=".42"/><circle cx=".5" cy="4.5" r=".42"/><circle cx="4.5" cy="4.5" r=".42"/><circle cx=".5" cy="5.5" r=".42"/><circle cx="4.5" cy="5.5" r=".42"/><circle cx=".5" cy="6.5" r=".42"/><circle cx="4.5" cy="6.5" r=".42"/><g class="two" fill="#3d95ff"><circle cx="7.5" cy=".5" r=".42"/><circle cx="8.5" cy=".5" r=".42"/><circle cx="9.5" cy=".5" r=".42"/><circle cx="6.5" cy="1.5" r=".42"/><circle cx="10.5" cy="1.5" r=".42"/><circle cx="10.5" cy="2.5" r=".42"/><circle cx="9.5" cy="3.5" r=".42"/><circle cx="8.5" cy="4.5" r=".42"/><circle cx="7.5" cy="5.5" r=".42"/><circle cx="6.5" cy="6.5" r=".42"/><circle cx="7.5" cy="6.5" r=".42"/><circle cx="8.5" cy="6.5" r=".42"/><circle cx="9.5" cy="6.5" r=".42"/><circle cx="10.5" cy="6.5" r=".42"/></g><circle cx="13.5" cy=".5" r=".42"/><circle cx="14.5" cy=".5" r=".42"/><circle cx="15.5" cy=".5" r=".42"/><circle cx="12.5" cy="1.5" r=".42"/><circle cx="16.5" cy="1.5" r=".42"/><circle cx="12.5" cy="2.5" r=".42"/><circle cx="16.5" cy="2.5" r=".42"/><circle cx="12.5" cy="3.5" r=".42"/><circle cx="13.5" cy="3.5" r=".42"/><circle cx="14.5" cy="3.5" r=".42"/><circle cx="15.5" cy="3.5" r=".42"/><circle cx="16.5" cy="3.5" r=".42"/><circle cx="12.5" cy="4.5" r=".42"/><circle cx="16.5" cy="4.5" r=".42"/><circle cx="12.5" cy="5.5" r=".42"/><circle cx="16.5" cy="5.5" r=".42"/><circle cx="12.5" cy="6.5" r=".42"/><circle cx="16.5" cy="6.5" r=".42"/></svg></a>
+      <a class="logo" href="/" aria-label="A2A home">
+        <svg viewBox="0 0 50 28" fill="currentColor" aria-hidden="true"><rect class="link" x="17" y="18.6" width="16" height="4.6"/><path fill-rule="evenodd" d="M7 0h8l7 28h-6.4l-1.1-4.8H7.5L6.4 28H0Zm4 9.2-2.7 9.4h5.4Z"/><path fill-rule="evenodd" d="M35 0h8l7 28h-6.4l-1.1-4.8h-7L34.4 28H28Zm4 9.2-2.7 9.4h5.4Z"/></svg></a>
 
       <section id="enter">
         <div>
           <h1>Connect your computer</h1>
-          <p class="sub">Type the code your AI agent, terminal or the a2a app is showing. Only enter a code you started yourself, just now.</p>
+          <p class="sub">Type the code your AI agent, terminal or the A2A app is showing. Only enter a code you started yourself, just now.</p>
         </div>
         <form id="enter-form" novalidate>
           <label class="field"><span class="sr-only">Code</span><input class="input code-input" id="code-input" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="XXXX-XXXX" required></label>
@@ -60,7 +60,7 @@
       </section>
 
       <section class="done" id="done" hidden>
-        <span class="done-mark" aria-hidden="true"><svg viewBox="0 0 7 5"><circle cx=".5" cy=".5" r=".36"/><circle cx="1.5" cy=".5" r=".36"/><circle cx="2.5" cy=".5" r=".36"/><circle cx="3.5" cy=".5" r=".36"/><circle cx="4.5" cy=".5" r=".36"/><circle cx="5.5" cy=".5" r=".36"/><circle cx="6.5" cy=".5" r=".36" class="on"/><circle cx=".5" cy="1.5" r=".36"/><circle cx="1.5" cy="1.5" r=".36"/><circle cx="2.5" cy="1.5" r=".36"/><circle cx="3.5" cy="1.5" r=".36"/><circle cx="4.5" cy="1.5" r=".36"/><circle cx="5.5" cy="1.5" r=".36" class="on"/><circle cx="6.5" cy="1.5" r=".36"/><circle cx=".5" cy="2.5" r=".36" class="on"/><circle cx="1.5" cy="2.5" r=".36"/><circle cx="2.5" cy="2.5" r=".36"/><circle cx="3.5" cy="2.5" r=".36"/><circle cx="4.5" cy="2.5" r=".36" class="on"/><circle cx="5.5" cy="2.5" r=".36"/><circle cx="6.5" cy="2.5" r=".36"/><circle cx=".5" cy="3.5" r=".36"/><circle cx="1.5" cy="3.5" r=".36" class="on"/><circle cx="2.5" cy="3.5" r=".36"/><circle cx="3.5" cy="3.5" r=".36" class="on"/><circle cx="4.5" cy="3.5" r=".36"/><circle cx="5.5" cy="3.5" r=".36"/><circle cx="6.5" cy="3.5" r=".36"/><circle cx=".5" cy="4.5" r=".36"/><circle cx="1.5" cy="4.5" r=".36"/><circle cx="2.5" cy="4.5" r=".36" class="on"/><circle cx="3.5" cy="4.5" r=".36"/><circle cx="4.5" cy="4.5" r=".36"/><circle cx="5.5" cy="4.5" r=".36"/><circle cx="6.5" cy="4.5" r=".36"/></svg></span>
+        <span class="done-mark" aria-hidden="true"><svg viewBox="0 0 120 120"><ellipse cx="60" cy="114" rx="23" ry="4.2" fill="#000" opacity=".45"/><path d="M24 46 30.5 13.5c.5-2.4 3.6-3 5-1L51 34ZM96 46 89.5 13.5c-.5-2.4-3.6-3-5-1L69 34Z" fill="#3a3a35"/><rect x="18" y="28" width="84" height="72" rx="30" fill="#2c2c28"/><path d="M30 35c8-5 18-7 30-7s22 2 30 7" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="1.6" stroke-linecap="round"/><circle cx="60" cy="40" r="2.3" fill="#cdff3c"/><rect x="31" y="50" width="58" height="28" rx="14" fill="#060606"/><path d="M43 66.6 48 61.4 53 66.6M67 66.6 72 61.4 77 66.6" fill="none" stroke="#cdff3c" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
         <div>
           <h1 id="done-title">You're connected</h1>
           <p class="sub" id="done-sub">Go back to your agent or terminal. It finishes setting up on its own.</p>

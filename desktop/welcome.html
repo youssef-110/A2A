@@ -3,24 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:">
-  <title>a2a</title>
+  <title>A2A</title>
   <style>
     @font-face { font-family: "Geist"; src: url("fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; }
-    @font-face { font-family: "Doto"; src: url("fonts/Doto-Variable.woff2") format("woff2"); font-weight: 400 900; }
+    @font-face { font-family: "Archivo"; src: url("fonts/Archivo-Variable.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; }
     @font-face { font-family: "Geist Mono"; src: url("fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; }
-    :root { --ink: #f4f4f1; --ink-2: #b8b8b2; --ink-3: #9b9b95; --hair: rgb(255 255 255 / 0.13); --blue: #3d95ff; --ease: cubic-bezier(0.22, 1, 0.36, 1); color-scheme: dark; }
+    :root { --ink: #f2f1ea; --ink-2: #b0afa6; --ink-3: #8f8e86; --hair: rgb(255 255 255 / 0.13); --blue: #cdff3c; --ease: cubic-bezier(0.22, 1, 0.36, 1); color-scheme: dark; }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; }
-    body { background: #0e0e0f; color: var(--ink); font: 400 15px/1.5 "Geist", -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; user-select: none; }
-    ::selection { background: rgb(61 149 255 / 0.4); }
+    body { background: #0b0b0a; color: var(--ink); font: 400 15px/1.5 "Geist", -apple-system, "Segoe UI", system-ui, sans-serif; letter-spacing: -0.01em; -webkit-font-smoothing: antialiased; user-select: none; }
+    ::selection { background: #cdff3c; color: #0b0b0a; }
     .drag { position: fixed; inset: 0 0 auto 0; height: 52px; -webkit-app-region: drag; }
     main { min-height: 100%; display: grid; place-items: center; padding: 64px 32px 48px; }
     .card { width: min(440px, 100%); display: grid; justify-items: center; gap: 0; text-align: center; }
-    .mark { width: 92px; height: 38px; margin-bottom: 34px; fill: var(--ink); animation: rise 0.9s var(--ease) both; }
-    h1 { margin: 0; font: 800 30px/1.05 "Doto", "Geist Mono", monospace; text-transform: uppercase; letter-spacing: 0.01em; text-wrap: balance; animation: rise 0.9s var(--ease) 60ms both; }
+    .mark { width: 84px; height: 47px; margin-bottom: 34px; fill: var(--ink); animation: rise 0.9s var(--ease) both; }
+    .mark .link { fill: #cdff3c; }
+    h1 { margin: 0; font: 900 44px/0.9 "Archivo", "Arial Narrow", sans-serif; font-stretch: 62%; text-transform: uppercase; letter-spacing: 0; text-wrap: balance; animation: rise 0.9s var(--ease) 60ms both; }
     p { margin: 14px 0 0; color: var(--ink-2); font-size: 16px; line-height: 1.5; text-wrap: pretty; animation: rise 0.9s var(--ease) 120ms both; }
     .actions { display: grid; gap: 10px; width: 100%; margin-top: 32px; animation: rise 0.9s var(--ease) 180ms both; }
-    button { -webkit-app-region: no-drag; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 22px; border: 0; border-radius: 2px; background: var(--ink); color: #0e0e0f; font: 500 16px "Geist", system-ui, sans-serif; letter-spacing: -0.01em; cursor: pointer; transition: opacity 0.2s, transform 0.16s var(--ease), background-color 0.2s; }
+    button { -webkit-app-region: no-drag; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 22px; border: 0; border-radius: 999px; background: #cdff3c; color: #0b0b0a; font: 600 15px "Geist", system-ui, sans-serif; letter-spacing: -0.01em; cursor: pointer; transition: opacity 0.2s, transform 0.16s var(--ease), background-color 0.2s; }
     button:hover { opacity: 0.9; }
     button:active { transform: scale(0.97); }
     button.ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--hair); }
@@ -28,10 +29,10 @@
     button:disabled { opacity: 0.5; cursor: progress; }
     button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
     .fine { margin-top: 20px; color: var(--ink-3); font-size: 13px; animation: rise 0.9s var(--ease) 240ms both; }
-    .code { margin-top: 28px; padding: 22px 28px; border-radius: 4px; background: #0a0a0b; box-shadow: inset 0 0 0 1px var(--hair); font: 500 36px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.14em; user-select: text; animation: rise 0.9s var(--ease) both; }
+    .code { margin-top: 28px; padding: 22px 28px; border-radius: 18px; background: #080807; box-shadow: inset 0 0 0 1px var(--hair); font: 500 36px "Geist Mono", ui-monospace, monospace; letter-spacing: 0.14em; user-select: text; animation: rise 0.9s var(--ease) both; }
     .wait { display: inline-flex; align-items: center; gap: 10px; margin-top: 22px; color: var(--ink-2); font-size: 14px; }
-    .wait i { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); animation: breathe 1.3s ease-in-out infinite; }
-    .err { color: #ff6961; }
+    .wait i { width: 7px; height: 7px; border-radius: 1px; background: var(--blue); animation: breathe 1.3s ease-in-out infinite; }
+    .err { color: #ff5a4e; }
     .busy .mark { animation: breathe 1.4s ease-in-out infinite; }
     [hidden] { display: none !important; }
     @keyframes rise { from { opacity: 0; transform: translateY(10px); filter: blur(6px); } }
@@ -43,18 +44,18 @@
   <div class="drag" aria-hidden="true"></div>
   <main>
     <div class="card" id="card">
-      <svg class="mark" viewBox="0 0 17 7" aria-hidden="true"><circle cx="1.5" cy="0.5" r=".42"/><circle cx="2.5" cy="0.5" r=".42"/><circle cx="3.5" cy="0.5" r=".42"/><circle cx="0.5" cy="1.5" r=".42"/><circle cx="4.5" cy="1.5" r=".42"/><circle cx="0.5" cy="2.5" r=".42"/><circle cx="4.5" cy="2.5" r=".42"/><circle cx="0.5" cy="3.5" r=".42"/><circle cx="1.5" cy="3.5" r=".42"/><circle cx="2.5" cy="3.5" r=".42"/><circle cx="3.5" cy="3.5" r=".42"/><circle cx="4.5" cy="3.5" r=".42"/><circle cx="0.5" cy="4.5" r=".42"/><circle cx="4.5" cy="4.5" r=".42"/><circle cx="0.5" cy="5.5" r=".42"/><circle cx="4.5" cy="5.5" r=".42"/><circle cx="0.5" cy="6.5" r=".42"/><circle cx="4.5" cy="6.5" r=".42"/><circle cx="7.5" cy="0.5" r=".42" class="two" fill="#3d95ff"/><circle cx="8.5" cy="0.5" r=".42" class="two" fill="#3d95ff"/><circle cx="9.5" cy="0.5" r=".42" class="two" fill="#3d95ff"/><circle cx="6.5" cy="1.5" r=".42" class="two" fill="#3d95ff"/><circle cx="10.5" cy="1.5" r=".42" class="two" fill="#3d95ff"/><circle cx="10.5" cy="2.5" r=".42" class="two" fill="#3d95ff"/><circle cx="9.5" cy="3.5" r=".42" class="two" fill="#3d95ff"/><circle cx="8.5" cy="4.5" r=".42" class="two" fill="#3d95ff"/><circle cx="7.5" cy="5.5" r=".42" class="two" fill="#3d95ff"/><circle cx="6.5" cy="6.5" r=".42" class="two" fill="#3d95ff"/><circle cx="7.5" cy="6.5" r=".42" class="two" fill="#3d95ff"/><circle cx="8.5" cy="6.5" r=".42" class="two" fill="#3d95ff"/><circle cx="9.5" cy="6.5" r=".42" class="two" fill="#3d95ff"/><circle cx="10.5" cy="6.5" r=".42" class="two" fill="#3d95ff"/><circle cx="13.5" cy="0.5" r=".42"/><circle cx="14.5" cy="0.5" r=".42"/><circle cx="15.5" cy="0.5" r=".42"/><circle cx="12.5" cy="1.5" r=".42"/><circle cx="16.5" cy="1.5" r=".42"/><circle cx="12.5" cy="2.5" r=".42"/><circle cx="16.5" cy="2.5" r=".42"/><circle cx="12.5" cy="3.5" r=".42"/><circle cx="13.5" cy="3.5" r=".42"/><circle cx="14.5" cy="3.5" r=".42"/><circle cx="15.5" cy="3.5" r=".42"/><circle cx="16.5" cy="3.5" r=".42"/><circle cx="12.5" cy="4.5" r=".42"/><circle cx="16.5" cy="4.5" r=".42"/><circle cx="12.5" cy="5.5" r=".42"/><circle cx="16.5" cy="5.5" r=".42"/><circle cx="12.5" cy="6.5" r=".42"/><circle cx="16.5" cy="6.5" r=".42"/></svg>
+      <svg class="mark" aria-hidden="true" viewBox="0 0 50 28" fill="currentColor"><rect class="link" x="17" y="18.6" width="16" height="4.6"/><path fill-rule="evenodd" d="M7 0h8l7 28h-6.4l-1.1-4.8H7.5L6.4 28H0Zm4 9.2-2.7 9.4h5.4Z"/><path fill-rule="evenodd" d="M35 0h8l7 28h-6.4l-1.1-4.8h-7L34.4 28H28Zm4 9.2-2.7 9.4h5.4Z"/></svg>
 
       <section id="intro">
-        <h1>Connect this computer to a2a</h1>
-        <p>Sign in with your browser. This computer then joins your sessions as your agent, and keeps answering while a2a runs in the background.</p>
+        <h1>Connect this computer to A2A</h1>
+        <p>Sign in with your browser. This computer then joins your sessions as your agent, and keeps answering while A2A runs in the background.</p>
         <div class="actions"><button id="start" type="button">Sign in with your browser</button></div>
         <p class="fine">Use Google or email, in your own browser.</p>
       </section>
 
       <section id="waiting" hidden>
         <h1>Type this code in your browser</h1>
-        <p>We opened a2a in your browser. Sign in, type this code, then press Connect. Never share it with anyone.</p>
+        <p>We opened A2A in your browser. Sign in, type this code, then press Connect. Never share it with anyone.</p>
         <div class="code" id="code"></div>
         <span class="wait" role="status"><i></i>Waiting for your browser</span>
         <div class="actions"><button class="ghost" id="reopen" type="button">Open the browser again</button><button class="ghost" id="cancel" type="button">Cancel</button></div>
