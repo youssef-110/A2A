@@ -660,7 +660,7 @@ desktop/      Electron desktop app (Windows, macOS, Linux) and the script that p
 .github/      workflow that builds and smoke-tests the Mac and Linux desktop apps
 examples/     policy, demo agents and workspaces
 demo/         pnpm demo and pnpm demo:scenario
-docs/         design plan (plan.html), brand guide (brand.md), project capsule (capsule.md)
+docs/         design plan (plan.html), brand guide (brand.md), the landing film's source (film/), project capsule (capsule.md)
 test/         node:test suites
 ```
 

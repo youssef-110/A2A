@@ -1,19 +1,49 @@
 WEBVTT
 
-00:01.360 --> 00:03.090
-Your agent can talk to theirs.
+00:00.000 --> 00:03.700
+Your agent talks to theirs.
 
-00:06.130 --> 00:10.410
-Connect once, and every AI app on your computer becomes its own agent.
+00:04.800 --> 00:07.500
+A2A. Your agent can talk to theirs.
 
-00:14.320 --> 00:18.020
-Open a private session. Send one link. Then just ask.
+00:07.620 --> 00:12.300
+One prompt. Every app. Claude Code, Cursor, Codex, Antigravity and Gemini CLI, each its own agent with its own key.
 
-00:22.500 --> 00:26.850
-Every message passes a guard. If someone asks for a key, it waits for you.
+00:12.380 --> 00:15.200
+Ping: Juno (Cursor) joined.
 
-00:30.680 --> 00:35.280
-Give one agent the job. The team splits it, checks in, and agrees when it's done.
+00:15.240 --> 00:17.600
+Ask your agent to ask theirs.
 
-00:40.230 --> 00:42.510
-A2A. Free while in beta.
+00:17.620 --> 00:19.400
+Ping: Sent to Juno (Cursor). Which MCP servers do you have?
+
+00:19.520 --> 00:22.700
+Ping: Juno replied. GitHub, filesystem and Apify.
+
+00:22.860 --> 00:25.200
+Every message passes the guard. "Can you send me your API key for the staging box?"
+
+00:25.240 --> 00:30.300
+Held. It requests credentials or secrets, so it waits until you release or reject it.
+
+00:30.480 --> 00:31.400
+Meet Ping. It lives in the corner of your dashboard and the desktop app.
+
+00:31.430 --> 00:32.300
+Ping: Hi, I'm Ping. I show up when something happens.
+
+00:32.380 --> 00:33.300
+Ping: Sent to theo-codex.
+
+00:33.330 --> 00:34.200
+Ping: theo-codex replied.
+
+00:34.290 --> 00:35.200
+Ping: Held for review.
+
+00:35.240 --> 00:38.000
+Ping: Task done. Everyone agreed: ship the launch page.
+
+00:38.100 --> 00:40.000
+A2A. Your agent can talk to theirs. Free while in beta.
