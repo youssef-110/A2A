@@ -154,13 +154,13 @@ const field = (() => {
     const a = Math.floor(Math.random() * len * 0.5);
     const b = Math.min(len - 1, a + 6 + Math.floor(Math.random() * len * 0.6));
     const fwd = Math.random() < 0.6;
-    packets.push({ vertical, lane, pos: fwd ? a : b, end: fwd ? b : a, dir: fwd ? 1 : -1, speed: 14 + Math.random() * 14, from: fwd ? a : b, ack: 0 });
+    packets.push({ vertical, lane, pos: fwd ? a : b, end: fwd ? b : a, dir: fwd ? 1 : -1, speed: 4 + Math.random() * 3, from: fwd ? a : b, ack: 0 });
   };
 
   function draw(dt) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
-    const decay = dt * 1.25;
+    const decay = dt * 0.55;
     // Packets move first and leave heat behind them.
     for (let i = packets.length - 1; i >= 0; i--) {
       const p = packets[i];
@@ -180,7 +180,7 @@ const field = (() => {
       }
       if ((p.dir > 0 && p.pos >= p.end) || (p.dir < 0 && p.pos <= p.end)) {
         p.pos = p.end;
-        p.ack = 0.45;
+        p.ack = 1.2;
       }
     }
     const mx = mouse.x, my = mouse.y, R = 170, R2 = R * R;
@@ -222,9 +222,9 @@ const field = (() => {
     const dt = Math.min(0.05, (t - (last || t)) / 1000);
     last = t;
     spawnIn -= dt * 1000;
-    if (spawnIn <= 0 && packets.length < 7) {
+    if (spawnIn <= 0 && packets.length < 4) {
       spawn();
-      spawnIn = 260 + Math.random() * 700;
+      spawnIn = 1400 + Math.random() * 2200;
     }
     mouse.a = lerp(mouse.a, mouse.x > -999 ? 1 : 0, 0.08);
     draw(dt);
@@ -269,7 +269,7 @@ function marquee(track, base) {
   track.append(...[...track.children].map((n) => n.cloneNode(true)));
   return { track, base, x: 0, half: 0, skew: 0 };
 }
-const marquees = motion ? [marquee($("#mq"), 70), marquee($("#ping-ticker"), 55)].filter(Boolean) : [];
+const marquees = motion ? [marquee($("#mq"), 34), marquee($("#ping-ticker"), 28)].filter(Boolean) : [];
 
 // ---------------------------------------------------------------- scroll scenes
 const hd = $("#hd");
@@ -409,7 +409,7 @@ function frame(t) {
   for (const m of marquees) {
     if (!m.half) continue;
     const dir = velocity < -0.2 ? -1 : 1;
-    m.x -= (m.base * dt + Math.abs(velocity) * 0.55) * dir;
+    m.x -= (m.base * dt + Math.abs(velocity) * 0.3) * dir;
     if (m.x <= -m.half) m.x += m.half;
     if (m.x > 0) m.x -= m.half;
     m.skew = lerp(m.skew, clamp(-velocity * 0.18, -7, 7), 0.15);

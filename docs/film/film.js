@@ -85,12 +85,12 @@ function field(ctx, u, { alpha = 1, dot = 'rgba(242,241,234,', hot = 'rgba(205,2
   ctx.fillStyle = `${dot}${0.07 * alpha})`;
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) ctx.fillRect(ox + x * GAP - 1, oy + y * GAP - 1, 2, 2);
   // packets: lane, start beat, length, speed; trail of ~10 cells
-  const N = Math.round(14 * density);
+  const N = Math.round(9 * density);
   for (let i = 0; i < N; i++) {
-    const period = 6 + hash01(i, 3) * 6;
+    const period = 14 + hash01(i, 3) * 10;
     const phase = hash01(i, 5) * period;
     const k = ((u + phase) % period) / period; // 0..1 through its trip, then it waits
-    const trip = 0.55;
+    const trip = 0.7;
     if (k > trip) continue;
     const p = k / trip;
     const vertical = hash01(i, 7) < 0.3;
@@ -672,10 +672,9 @@ function grain(ctx, t) {
     for (let i = 0; i < d.data.length; i += 4) { const v = Math.floor(rnd() * 255); d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; }
     g.putImageData(d, 0, 0);
   }
-  const f = Math.floor(t * 24);
-  const ox = Math.floor(hash01(f, 2) * 256), oy = Math.floor(hash01(f, 4) * 256);
+  const ox = 0, oy = 0; // a still grain, like the site's: the background never shimmers
   ctx.save();
-  ctx.globalAlpha = 0.055;
+  ctx.globalAlpha = 0.035;
   ctx.globalCompositeOperation = 'overlay';
   for (let y = -oy; y < H; y += 256) for (let x = -ox; x < W; x += 256) ctx.drawImage(NOISE, x, y);
   ctx.restore();

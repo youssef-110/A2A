@@ -1,5 +1,5 @@
-/* A2A landing page (docs/brand.md). Night and bone neutrals, one signal lime, film grain over
-   everything. Archivo at its narrowest and heaviest for display, Geist for reading, Geist Mono for
+/* A2A landing page (docs/brand.md). Night and bone neutrals, one signal lime, a fine still grain
+   over everything. Archivo at its narrowest and heaviest for display, Geist for reading, Geist Mono for
    the small bracketed labels. The type is the picture; the relay shows up as a field of dots behind
    the hero, and Ping (ping.js) is the only character. Motion lives under html.motion and html.ready
    (set by site.js), so without script or with reduced motion every word is simply there. */
@@ -56,10 +56,9 @@ main > section, .ft { color: var(--fg); background: var(--bg); position: relativ
 .wrap { width: 100%; max-width: 1680px; margin-inline: auto; padding-inline: var(--pad); }
 .lime { color: var(--lime); }
 
-/* Film grain over the whole page: a still noise tile, nudged a few times a second. */
-.grain { position: fixed; inset: -60px; z-index: 60; pointer-events: none; background: url("/img/grain.png") 0 0 / 180px 180px; opacity: 0.07; }
-html.motion .grain { animation: grain 0.9s steps(5) infinite; }
-@keyframes grain { 20% { transform: translate(-22px, 14px); } 40% { transform: translate(18px, -26px); } 60% { transform: translate(-12px, 30px); } 80% { transform: translate(26px, 8px); } 100% { transform: translate(0, 0); } }
+/* Film grain over the whole page: one still noise tile, blended so it gives texture to type and
+   the lime without lifting the blacks into a grey haze. It never moves. */
+.grain { position: fixed; inset: 0; z-index: 60; pointer-events: none; background: url("/img/grain.png") 0 0 / 180px 180px; opacity: 0.22; mix-blend-mode: overlay; }
 
 /* ---------------------------------------------------------------- type */
 .label { display: flex; align-items: center; gap: 10px; font: 500 11.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 28px; }
