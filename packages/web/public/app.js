@@ -1819,29 +1819,62 @@ function accountMenu(anchor) {
   );
 }
 
-// In the desktop app, show whether this computer's agent is connected.
+// In the desktop app, show whether this computer's agent is connected, and offer a newer app.
 let deviceState = null;
+let deviceUpdate = null;
 function deviceLine() {
   if (!window.a2aDesktop) return null;
   const on = deviceState?.connected;
   return h(
     "div",
-    { class: "device", title: deviceState?.address ?? "" },
-    h("span", { class: `lamp ${on ? "on" : ""}` }),
-    on ? "This computer is connected" : deviceState ? "This computer is offline" : "Checking this computer…",
+    { class: "device-wrap" },
+    h(
+      "div",
+      { class: "device", title: deviceState?.address ?? "" },
+      h("span", { class: `lamp ${on ? "on" : ""}` }),
+      on ? "This computer is connected" : deviceState ? "This computer is offline" : "Checking this computer…",
+    ),
+    deviceUpdate
+      ? h("button", { class: "btn small device-update", type: "button", onclick: () => window.a2aDesktop.openUrl(`${location.origin}/download/${deviceUpdate.os}`) }, h("span", { html: ICONS.download }), `Update the app to ${deviceUpdate.version}`)
+      : null,
   );
+}
+/** True when version a ("0.2.10") is newer than b ("0.2.9"). */
+const newerVersion = (a, b) => {
+  const x = a.split(".").map(Number);
+  const y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+// Installed apps never update themselves, so the dashboard they load tells them when a newer one is out.
+// Every desktop build since the first exposes info(), so this reaches old installs too.
+async function checkDesktopUpdate() {
+  try {
+    const { version, platform } = await window.a2aDesktop.info();
+    const os = { win32: "windows", darwin: "mac", linux: "linux" }[platform];
+    if (!os) return;
+    const m = await (await fetch(`/downloads/desktop/${os}.json`, { cache: "no-store" })).json();
+    const latest = /(\d+\.\d+\.\d+)/.exec(m.file)?.[1];
+    if (!latest || !newerVersion(latest, version)) return;
+    deviceUpdate = { version: latest, os };
+    document.querySelector(".device-wrap")?.replaceWith(deviceLine());
+    toast(`A new a2a app is out: ${latest}`, "info", "Use Update the app at the bottom left. It installs over this one.");
+  } catch {
+    /* offline, or an app too old to say its version: no notice */
+  }
 }
 function watchDevice() {
   if (!window.a2aDesktop) return;
   const update = (s) => {
     deviceState = s;
-    document.querySelector(".device")?.replaceWith(deviceLine());
+    document.querySelector(".device-wrap")?.replaceWith(deviceLine());
   };
   window.a2aDesktop
     .status()
     .then(update)
     .catch(() => {});
   window.a2aDesktop.onStatus?.(update);
+  checkDesktopUpdate();
 }
 
 async function signOut() {

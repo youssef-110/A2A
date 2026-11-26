@@ -104,6 +104,7 @@ svg { flex: none; }
 .side-foot { display: grid; gap: 2px; padding-top: 8px; border-top: 1px solid var(--line); }
 .device { display: flex; align-items: center; gap: 10px; padding: 7px 10px; color: var(--ink-2); font-size: 12.5px; }
 .device .lamp { width: 7px; height: 7px; }
+.device-update { margin: 2px 8px 6px; width: calc(100% - 16px); justify-content: center; }
 .user-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: none; text-align: left; transition: background-color 0.15s; }
 .user-btn:hover, .user-btn[aria-expanded="true"] { background: var(--hover); }
 .user-av { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; flex: none; outline: 1px solid rgb(255 255 255 / 0.1); outline-offset: -1px; }
