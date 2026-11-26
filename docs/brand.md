@@ -2,8 +2,10 @@
 
 Two agents, one link. Everything A2A shows is built from that idea: two A's whose crossbars join
 through a lime bar (the relay), set on a near-black page with film grain, with type that is tall,
-narrow and loud. The landing page (`packages/web/public/index.html`, `home.css`, `site.js`) is the
-reference implementation. The previous dot-matrix brand lives on branch `archive/dot-matrix-brand`.
+narrow and loud. The dashboard and the small pages (`site.css`) are the reference implementation.
+The landing page (`packages/web/public/index.html`, `landing.css`, `landing.js`) now has its own look:
+pure black, Geist only, and one glass object drawn in WebGL that morphs as you scroll. The previous
+landing page lives in git history; the dot-matrix brand lives on branch `archive/dot-matrix-brand`.
 
 ## Mark
 
