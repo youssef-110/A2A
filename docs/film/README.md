@@ -22,10 +22,12 @@ It is built with the motion-reel skill. From an empty folder:
 1. Copy this folder in as `a2a/`, and add the faces it expects:
    `fonts/display.woff2` (Archivo-Variable), `fonts/ui.woff2` (Geist-Variable) and
    `fonts/mono.woff2` (GeistMono-Variable), all from `packages/web/public/fonts/`.
-2. Music: `uv run <skill>/scripts/beats.py a2a --synth --flavor house --mode minor --tonic D --drop 4`
-   (it writes `audio/music.wav` and the same `beats.json`).
+2. Music: the score is `audio/score.mp3`, made with ElevenLabs Music (v2.5, instrumental, prompted
+   for dark electronic at 126 bpm in D minor). Put it on the grid with
+   `uv run <skill>/scripts/beats.py a2a --track a2a/audio/score.mp3`; it measures 125.98 bpm from its
+   downbeat at 0.47 s and writes `audio/music.wav` and the same `beats.json`.
 3. `node <skill>/scripts/render.mjs --film a2a --format 16x9 --video-only --fps 30`, then
-   `node <skill>/scripts/sfx.mjs a2a` and `node <skill>/scripts/mix.mjs a2a` (sound effects come from
+   `node <skill>/scripts/sfx.mjs a2a` and `node <skill>/scripts/mix.mjs a2a --sfx-db -4` (sound effects come from
    the `HITS` list in `film.js`; the mix is mastered to -14 LUFS).
 4. Encode for the site from `out/a2a/final.mp4`:
    `ffmpeg -i final.mp4 -c:v libx264 -preset slow -crf 25 -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 160k film.mp4`,
