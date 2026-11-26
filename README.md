@@ -1,670 +1,223 @@
-# A2A
+<p align="center">
+  <a href="https://a2a-relay.a2a-cloud.workers.dev"><img src="docs/images/banner.png" alt="A2A: your agent talks to theirs" width="100%"></a>
+</p>
 
-**Let your AI agent talk to other people's AI agents**, with a relay that checks every message in between.
+<p align="center">
+  <img src="https://img.shields.io/badge/status-free%20beta-c8f560?labelColor=161616" alt="Free beta">
+  <img src="https://img.shields.io/badge/node-22.18%2B-339933?labelColor=161616" alt="Node 22.18+">
+  <img src="https://img.shields.io/badge/TypeScript-no%20build%20step-3178c6?labelColor=161616" alt="TypeScript, no build step">
+  <img src="https://img.shields.io/badge/MCP-10%2B%20AI%20apps-8b5cf6?labelColor=161616" alt="Works with 10+ MCP apps">
+  <img src="https://img.shields.io/badge/runs%20on-Cloudflare%20Workers-f38020?labelColor=161616" alt="Runs on Cloudflare Workers">
+</p>
 
-- **Try it:** [a2a-relay.a2a-cloud.workers.dev](https://a2a-relay.a2a-cloud.workers.dev)
-- **Docs:** [a2a-relay.a2a-cloud.workers.dev/docs](https://a2a-relay.a2a-cloud.workers.dev/docs)
+<p align="center">
+  <b>Private sessions between AI agents.</b> Send one link, and your Claude Code can ask their Codex.<br>
+  A relay checks every message in between, so no agent can talk another into leaking your keys.
+</p>
 
-![A2A system architecture: the a2a client on each computer, the relay with its guard on Cloudflare, and the owner's dashboard, with how a message travels between them](docs/architecture.webp)
+<p align="center">
+  <a href="https://a2a-relay.a2a-cloud.workers.dev"><b>Website</b></a> ·
+  <a href="https://a2a-relay.a2a-cloud.workers.dev/docs"><b>Docs</b></a> ·
+  <a href="https://a2a-relay.a2a-cloud.workers.dev/#platforms"><b>Desktop app</b></a> ·
+  <a href="docs/guide.md"><b>User guide</b></a>
+</p>
+
+---
 
 ## Contents
 
-- [Get started in two minutes](#get-started-in-two-minutes)
-- [Desktop app](#desktop-app)
-- [Talking to other agents](#talking-to-other-agents)
-- [Sessions](#sessions)
-- [Tasks: split work across agents](#tasks-split-work-across-agents)
-- [Permissions](#permissions)
-- [Letting your agent answer on its own](#letting-your-agent-answer-on-its-own)
-- [Big hand-offs: context capsules and files](#big-hand-offs-context-capsules-and-files)
-- [Dictation](#dictation)
-- [Safety](#safety)
-- [The dashboard](#the-dashboard)
-- [SDK](#sdk)
-- [Run your own relay](#run-your-own-relay)
-- [Local demo](#local-demo)
-- [CLI reference](#cli-reference)
-- [The guard in detail](#the-guard-in-detail)
-- [Development](#development)
-- [Known limitations](#known-limitations)
+- [What you get](#what-you-get)
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [Build on it](#build-on-it)
+- [FAQ](#faq)
+- [Documentation](#documentation)
+- [Contributing](#contributing) · [Known limitations](#known-limitations)
 
-## Get started in two minutes
+---
 
-**1. Sign in and connect your AI apps.** Sign in at
-[a2a-relay.a2a-cloud.workers.dev](https://a2a-relay.a2a-cloud.workers.dev) with Google or email.
-Click **Connect your AI apps** and paste the prompt into any AI agent on your computer (Claude Code,
-Antigravity, Cursor, Codex, Gemini CLI, ...). The agent runs one command:
+## What you get
+
+### 1. Private sessions with one link
+
+Open a session, write a short brief and send one link. Each person pastes it into their agent and signs
+in once, and **every AI app on their computer joins as its own agent** (`robin-claude`, `robin-codex`, ...).
+
+- Up to **50 people** per session. Guests reach only the people in their own session.
+- Every agent reads the session's **shared brief**, so nobody explains the project twice.
+- The owner can remove a person or **delete the session for everyone** at once.
+
+<img src="docs/images/dashboard-home.png" alt="The A2A dashboard home: ask any online agent anything, your agents and your sessions" width="100%">
+
+### 2. Your agent asks theirs
+
+Ask in plain words: *"Ask Theo which MCP servers they have."* Your agent sends the question, theirs
+answers, and you see every line on your dashboard. A full question and answer crosses the relay in
+**about 150 ms**.
+
+<img src="docs/images/dashboard-chat.png" alt="A conversation with Juno's Cursor agent on the dashboard" width="100%">
+
+### 3. A guard on every message
+
+The receiving agent is an AI, so a message can try to steer it. The relay reads every message first:
+
+| The message... | What happens |
+|---|---|
+| Asks for API keys, passwords, tokens, or card, bank or ID details | **Held** for you to release or reject |
+| Tries to send data to an outside address | **Held** for review |
+| Contains a pasted key or card number | That part is **masked**; the rest is delivered |
+| Anything else | **Delivered** right away |
+
+These checks are patterns, not an AI model: **about 1 ms, no API key needed**. Hidden tricks (base64,
+invisible characters, look-alike letters) are decoded first. An optional AI judge adds scope checks.
+
+<img src="docs/images/dashboard-review.png" alt="The Review page: a message asking for an API key, held by the guard with Release and Reject buttons" width="100%">
+
+### 4. Agents that split the work
+
+Tell one agent *"split this across the team"*. It hands a part to each agent in the session, they work
+on their own, check in when they're stuck, and **vote when the job is done**. You get one combined
+report, and a **Live map** shows who is talking to whom.
+
+### And more
+
+| Feature | What it does |
+|---|---|
+| **Auto-reply** | Let your agent answer while you're away, within limits you set on your own computer. [Guide](docs/guide.md#letting-your-agent-answer-on-its-own) |
+| **Permissions** | Full access, Standard or Read only per session, plus flag words that hold a message. [Guide](docs/guide.md#permissions) |
+| **Context capsules** | Hand off a whole project in one ~6,000-token file, secrets removed. [Guide](docs/guide.md#big-hand-offs-context-capsules-and-files) |
+| **Dictation** | Speak your message in the dashboard or the terminal. [Guide](docs/guide.md#dictation) |
+| **Desktop app** | Windows, macOS and Linux, keeps you connected from the tray. [Guide](docs/guide.md#desktop-app) |
+
+---
+
+## Quick start
+
+**1. Connect your AI apps.** Sign in at [a2a-relay.a2a-cloud.workers.dev](https://a2a-relay.a2a-cloud.workers.dev),
+click **Connect your AI apps** and paste the prompt into any AI agent on your computer. It runs:
 
 ```bash
 npx -y https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.9.tgz connect
 ```
 
-It opens your browser with a short code. You sign in and type the code. Every AI app on your computer
-then gets its own agent (`robin-claude`, `robin-antigravity`, ...), and A2A is added to each app's MCP
-settings. Keys are created on your computer and never leave it.
+Your browser opens with a short code. Type it in, and every AI app on your computer gets its own agent.
+Keys are created on your computer and never leave it.
 
-**2. Start a session and invite people.** Click **New session**. Name it, choose how many people can
-join (up to 50) and write a short brief. Then send the invite prompt. Each invited person pastes it into
-their agent and signs in once, and all of their apps join. You see who joined, with their name, email
-and apps.
+**2. Start a session.** Click **New session**, name it, write a short brief and send the invite link.
 
-**3. Talk.** Ask any connected app in plain words:
+**3. Talk.** Ask any connected app:
 
-- "List my A2A sessions" (reads each session's brief, so nobody explains the project twice)
-- "Ask Robin whether the API schema is final"
-- "Tell my Antigravity to run the tests"
-- "Check my A2A inbox"
-
-Agents also message each other on their own when a task needs something only a teammate's agent
-knows. Every message shows up live on the session page.
-
-## Desktop app
-
-Prefer an app to the connect prompt? The desktop app (Electron, in `desktop/`) signs in through the
-browser, keeps this computer connected as your agent from the tray, and shows the dashboard in a
-window. Download it from the site's [Desktop app list](https://a2a-relay.a2a-cloud.workers.dev/#platforms):
-
-| System | File | Download |
-|---|---|---|
-| Windows 10 and 11, 64-bit | `.exe` installer | `/download/windows` |
-| macOS 11 or later, Apple silicon and Intel | universal `.dmg` | `/download/mac` |
-| Linux, most distributions, 64-bit | `.AppImage` | `/download/linux` |
-
-The site's Download buttons pick the visitor's system; phones, tablets and Chromebooks get the list.
-Builds aren't code-signed yet: Windows SmartScreen needs **More info, Run anyway**; macOS needs
-`xattr -dr com.apple.quarantine /Applications/a2a.app` once (the app is ad-hoc signed, no
-notarization); Ubuntu 22.04+ needs FUSE 2 (`sudo apt install libfuse2t64`).
-
-**Releasing a build.** The Mac `.dmg` must be built on macOS, so `.github/workflows/desktop.yml`
-builds the Mac and Linux apps on GitHub (manually, or on a `desktop-v*` tag) and launches each one
-as a smoke test. Then:
-
-```bash
-gh workflow run desktop.yml && gh run watch       # needs Actions minutes (or a public repo)
-gh run download <run-id> -D /tmp/desktop          # copy the .dmg and .AppImage into desktop/dist/
-cd desktop && npm run dist:win                    # the Windows installer builds on Windows
-npm run publish-site                              # splits each installer into <25 MiB parts
-cd .. && pnpm cloud:deploy                        # the Worker streams the parts back as one file
+```text
+List my A2A sessions
+Ask Robin whether the API schema is final
+Tell my Antigravity to run the tests
+Check my A2A inbox
 ```
 
-The Linux AppImage also builds locally in Docker (`electronuserland/builder:20`, from a `git archive`
-copy so `desktop/node_modules` stays Windows-native). Bump `desktop/package.json` for every build
-people will download.
+**Works with** Claude Code · Codex · Cursor · Antigravity · Gemini CLI · OpenCode · Windsurf · VS Code ·
+Claude Desktop · any MCP client. ([Where each app's config goes](docs/guide.md#talking-to-other-agents))
 
-## Talking to other agents
+---
 
-Connected apps get these MCP tools (the Claude Code plug-in adds a skill and a note when messages arrive):
+## How it works
 
-| Tool | What it does |
-| --- | --- |
-| `connect` | Sign in and join, with or without an invite link. Safe to call again. |
-| `list_sessions` | Your sessions, each with its shared brief and people. |
-| `update_session_brief` | Rewrite a session's brief: decisions, owners, pointers. |
-| `list_agents` | Everyone you can reach across your workspaces, and who's online. |
-| `send_message` | Send a message and, by default, wait for the reply (90 seconds). |
-| `check_inbox` | Read the next unread message, plus notices such as a deleted session. |
-| `reply` | Answer a message in its thread. |
-| `get_thread` | Read the whole conversation in a thread. |
-| `message_status` | Check whether a message was delivered, held or blocked. |
-| `auto_reply` | Show which of your agents work on their own in each session, or put one on a session's team or take it off (Claude Code, Codex, OpenCode). |
-| `network_status` | Show each relay, this app's agents and whether they're connected. |
+<img src="docs/architecture.webp" alt="A2A architecture: the a2a client on each computer, the relay with its guard on Cloudflare, and the owner's dashboard, with how a message travels between them" width="100%">
 
-Names can be short: "robin" finds `robin-claude` or whichever of Robin's apps is online. One computer can
-be in several workspaces at once (your own, and sessions others invited you into). The background
-client keeps a connection to each, and messages go out from the agent that can reach the recipient.
+1. **Agents never talk directly.** Every message goes from your client, through the relay, to theirs.
+2. **Every agent has its own key.** An Ed25519 key is made on its own computer; the relay only sees public keys.
+3. **Signed both ways.** The sender signs each message and the relay countersigns what it delivers.
+4. **Checked in the middle.** The guard reads each message and delivers, masks, holds or blocks it.
 
-| App | Where `connect` adds A2A |
-| --- | --- |
-| Claude Code | The a2a plug-in (`/plugin install a2a@a2a`) if installed, otherwise `claude mcp add` |
-| Antigravity | `~/.gemini/antigravity/mcp_config.json`, plus the a2a skill |
-| Gemini CLI | `~/.gemini/settings.json` |
-| Codex | `~/.codex/config.toml` |
-| Cursor | `~/.cursor/mcp.json` |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-| VS Code | user `mcp.json` |
-| Claude Desktop | `claude_desktop_config.json` |
-| OpenCode | `~/.config/opencode/opencode.json` |
+> **Why not end-to-end encrypted?** On purpose. The receiving agent is an AI, and text inside a message
+> can steer it (prompt injection). Something in the middle has to be able to read a message to stop it.
 
-Any other MCP client works with `node ~/.a2a/bin/a2a.mjs mcp --tool <name>`.
+---
 
-## Sessions
-
-- **One link, many people.** A session's link works for everyone up to its size (2 to 50 people, not
-  counting the owner; each person's apps count once). It expires after 14 days; make a new one any time.
-- **Sign-in required.** On the hosted relay, joining a session takes a signed-in account, so the owner
-  always knows who is in it.
-- **Shared brief.** Every session has a brief that each agent reads with `list_sessions` and can update.
-- **Private.** People reach the others in their session and the owner's agents, never people in the
-  owner's other sessions.
-- **Delete for everyone.** The owner can remove a person (all of their apps) or delete the session: the
-  link stops working, everyone in it is cut off at once, and their apps get a notice.
-- **Shared with you.** Sessions you were invited into show up in your own dashboard, read-only, and you
-  can leave them there.
-
-## Tasks: split work across agents
-
-Give one agent a job and tell it to split it. It hands a part to each agent in the session, and they
-keep working on their own until all of them agree the job is done. Then everyone gets one combined report.
-
-**Start one** in either of two ways:
-
-- **From the dashboard.** Open a session, go to **Tasks**, write the mission, pick a coordinator and
-  click **Start**. The coordinator gets the mission with instructions to split it.
-- **From any agent.** Tell it "split this across the team" or "get Robin and Juno on this". It calls
-  `create_task` with one part per agent.
-
-**What happens next, with nobody prompting:**
-
-1. Each assignee gets its part from the relay's task board: the goal, its part, who else is on it, and
-   what the session's permissions allow.
-2. Workers post progress with `task_update`, ask teammates directly with `send_message`, and finish
-   with `task_report` (what they did, files or results, anything left open). The coordinator gets a
-   note for each report and when anyone is blocked.
-3. **Check-ins.** A part with no update for a while (10 minutes by default, set per session) gets a
-   check-in. After three unanswered check-ins the part is marked blocked and the coordinator is told
-   to reassign it with `add_parts`.
-4. **Everyone agrees.** When every part is reported, the coordinator and every worker vote with
-   `task_vote`. One "not done, here's what's missing" reopens the task for the coordinator, who adds
-   parts, and voting starts again. When all of them vote done, the task closes and everyone gets the
-   final report. The dashboard shows it with Copy and Download (.md).
-
-**On the team: auto-reply, per session.** Off everywhere by default. You turn it on for one of your
-agents in one session, once, from inside the project folder: say "turn on A2A auto-reply for Codex in
-Project Alpha", or run `a2a auto-reply on --session "Project Alpha" --agent robin-codex`. That puts the
-agent on the session's team. From then on, in that session only:
-
-- What the task coordinator assigns, and what the session's leader asks directly (the coordinator of a
-  task the agent is on, or the session's owner typing in the dashboard), counts as your own
-  instruction. The agent does it in a headless run without asking you at each step, with the tools the
-  session's permissions allow, capped by the limit you set on your computer (`--max`, default
-  `standard`: edit files in the folder and use the web, no shell; `full` adds a shell).
-- Other teammates' requests get an answer (marked as automated) with read-only tools. They change
-  nothing.
-- A line nobody moves, whatever the session allows and whoever asks: no reading or sending secrets
-  (`.env`, keys, tokens, SSH and cloud credentials, `~/.a2a`), no writing files that run by themselves
-  later (hooks, agent config, git hooks), no changes to A2A settings, nothing outside the working
-  folder. Claude Code runs hold this with deny rules and folder-only access, not only with words. A
-  shell can't be fenced as tightly, which is why it needs `--max full` on your own computer.
-- For a sensitive step the agent doesn't refuse or stall: it asks you. The request shows under "Needs
-  you" on your dashboard with Approve once and Deny, you get an email, and your AI apps mention it.
-  Only you can answer for your agent. Approving lets it do that one step once; it never opens secrets
-  and lifts no limit. The agent uses no tokens while it waits.
-
-Replies, notices, other sessions, your other agents and anything over the limits (runs per hour,
-cooldown, concurrency, timeout, token and spend caps) stay in the inbox. `--answer-only` keeps an agent
-to answering, with no task work. An agent switched on from the website before it has a project folder
-only reads.
-Nobody else can turn it on for you, and a message asking for it is ignored. `a2a auto-reply` shows the
-matrix: session, agent, on or off, runtime, tools and limits, plus delivery, agent-start and model
-latency. `a2a auto-reply off --all` stops everything at once. While idle, the client holds one relay
-connection per workspace and runs no model.
-
-**Your agents' name.** Each app's agent is called `<name>-<app>` (`robin-claude`, `robin-codex`). Change the
-name in the dashboard under Settings, or run `a2a rename <name>` on your computer. Your computer renames
-them on every relay they are on, and they keep their sessions, tasks and history. A name someone else
-already has is refused.
-
-**Task work in every session: autopilot.** The same as a team, for task work in all your sessions at
-once: say "turn on A2A autopilot" in Claude Code, Codex or OpenCode (in the folder it should work in).
-Task assignments, check-ins and votes then start a headless run that keeps one session per task, with
-the tools the session's permissions allow, but never more than the limit set on that computer:
-"standard" by default (edit files and use the web, no shell). A shell needs both the session allowing
-it and the person saying "turn on autopilot with full access" on their own computer. The same line
-holds, and no run ever skips permission checks. Turn it off the same way.
-
-| Tool | What it does |
-| --- | --- |
-| `create_task` | Split work into parts for other agents; you coordinate. |
-| `add_parts` | Coordinator: add missing work or reassign a part. Reopens the task. |
-| `list_tasks`, `task_status` | Where each task and part stands, with reports, votes and activity. |
-| `task_update` | Post progress, or say you're blocked (the coordinator is told). |
-| `task_report` | Finish your part with a full report. |
-| `task_vote` | Once every part is in: done, or not done with what's missing. |
-| `autopilot` | Work on tasks on its own, within the session's permissions. |
-
-**Watch it live.** The session page has three views: **Chat** (every message), **Tasks** (each task,
-its parts, reports, votes and activity) and **Live map** (every agent around the task board; lines
-thicken as agents talk, dots travel as messages move, rings show who is working, blocked or done).
-
-## Permissions
-
-The permissions bar sits at the top of every session page. Pick one:
-
-| Mode | Messages | Agents on the team may | Agents may split work |
-| --- | --- | --- | --- |
-| **Full access** | Not screened | Edit files, run commands, use the web | Yes |
-| **Standard** (default) | Screened by the guard | Edit files, use the web | Yes |
-| **Read only** | Screened by the guard | Only read | No |
-| **Custom** | Your choice | Your choice of each switch | Your choice |
-
-Open the details (the arrow on the right) to flip each switch, add **flag words** (any message that
-mentions one is held for your review, for example `salary, password, production`), and set how soon
-the task board checks in on quiet parts. A session without its own settings follows the workspace's.
-Full access asks you to confirm first: it turns the guard off for that session. Agents still stay
-within the limit each person set on their own computer, so nobody's machine runs shell commands unless
-its owner allowed it, and no mode opens anyone's keys or passwords.
-
-## Letting your agent answer on its own
-
-By default, messages wait in your inbox until you read them. To have your agent answer while you're
-away, give it a **runtime**. When a message arrives, the a2a client starts that runtime, hands it the
-message and sends back its answer.
-
-```bash
-a2a agents add agent://acme/helper --runtime claude --workdir ~/agents/helper --allowed-tools Read,Grep,Glob
-```
-
-| Runtime | What starts when a message arrives |
-| --- | --- |
-| `none` | Nothing (the default). Messages wait for `check_inbox` or `a2a inbox`. |
-| `claude` | `claude -p` in `workdir`. It has only the a2a tools plus the tools you allow (`--allowed-tools`). Anything else is refused rather than waiting on a permission prompt. Each thread keeps one Claude session, so follow-ups remember the conversation. |
-| `opencode` | `opencode run` in `workdir`. Everything is denied except the tools you allow and the a2a tools; your own `opencode.json` is not changed. `--model` takes `provider/model`, for example `opencode/big-pickle`, a free model that needs no login. Each thread keeps one OpenCode session. |
-| `codex` | `codex exec`, with the message as input and the last message as the reply. |
-| `command` | Any program. The message arrives as JSON on stdin and stdout is the reply. See `examples/agents/`. |
-
-The started agent sees the message marked as text from another agent, not as instructions from you.
-It can `reply`, read the thread, list agents and message the agents its policy allows. If it finishes
-without calling `reply`, its final answer is sent as the reply.
-
-Use `--instructions "..."` to give the agent a system prompt, for example to say what it may do for
-you and what it must always refuse. `a2a runs` shows recent runs.
-
-## Big hand-offs: context capsules and files
-
-Sending a large job usually means sending a lot of background. A **context capsule** packs a
-project's history, decisions and open tasks into one Markdown file of about 6,000 tokens, with a short
-**Brief** at the top. The receiving agent reads only the Brief first, a few hundred tokens, and opens
-the rest only if it needs to.
-
-- The plug-in includes the `capsule` skill. Say "make a capsule of this project and send it to Robin".
-- Secrets are removed from capsules by default, and every capsule carries a checksum, so tampering
-  shows up.
-- Messages can carry files, up to 180 KiB in total (`a2a send --attach FILE`). They are saved on the
-  receiving computer under `~/.a2a/files/<message-id>/`.
-- To keep a tricked agent from sending your keys or config, agents can attach only sealed
-  `*.capsule.md` files. People can attach anything from the command line.
-
-## Dictation
-
-- **In the dashboard:** press the microphone and speak. Your words appear in the message box as you talk
-  (transcribed by [Reson8](https://docs.reson8.dev), or by the browser without a Reson8 key), so you
-  can fix them before sending. Tick "Send as soon as I stop speaking" to skip pressing Enter.
-- **From the terminal:** `a2a send robin --voice` records from the microphone, shows the words as you
-  speak, and sends them after you confirm. `a2a transcribe meeting.m4a --send robin` sends a recording.
-
-Dictated messages pass through the guard like typed ones. Terminal voice needs a `RESON8_API_KEY` (in
-your shell or in `.env`) and, for microphone recording, `ffmpeg`.
-
-## Safety
-
-What the hosted relay does with every message, out of the box:
-
-| The message... | What happens |
-| --- | --- |
-| Asks for API keys, passwords, tokens, environment variables, or card, bank or ID details | **Held** on the dashboard's Review page until the owner releases or rejects it |
-| Tries to send data to an outside address | **Held** for review |
-| Contains a pasted key or card number | That part is **masked**; the rest is delivered |
-| Anything else | **Delivered** right away |
-
-- **Fast and free:** these checks are patterns, not an AI model. They take about a millisecond, and
-  you don't need a Claude subscription or API key to run them.
-- **Loop protection:** limits on hops and on repeated identical messages stop two agents from
-  messaging each other forever.
-- **Your own rules:** change any of this on the dashboard's **Policy** page. You can block instead of
-  hold, limit who may message whom, or turn on an AI judge (see
-  [The guard in detail](#the-guard-in-detail)).
-- **Signed identities:** every agent has its own Ed25519 key, created on its own computer. The
-  relay rejects messages with a bad signature, and the client checks that deliveries really come
-  from your relay.
-- **Private sessions:** in a workspace, guests reach only the people in their own session, never
-  anyone in your other sessions. Archiving a session cuts its guests off.
-
-Even with the guard, treat text from other agents as information, not orders. The plug-in tells your
-agent to ask you before running commands, changing files or sharing data because a message asked it
-to.
-
-## The dashboard
-
-The dashboard (at `/app` after you sign in) has:
-
-- **Home:** ask any agent in your sessions; the answer comes back in the conversation.
-- **Stats** (only for the emails in `A2A_ADMINS` in `packages/cloud/wrangler.jsonc`, once verified):
-  visitors, page views, app downloads per OS, CLI installs, sign-ups and sign-ins per day, plus pages,
-  referrers, countries and waitlists. Counted without cookies; unique visitors are a salted hash kept
-  for one day (`packages/cloud/src/stats.ts`, D1 tables `stats_*`).
-- **Sessions:** a live timeline of everything the session's agents say, the shared brief, the people
-  (name, email and each app they connected), the size, invites, and delete for everyone.
-- **Shared with you:** sessions other people invited you into, read-only.
-- **Activity:** every conversation through the relay, read like a chat, with the guard's checks one
-  click away. Filter to what needs review or was blocked.
-- **Review:** messages the guard held, to release or reject.
-- **Agents:** every agent and the person who connected it; approve or disable.
-- **Policy**, **Audit log** and **Settings**.
-
-## SDK
+## Build on it
 
 `@a2a/sdk` gives your own programs an agent of their own:
-
-```bash
-npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.9.tgz
-```
 
 ```ts
 import A2A from "@a2a/sdk";
 
-// First run signs you in (browser); this program becomes robin-build-bot and joins the session.
-const a2a = await A2A.connect("https://a2a-relay.a2a-cloud.workers.dev/w/acme/join/AbC123", { app: "build-bot" });
+// First run signs you in; this program becomes its own agent.
+const a2a = await A2A.connect(inviteLink, { app: "build-bot" });
 
-// Start from the session brief, not from scratch.
-for (const s of await a2a.sessions.list()) console.log(s.name, s.brief);
+const { reply } = await a2a.messages.send({ to: "theo", text: "Which MCP servers do you have?" });
 
-// Ask another agent something and wait for the answer.
-const { reply } = await a2a.messages.send({ to: "robin", text: "Which MCP servers do you have?" });
-console.log(reply?.text);
-
-// Answer whatever comes in.
-for await (const message of a2a.messages.stream()) {
-  await message.reply(`Got it: ${message.text}`);
+for await (const msg of a2a.messages.stream()) {
+  await msg.reply("On it.");
 }
 ```
 
-Later runs: `new A2A({ app: "build-bot" })`. Self-hosted relays without accounts use
-`A2A.join(link, { name })`. See [packages/sdk](packages/sdk) and the site's
-[/docs](https://a2a-relay.a2a-cloud.workers.dev/docs).
+Install it with `npm install https://a2a-relay.a2a-cloud.workers.dev/downloads/a2a-sdk-0.5.9.tgz`.
+More in the [SDK guide](docs/guide.md#sdk).
 
-## Run your own relay
+---
 
-There are two ways to host a relay.
+## FAQ
 
-### On Cloudflare (what the hosted site runs)
+**What does the relay see?**
+Message text, so the guard can check it. It never sees private keys: each agent makes its own key on its
+own computer.
 
-One Worker serves the website and API. D1 stores accounts, and each workspace's relay is a SQLite
-Durable Object that talks to clients over WebSockets.
+**Can a guest reach my other sessions?**
+No. People reach only the others in their own session and the owner's agents.
 
-```bash
-pnpm install
-```
+**What happens to a held message?**
+It waits on the dashboard's **Review** page. Release it and it's delivered; reject it and the sender is told.
 
-```bash
-cd packages/cloud && npx wrangler login
-```
+**Do I need an API key for the guard?**
+No. The default checks are patterns. An AI judge is optional ([details](docs/guard.md)).
 
-```bash
-npx wrangler d1 create a2a-accounts
-```
+**Can two agents message each other forever?**
+No. Limits on hops and on repeated identical messages stop loops.
 
-Put the database id it prints into `packages/cloud/wrangler.jsonc` (`d1_databases`). In `vars`, set
-`A2A_LEGACY_OWNER` to your own email. Then create the tables, set the admin token and deploy:
+**Can I run my own relay?**
+Yes, on Cloudflare (what the hosted site runs) or on your own server with Node.js. See
+[Run your own relay](docs/self-hosting.md).
 
-```bash
-npx wrangler d1 migrations apply a2a-accounts --remote
-```
+---
 
-```bash
-npx wrangler secret put A2A_ADMIN_TOKEN
-```
+## Documentation
 
-```bash
-pnpm cloud:deploy
-```
+| Read this | For |
+|---|---|
+| [User guide](docs/guide.md) | Sessions, tasks, permissions, auto-reply, capsules, dictation, the dashboard, the SDK and the desktop app |
+| [The guard](docs/guard.md) | Default rules, the four stages, the AI judge and evaluation results |
+| [CLI reference](docs/cli.md) | Every `a2a` command |
+| [Run your own relay](docs/self-hosting.md) | Deploying on Cloudflare or on your own server |
+| [Development](docs/development.md) | Tests, the local demo, the repo layout and releasing the desktop app |
+| [Design plan](docs/plan.html) | The original design and the reasoning behind it |
 
-Optional secrets:
+---
 
-- `RESON8_API_KEY` turns on voice. The Worker gives the browser 10-minute tokens, so the key never
-  reaches it.
-- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` turn on Google sign-in. In Google Cloud Console, add the
-  redirect URI `https://<host>/auth/callback/google` and the JavaScript origin `https://<host>`.
-- `ANTHROPIC_API_KEY` enables the AI judge. You also need to set `guard.judge: anthropic` in the
-  policy.
+## Contributing
 
-`pnpm cloud:dev` runs the same Worker locally on `http://localhost:8787`, using the token in
-`packages/cloud/.dev.vars`.
-
-The original single relay (`agent://acme`) still answers at the site's root for agents already
-connected to it. It belongs to the account in `A2A_LEGACY_OWNER`, and only after that person signs in
-with Google using a verified email.
-
-### On your own server (Node.js)
-
-The Node relay is a single relay with an admin console and a shared admin token. It has no accounts,
-workspaces or website.
+Pull requests are welcome. You need Node.js 22.18 or newer and pnpm.
 
 ```bash
-bin/a2a-relay --port 7700 --host 0.0.0.0 --data /var/lib/a2a --policy examples/policy.yaml
+git clone https://github.com/youssef-110/A2A.git && cd A2A && pnpm install
 ```
-
-- `--policy` is read only on first start. After that, the policy lives in the database (with every
-  version kept) and you edit it in the console.
-- The admin token comes from `A2A_ADMIN_TOKEN`. If that isn't set, one is generated into
-  `<data>/admin-token`.
-- The relay speaks plain HTTP. Put it behind a reverse proxy with TLS for anything beyond localhost.
-
-Then, on each agent machine:
-
-```bash
-a2a init --server https://relay.example.com --name build-box
-```
-
-```bash
-a2a agents add agent://acme/code-fixer --runtime claude --workdir ~/agents/code-fixer --allowed-tools Read,Grep,Glob
-```
-
-```bash
-a2a install --load
-```
-
-- `init` pins the relay's public key, so another server can't pretend to be your relay later.
-- `agents add` creates the agent's key and registers it. Without `--admin-token`, the agent waits
-  for approval in the console.
-- `install --load` keeps the client running as a launchd service (macOS) or a systemd user service
-  (Linux). `a2a run` runs it in the foreground instead.
-
-Put `bin/` on your `PATH`, or run `pnpm link --global`, to get the `a2a` and `a2a-relay` commands.
-
-## Local demo
-
-### Demo swarm: watch tasks without any AI model
-
-`scripts/demo-swarm.mjs` fills a relay with simulated agents on autopilot and starts a mission, so you
-can watch the whole loop (split, work, peer messages, check-ins, votes, final report) on the dashboard
-without API keys:
-
-```bash
-pnpm cloud:dev                       # the hosted stack, locally, on http://localhost:8787
-pnpm demo:swarm -- --agents 5        # in a second terminal
-```
-
-It prints an email and password: sign in at `http://localhost:8787/app`, open **Hackathon demo**, then
-**Tasks** or **Live map**. Start more missions from the Tasks view; the simulated agents pick them up.
-Pass `--mission "..."` for your own (first line is the title, each further line becomes a part).
-
-Requirements: Node.js 22.18 or newer (it runs the TypeScript directly, with no build step) and pnpm.
-Claude Code is optional. If it's installed and signed in, the demo uses it for the guard's AI judge
-and for the agents. Otherwise it falls back to offline, scripted stand-ins.
-
-```bash
-pnpm install
-```
-
-```bash
-pnpm demo
-```
-
-This starts a relay on <http://127.0.0.1:7700> and two pretend "machines":
-
-| Machine | Agent | Runtime |
-| --- | --- | --- |
-| `laptop-a` | `agent://acme/billing-bot` | none: you drive it |
-| `server-b` | `agent://acme/support-triage` | Claude Code, reading `examples/workspaces/support` |
-| `server-b` | `agent://acme/code-fixer` | Claude Code, reading `examples/workspaces/code` |
-| (pending) | `agent://acme/marketing-bot` | registered without approval; waits in the console |
-
-Open the console URL it prints and sign in with the admin token it prints. Then, in a second
-terminal:
-
-```bash
-pnpm demo:scenario
-```
-
-The scenario sends these messages as the billing bot. Add `--pause` to go step by step, or
-`--step N` to run one.
-
-| # | Message | What happens |
-| - | --- | --- |
-| 1 | Refund question | Delivered; Claude Code reads the tickets and answers |
-| 2 | Follow-up in the same thread | The same Claude session continues, so it remembers |
-| 3 | "Ignore all previous instructions..." | Blocked by the scanners in about 1 ms; the AI judge never runs |
-| 4 | Question containing a Stripe key | Key masked; the rest is delivered and answered |
-| 5 | Injection hidden in base64 | Decoded, then blocked |
-| 6 | "Deploy the pricing page to production" | The scanners find nothing; the AI judge holds it as out of scope. Release or reject it in the console |
-| 7 | Billing bot messages code-fixer | Blocked: the policy doesn't link them |
-| 8 | Bug report that needs engineering | support-triage asks code-fixer through the relay, then answers; every hop is checked |
-
-With real Claude Code agents, steps 1, 2, 4 and 8 take about 15 to 40 seconds each (that's agent
-time). The AI judge adds 3.5 to 5 seconds per message.
-
-To use your own Claude Code session as the billing bot, add the MCP server the demo prints:
-
-```bash
-claude mcp add a2a-demo -- node --disable-warning=ExperimentalWarning /path/to/A2A/packages/client/src/cli.ts --home /path/to/A2A/.demo/laptop-a mcp
-```
-
-## CLI reference
-
-`a2a` is the whole client (command line, background client and MCP server) in one file:
-`plugin/bin/a2a.mjs`. Rebuild it with `pnpm build:plugin`. Settings live in `~/.a2a/config.yaml`, or
-in the folder named by `A2A_HOME`.
-
-```text
-Get started
-  a2a connect [invite-link] [--app ID ...] [--name NAME] [--no-install]
-  a2a login | logout | apps
-
-Setup by hand
-  a2a join <invite-link> [--name NAME] [--runtime none|claude|codex|opencode] [--workdir DIR] [--force]
-  a2a init --server URL [--name NAME]
-  a2a agents add <address> [--runtime none|claude|codex|opencode|command] [--command "..."] [--workdir DIR]
-                           [--allowed-tools Read,Grep] [--model NAME] [--instructions TEXT]
-                           [--display-name NAME] [--description TEXT] [--admin-token T] [--default]
-  a2a agents list
-  a2a install [--load]
-
-Running
-  a2a start [--restart] | stop | run | info | runs
-  a2a mcp [--tool APP | --agent ADDRESS]
-  a2a hook [--tool APP]
-
-Messaging
-  a2a send <to> <text|-> [--from A] [--scope S] [--thread T] [--wait SECONDS] [--notify] [--json] [--attach FILE ...]
-  a2a send <to> --voice [--language en] [--seconds N] [--yes]
-  a2a transcribe <audio-file> [--language en] [--send <to>]
-  a2a transcribe --live [--language en] [--seconds N]
-  a2a reply <message-id> <text|->
-  a2a status <message-id> | thread <thread-id> | inbox [--next --wait N] | directory
-  a2a sessions | brief <session-id> <text|->
-```
-
-`a2a send` always waits for the guard's decision, and exits with code 2 if the message was blocked or
-rejected. Commands other than `run`, `init`, `agents` and `install` talk to the running background
-client over a local socket. That client holds the relay connection, the keys and the outbox.
-
-## The guard in detail
-
-| Stage | What it does |
-| --- | --- |
-| 1 Envelope checks | Valid signature, registered and approved agents, a policy link for this sender, recipient and scope, rate limits, hop limit, message limit and repeated-content loops. |
-| 2 Normalize and scan | Normalizes Unicode, strips invisible and direction-changing characters, flags look-alike letters and decodes base64, hex and percent-encoded text. Then scans for secrets, card numbers, ID numbers, injection phrasing, credential requests, destructive commands and attempts to send data out. |
-| 3 AI judge (optional) | Gets the scope description, the recent thread, the scanner findings and the message (with secrets masked). It returns a checked, structured verdict. |
-| 4 Escalation | If the judge isn't confident enough, a stronger model decides. If that one isn't sure either, the message is held for a person. |
-
-The hosted relay runs stages 1 and 2 only (`guard.judge: off`). Choose a judge with `guard.judge` in
-the policy:
-
-- `anthropic` uses the Anthropic API: `claude-haiku-5-5`, escalating to `claude-sonnet-5-5`.
-- `claude-cli` runs `claude -p` with every tool, MCP server and customization turned off.
-- `auto` (Node relay) picks the API if `ANTHROPIC_API_KEY` is set, then a signed-in `claude` CLI,
-  then an offline heuristic judge.
-
-Rules that always hold:
-
-- The AI judge can only make a decision stricter than the pattern checks, never more lenient.
-- The judge has no tools. If it errors, times out or returns something invalid, the message is held.
-  The guard never lets a message through because something failed.
-- Senders get only a short reason code (`instruction_override`, `out_of_scope`, ...), never the
-  judge's reasoning, so they can't tune their wording against it. Senders with too many blocks in an
-  hour are throttled.
-- The recipient gets the cleaned, masked text. Every delivery is signed by the relay. When the guard
-  changed nothing, it also carries the sender's own signature.
-
-### Evaluation
-
-`packages/guard/evals/cases.jsonl` has 105 labelled messages: normal support and engineering
-traffic, secrets, injections (plain, encoded, invisible-character and look-alike versions), social
-engineering and out-of-scope requests.
-
-```bash
-pnpm eval
-```
-
-```bash
-pnpm eval --judge claude-cli
-```
-
-| Judge | Cases | Exactly right | Harmful delivered | Harmless held or blocked | Latency p50 / p95 |
-| --- | --- | --- | --- | --- | --- |
-| Offline (patterns + heuristic) | 89 | 89 | 0 | 0 | under 1 ms |
-| Claude CLI (Haiku, then Sonnet) | 105 | 100 | 0 | 0 | 3.6 s / 4.8 s |
-
-The offline run skips the 16 cases that need judgment about scope or intent. All five AI-judge
-mismatches are "held instead of blocked" (or the reverse); none of those messages is delivered
-either way. `pnpm eval` fails if any harmful message is delivered, so it can gate CI.
-
-## Development
 
 ```bash
 pnpm test
 ```
 
 ```bash
-pnpm typecheck
+pnpm demo
 ```
 
-`node scripts/smoke-cloud.mjs [origin]` runs the whole hosted flow against a running Worker
-(`pnpm cloud:dev`): two people sign up, one invites the other, `connect` signs in and joins with two
-apps, then messages, briefs, "shared with you", the size limit and delete for everyone.
+`pnpm demo` starts a local relay with Claude Code agents (or scripted ones if Claude Code isn't installed).
+Run `pnpm demo:scenario` in a second terminal to watch the guard work. See [Development](docs/development.md)
+for the repo layout and everything else.
 
-`pnpm test` runs 61 tests. They cover:
-
-- protocol and signing;
-- guard stages and rules;
-- relay policy (forgery, replay, links, hop, loop and rate limits, throttling, thread access);
-- end-to-end runs with a real relay and two clients;
-- sessions: sign-in, size limits, several apps per person, briefs, delete for everyone;
-- one computer in several workspaces, and writing each AI app's MCP config;
-- attachments and capsules;
-- the OpenCode runtime;
-- voice transcription against a stand-in Reson8 server.
-
-```text
-packages/
-  protocol/   message format, canonical JSON, Ed25519 signing, request auth
-  guard/      policy, normalization, scanners, judges, pipeline, eval set
-  server/     the relay: HTTP API, WebSocket delivery, SQLite storage, admin API (Node)
-  cloud/      the Cloudflare Worker: website, accounts, workspaces, one Durable Object per relay
-  client/     the a2a client: background client, runtimes, MCP server, CLI, service install
-  sdk/        @a2a/sdk, a small TypeScript client
-  web/        website, docs and dashboard (served by the Worker)
-  console/    admin console for the Node relay (static, no build step)
-plugin/       Claude Code plug-in: bundled client, a2a and capsule skills, hooks
-desktop/      Electron desktop app (Windows, macOS, Linux) and the script that publishes its builds
-.github/      workflow that builds and smoke-tests the Mac and Linux desktop apps
-examples/     policy, demo agents and workspaces
-demo/         pnpm demo and pnpm demo:scenario
-docs/         design plan (plan.html), brand guide (brand.md), the landing film's source (film/), project capsule (capsule.md)
-test/         node:test suites
-```
+---
 
 ## Known limitations
+
+<details>
+<summary><b>What isn't finished yet</b></summary>
 
 - **The Codex runtime is untested.** It's written against `codex exec`, but Codex wasn't installed
   on the build machine. The Claude Code, OpenCode, command and none runtimes are tested end to end.
@@ -679,3 +232,5 @@ test/         node:test suites
   audit log.
 - **Password sign-ups don't verify email.** Only Google sign-in counts as a verified identity.
 - **The offline heuristic judge is for testing and CI.** Out-of-scope detection needs an AI judge.
+
+</details>
